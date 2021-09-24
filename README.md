@@ -14,7 +14,7 @@ The server is a [Flask app](https://flask.palletsprojects.com/en/1.1.x/) written
 * The server takes the grouped case details, enters them into the excel CRS, and returns the completed spreadsheet to the client
 
 ## Production
-The application runs on [Heroku](https://www.heroku.com/)
+The code currently only runs on a local machine.
 
 ## Development
 You'll need
