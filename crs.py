@@ -117,7 +117,10 @@ def get_finance_column(detail):
         return "N" # RESTITUTION
 
     if "THIRD PARTY" in detail:
-        return "O" # THIRD PARTY
+        return "O" # LINEBARGER COLLECTION FEE
+
+    if "REVENUE" in detail:
+        return "O" #DEPARTMENT OF REVENUE COLLECTION FEE
 
     if "SHERIFF" in detail:
         return "P" # SHERIFF

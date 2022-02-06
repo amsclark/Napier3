@@ -30,7 +30,7 @@ def parse_search(html):
         if any([case['id'] == c['id'] for c in cases]):
             print("Supressing duplicate case id", case['id'])
             continue
-        non_party_designations = ['PAYOR','WITNESS','JUVENILE - MOTHER OF','JUVENILE - FATHER OF','ATTORNEY','OBLIGOR']
+        non_party_designations = ['PAYOR','INTERPRETOR','WITNESS','JUVENILE - MOTHER OF','JUVENILE - FATHER OF','ATTORNEY','OBLIGOR',]
         if any([case['role'] in non_party_designations for c in cases]):
             print("Supressing non-party case")
             continue
