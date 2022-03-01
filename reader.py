@@ -15,7 +15,7 @@ class Reader:
 
     def login(self, username, password):
         url = build_url("EUACustomLoginServlet")
-        data = urllib.parse.urlencode([
+        data = urllib.urlencode([
             ('userid', username),
             ('password', password),
             ('agency', "JUDICIAL"),
