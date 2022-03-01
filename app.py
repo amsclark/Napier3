@@ -160,7 +160,7 @@ def generate_crs():
             return "Bad session - no file"
         path = session['file']
         session.pop('file', None)
-        return send_file(path)
+        return send_file(path, as_attachment=True, attachment_filename="crs.xlsx")
 
     if 'cookies' not in session:
         return "Bad session"
