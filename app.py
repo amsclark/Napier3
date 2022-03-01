@@ -176,13 +176,20 @@ def generate_crs():
     wb = load_workbook('CRS 3.5.0 blank.xlsx')
     ws = wb['CASE DATA']
     row = 4
+   
+    #print(data['def_name'])
+    #print(data['def_dob'])
 
     for case in data['cases']:
         print("Adding " + case['id'])
         crs.process_case(case, ws, row)
         row += 1
-
-    fp = tmp_dir + "CRS 3.5.0 blank.xlsx"
+   
+    ws = wb['BASIC INFO']
+    ws['B5'] = data['def_name'].strip() 
+    ws['B6'] = data['def_dob']
+ 
+    fp = tmp_dir + "CRS_3.5.0_blank.xlsx"
     wb.save(fp)
     session['file'] = fp
     return jsonify({'result': "success"})

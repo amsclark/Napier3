@@ -63,10 +63,13 @@
 
         function generateCRS() {
             console.log("Generating CRS");
+	    def_string = $("input[name='caseId']:checked")[0].value;
+	    def_dob = def_string.slice(0, def_string.indexOf(" "));
+	    def_name = def_string.slice(def_string.indexOf(" "));
             $.ajax({
                 type: "POST",
                 url: "/crs",
-                data: JSON.stringify({ 'cases': downloadedCases }),
+                data: JSON.stringify({ 'def_name': def_name, 'def_dob': def_dob, 'cases': downloadedCases }),
                 contentType: "application/json; charset=utf-8",
                 dataType: "json"
             })
@@ -82,6 +85,7 @@
             $("#crs").submit(function (e) {
                 e.preventDefault();
                 $("#crs-submit-button").attr("disabled", true);
+		
                 $("input[name='caseId']:checked").each(function () {
                     console.log($(this).val());
                     var caseIds = cases[$(this).val()];

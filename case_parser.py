@@ -77,6 +77,8 @@ def parse_case_charges(html, case):
             cur_section = "Adjudication"
         if texts[0] == "Sentence":
             cur_section = "Sentence"
+        if texts[0].startswith("Parties"):
+            cur_section = "Parties"
 
 
         if cur_section == "Charge":
@@ -84,6 +86,12 @@ def parse_case_charges(html, case):
                 cur_charge['offenseDate'] = texts[1]
                 prior_offenseDate = cur_charge['offenseDate']
 
+        if cur_section == "Parties":
+            if len(texts) >= 1 and texts[0].startswith("Title:"):
+                case['name'] = texts[0].split(" vs ")[1]
+            if len(texts) >= 2 and texts[1] == "DEFENDANT":
+                case['dob'] = texts[2]
+                cur_section = ""
 
         if cur_section == "Adjudication":
             if len(texts) >= 4 and texts[0].startswith("Charge:"):
