@@ -125,6 +125,9 @@ def get_finance_column(detail):
     if "SHERIFF" in detail:
         return "M" # SHERIFF
 
+    if "PROBATION" in detail:
+        return "N" # PROBATION REVOCATION FEE
+
     return "O" # MISC
 
 def process_financials(case, worksheet, row):
