@@ -11,7 +11,7 @@ tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
 
-wb = load_workbook('CRS 3.4.2 blank.xlsx')
+wb = load_workbook('CRS 3.5.0 blank.xlsx')
 ws = wb['CASE DATA']
 
 case_ids = []
