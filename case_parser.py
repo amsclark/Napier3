@@ -77,7 +77,6 @@ def parse_search(html):
             'JUVENILE - FATHER OF',
             'ATTORNEY'
             ]
-        print(case['role'])
         if (case['role'] in non_party_designations):
             print("Supressing non-party case")
             continue
