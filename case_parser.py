@@ -30,12 +30,58 @@ def parse_search(html):
         if any([case['id'] == c['id'] for c in cases]):
             print("Supressing duplicate case id", case['id'])
             continue
-        non_party_designations = ['PAYOR','INTERPRETOR','WITNESS','JUVENILE - MOTHER OF','JUVENILE - FATHER OF','ATTORNEY','OBLIGOR',]
-        if any([case['role'] in non_party_designations for c in cases]):
+        non_party_designations = [
+            'NOT ATTORNEY', 
+            'NOT JUDGE', 
+            'ADMINISTRATOR', 
+            'APPLICANT', 
+            'ATTORNEY AND GUARDIAN-AD-LITEM', 
+            'ATTORNEY FOR APPELLANT', 
+            'ATTORNEY FOR APPELLEE', 
+            'ATTORNEY FOR CHILD', 
+            'ATTORNEY FOR CSRU', 
+            'ATTORNEY FOR DEFENDANT', 
+            'ATTORNEY FOR FATHER', 
+            'ATTORNEY FOR MOTHER', 
+            'ATTORNEY FOR PARENT', 
+            'ATTORNEY FOR PETITIONER', 
+            'ATTORNEY FOR PLAINTIFF', 
+            'ATTORNEY FOR PROBATE', 
+            'ATTORNEY FOR RESPONDENT', 
+            'ATTORNEY - LIMITED APPEARANCE', 
+            'ATTORNEY OTHER', 
+            'CONSERVATOR', 
+            'COUNTER DEFENDANT', 
+            'COUNTER PLAINTIFF', 
+            'COUNTY ATTORNEY', 
+            'CROSS DEFENDANT', 
+            'CROSS PLAINTIFF', 
+            'CUSTODIAN - LEGAL', 
+            'DECEASED INDIVIDUAL', 
+            'EXECUTOR', 
+            'FILING AGENT FOR PLAINTIFF', 
+            'FILING AGENT FOR DEFENDANT', 
+            'GUARDIAN', 
+            'GUARDIAN-AD-LITEM', 
+            'GUARDIAN/CONSERVATOR', 
+            'INTERPRETER', 
+            'INTERVENOR', 
+            'JUDGE', 
+            'LIEN FILER', 
+            'NAME OF TRUST', 
+            'OBLIGOR', 
+            'PAYOR', 
+            'TRUSTEE', 
+            'WITNESS', 
+            'JUVENILE - MOTHER OF', 
+            'JUVENILE - FATHER OF',
+            'ATTORNEY'
+            ]
+        print(case['role'])
+        if (case['role'] in non_party_designations):
             print("Supressing non-party case")
             continue
-        else:
-            cases.append(case)
+        cases.append(case)
     return (cases, too_many_results)
 
 def parse_case_summary(html, case):
