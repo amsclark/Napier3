@@ -65,6 +65,7 @@ def parse_search(html):
             'GUARDIAN-AD-LITEM', 
             'GUARDIAN/CONSERVATOR', 
             'INTERPRETER', 
+            'INTERPRETOR',
             'INTERVENOR', 
             'JUDGE', 
             'LIEN FILER', 
