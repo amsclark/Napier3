@@ -102,6 +102,23 @@ def parse_case_charges(html, case):
     prior_charge = str()
     prior_description = str()
     #disposition = {}
+    charge_code_dict = {
+        "GUILTY": "GTR",
+        "GUILTY BY COURT": "GTR",
+        "GUILTY - NEGOTIATED/VOLUN PLEA": "GPL",
+        "CONVERT TO SIMPLE MISDEM": "GPL",
+        "ACQUITTED": "ACQ",
+        "DISMISSED": "DISM",
+        "DISMISSED BY COURT": "DISM",
+        "DISMISSED BY OTHER": "DISM",
+        "DEFERRED": "DEF",
+        "NOT GUILTY": "ACQ",
+        "WAIVED TO ADULT COURT": "JWV",
+        "ADJUDICATED": "JUV",
+        "WITHDRAWN": "WTHD",
+        "NOT FILED": "NOTF",
+        "CIVIL": "CIV"
+    }
     rows = soup.find_all('tr')
     for row in rows:
         cols = row.find_all('font')
@@ -142,19 +159,16 @@ def parse_case_charges(html, case):
 
         if cur_section == "Adjudication":
             if len(texts) >= 4 and texts[0].startswith("Charge:"):
-                #this does everything backwards, I wonder if there is a better way to to do
-                #it that matches the chronological order from ICOS?
-                cur_charge['charge'] = texts[1]+prior_charge
-                print(cur_charge['charge'])
-                prior_charge = ";"+cur_charge['charge']
-                cur_charge['description'] = texts[3]+prior_description
-                prior_description = ";"+cur_charge['description']
+                cur_charge['charge'] = prior_charge+texts[1]
+                prior_charge = cur_charge['charge']+";"
+                cur_charge['description'] = prior_description+texts[3]
+                prior_description = cur_charge['description']
+            
             if len(texts) >= 4 and texts[0].startswith("Adjudication:"):
-                charge_list.append(texts[1])
+                charge_list.insert(0, texts[1])
                 cur_charge['disposition'] = charge_list
-                #cur_charge['disposition'] = texts[1]
-                print(cur_charge['disposition'])
-                #cur_charge['disposition'] 
+                prior_description = prior_description + "[" + charge_code_dict.get(texts[1], "OTH") + "];"
+                cur_charge['description'] = cur_charge['description'] + "[" + charge_code_dict.get(texts[1], "OTH") + "]"
                 if 'prior_dispositionDate' not in vars():
                     cur_charge['dispositionDate'] = texts[3]
                     prior_dispositionDate = cur_charge['dispositionDate']
@@ -162,9 +176,10 @@ def parse_case_charges(html, case):
                     cur_charge['dispositionDate'] = prior_dispositionDate
                         
 
-
         
     if cur_charge is not None:
+        if ";" not in cur_charge['description']:
+            cur_charge['description'] = cur_charge['description'][:cur_charge['description'].index("[")] 
         charges.append(cur_charge)
         
     case['charges'] = charges
