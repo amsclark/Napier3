@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import platform
 import datetime
+import time
 
 tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
@@ -130,7 +131,7 @@ def parse_case_charges(html, case):
         if cur_section == "Charge":
             if len(texts) >= 3 and texts[0].startswith("Offense Date:"):
                 cur_charge['offenseDate'] = texts[1]
-                prior_offenseDate = cur_charge['offenseDate']
+                prior_offenseDate = cur_charge['offenseDate'] 
 
         if cur_section == "Parties":
             if len(texts) >= 1 and texts[0].startswith("Title:"):
@@ -154,8 +155,12 @@ def parse_case_charges(html, case):
                 #cur_charge['disposition'] = texts[1]
                 print(cur_charge['disposition'])
                 #cur_charge['disposition'] 
-                cur_charge['dispositionDate'] = texts[3]
-                prior_dispositionDate = cur_charge['dispositionDate']
+                if 'prior_dispositionDate' not in vars():
+                    cur_charge['dispositionDate'] = texts[3]
+                    prior_dispositionDate = cur_charge['dispositionDate']
+                else:
+                    cur_charge['dispositionDate'] = prior_dispositionDate
+                        
 
 
         
