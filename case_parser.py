@@ -174,12 +174,31 @@ def parse_case_charges(html, case):
                     prior_dispositionDate = cur_charge['dispositionDate']
                 else:
                     cur_charge['dispositionDate'] = prior_dispositionDate
-                        
 
         
     if cur_charge is not None:
         if ";" not in cur_charge['description']:
             cur_charge['description'] = cur_charge['description'][:cur_charge['description'].index("[")] 
+            #print("Disposition: " + charge_code_dict.get(cur_charge['disposition'][0], "OTH"))
+            disp_code = charge_code_dict.get(cur_charge['disposition'][0], "OTH")
+            if disp_code in ["WITHD", "DISM", "ACQ", "NOTF"]:
+                cur_charge['charge'] = ""
+        else:
+            cleaned_list = [] 
+            filter_charge_string = cur_charge['charge']
+            filter_description_string = cur_charge['description']
+            filter_charge_list = filter_charge_string.split(";")
+            filter_description_list = filter_description_string.split(";")
+            combined_list = list(zip(filter_charge_list, filter_description_list))
+            for index, charge_tuple in enumerate(combined_list):
+                if any(x in charge_tuple[1] for x in ["WITHD", "DISM", "ACQ", "NOTF"]):
+                    #print("Excluding: " + charge_tuple[0] + " " + charge_tuple[1])
+                    pass
+                else: 
+                    #print("Including: " + charge_tuple[0] + " " + charge_tuple[1])
+                    cleaned_list.append(charge_tuple[0])
+            #print("Cleaned Charge List: " + ';'.join(cleaned_list))
+            cur_charge['charge'] = ';'.join(cleaned_list)
         charges.append(cur_charge)
         
     case['charges'] = charges
