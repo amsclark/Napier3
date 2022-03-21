@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h3>Results</h3>
+
+    {% if too_many_results %}
+        <div class="alert alert-warning">
+            <div>Your query returned more than 200 records.</div>
+            <div>A subset of the results (the first 200 records found) is shown below.</div>
+            <div>To get full results, go back to the search screen and narrow your search.</div>
+        </div>
+    {% endif %}
+    
+    <form id="crs">
+        {% for key in keys %}
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="caseId" value="{{ key }}">
+                <label class="form-check-label">
+                    {{ key }} <span class="text-muted">({{ cases[key] | length }} case{{ cases[key] | length | pluralize("","s") }})</span>
+                </label>
+            </div>
+        {% endfor %}
+        <button id="crs-submit-button" type="submit" class="btn btn-primary">Create CRS</button>
+    </form>
+    <a href="/logout" class="btn">New Search</a>
+
+    <div id="status"></div>
+
+
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script>
+        var cases = {{ cases|tojson }};
+        var casesToDownload = [];
+        var casesCollected = 0;
+        var caseErrors = 0;
+
+        var downloadedCases = [];
+
+        function downloadCases() {
+            if (casesToDownload.length) {
+                var caseId = casesToDownload.pop();
+                console.log(caseId);
+                $.post('/case', {
+                    'caseId': caseId
+                })
+                .done(function(caseDetails) {
+                    downloadedCases.push(caseDetails);
+                    casesCollected += 1;
+                })
+                .fail(function() {
+                    console.log("Error");
+                    caseErrors += 1;
+                })
+                .always(function() {
+                    $("#status").html(casesCollected + " cases collected - " + caseErrors + " errors");
+                    downloadCases();
+                });
+            } else {
+                console.log("Done Downloading");
+                generateCRS();
+            }
+        }
+
+        function generateCRS() {
+            console.log("Generating CRS");
+	    def_string = $("input[name='caseId']:checked")[0].value;
+	    def_dob = def_string.slice(0, def_string.indexOf(" "));
+	    def_name = def_string.slice(def_string.indexOf(" "));
+            $.ajax({
+                type: "POST",
+                url: "/crs",
+                data: JSON.stringify({ 'def_name': def_name, 'def_dob': def_dob, 'cases': downloadedCases }),
+                contentType: "application/json; charset=utf-8",
+                dataType: "json"
+            })
+            .done(function() {
+                window.location = "/crs";
+            })
+            .fail(function() {
+                console.log("Error");
+            });
+        }
+
+        $(document).ready(function () {
+            $("#crs").submit(function (e) {
+                e.preventDefault();
+                $("#crs-submit-button").attr("disabled", true);
+		
+                $("input[name='caseId']:checked").each(function () {
+                    console.log($(this).val());
+                    var caseIds = cases[$(this).val()];
+                    $.each(caseIds, function(){
+                        casesToDownload.push(this);
+                    });
+                });
+                downloadCases();
+                return false;
+            });
+        });
+    </script>
+
+{% endblock %}
