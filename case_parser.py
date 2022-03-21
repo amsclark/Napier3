@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import platform
-import datetime
+#import datetime
+from datetime import *
 import time
 
 tmp_dir = '/tmp/'
@@ -98,6 +99,8 @@ def parse_case_charges(html, case):
     charges = []
     charge_list = list()
     cur_charge = None
+    prev_od_dd = prev_od_mm = prev_od_yyyy = None
+    new_od_dd = new_od_mm = new_od_yyyy = None
     cur_section = None
     prior_charge = str()
     prior_description = str()
@@ -147,8 +150,17 @@ def parse_case_charges(html, case):
 
         if cur_section == "Charge":
             if len(texts) >= 3 and texts[0].startswith("Offense Date:"):
-                cur_charge['offenseDate'] = texts[1]
-                prior_offenseDate = cur_charge['offenseDate'] 
+                if 'prior_offenseDate' not in vars():
+                    cur_charge['offenseDate'] = texts[1]
+                    prior_offenseDate = cur_charge['offenseDate'] 
+                else:
+                    prev_od_mm, prev_od_dd, prev_od_yyyy = prior_offenseDate.split('/')
+                    new_od_mm, new_od_dd, new_od_yyyy = texts[1].split('/')
+                    if date(int(new_od_yyyy), int(new_od_mm), int(new_od_dd)) > date(int(prev_od_yyyy), int(prev_od_mm), int(prev_od_dd)):
+                        cur_charge['offenseDate'] = prior_offenseDate
+                    else: 
+                        cur_charge['offenseDate'] = texts[1]
+                        prior_offenseDate = cur_charge['offenseDate'] 
 
         if cur_section == "Parties":
             if len(texts) >= 1 and texts[0].startswith("Title:"):
