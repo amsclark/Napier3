@@ -43,11 +43,11 @@ def get_reader(username=None, password=None, use_cookie_file=False):
         
         result = reader.login(username, password)
 
-        if "The userID or password could not be validated" in result:
+        if "The userID or password could not be validated" in str(result, 'utf-8'):
             print("Bad User ID or password")
             return (None, "Bad User ID or password")
 
-        if "Concurrent Login Error" in result:
+        if "Concurrent Login Error" in str(result, 'utf-8'):
             print("User already logged in")
             return (None, "User already logged in")
 
@@ -202,4 +202,4 @@ def pluralize(number, singular = '', plural = 's'):
         return plural
 
 if __name__ == "__main__":
-	app.run()
+	app.run(host="0.0.0.0")

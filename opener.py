@@ -1,21 +1,22 @@
-import cookielib
+#import cookielib 
+import http.cookiejar
 import os
 import pickle
-import urllib2
+import urllib
 
 user_agent = u"Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.6; en-US; " + \
     u"rv:1.9.2.11) Gecko/20101012 Firefox/3.6.11"
 
 class Opener:
     def __init__(self):
-        self.cookieJar = cookielib.CookieJar()
-        cookie_processor = urllib2.HTTPCookieProcessor(self.cookieJar)
+        self.cookieJar = http.cookiejar.CookieJar()
+        cookie_processor = urllib.request.HTTPCookieProcessor(self.cookieJar)
         #if os.environ.get('PROXIMO_URL', '') != '':
         #    proxy = urllib2.ProxyHandler({'http': os.environ.get('PROXIMO_URL', '')})
         #    auth = urllib2.HTTPBasicAuthHandler()
         #    self.opener = urllib2.build_opener(cookie_processor, proxy, auth, urllib2.HTTPHandler)
         #else:
-        self.opener = urllib2.build_opener(cookie_processor)
+        self.opener = urllib.request.build_opener(cookie_processor)
         self.opener.addheaders = [('User-Agent', user_agent)]
 
     def get_cookies(self):
@@ -29,8 +30,13 @@ class Opener:
         url = args[0]
         if len(args) == 2:
             data = args[1]
-            return self.opener.open(url, data)
-        return self.opener.open(url)
+            data_qsl = urllib.parse.parse_qs(data)
+            print(data_qsl)
+            data_encoded = bytes(urllib.parse.urlencode(data_qsl), 'utf-8')
+            #return self.opener.open(url, qsl)
+            return urllib.request.urlopen(url, data_encoded)
+        #return self.opener.open(url)
+        return urllib.request.urlopen(url)
 
 '''
 import mechanize
