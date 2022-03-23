@@ -26,14 +26,14 @@ class Reader:
 
     def logoff(self):
         url = build_url("EPALogout")
-        data = urllib.urlencode([
+        data = urllib.parse.urlencode([
             ('logoffButton', "Logoff")
         ])
         return self.opener.open(url, data).read()
 
     def search(self, firstname, middlename, lastname):
         url = build_url("TrialCaseSearchResultServlet")
-        data = urllib.urlencode([
+        data = urllib.parse.urlencode([
             ('searchtype', "N"),
             ('last', lastname),
             ('first', firstname),

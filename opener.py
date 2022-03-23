@@ -2,20 +2,21 @@
 import http.cookiejar
 import os
 import pickle
-import urllib
+import urllib, urllib.request, urllib.parse
+
+http.client.HTTPConnection.debuglevel = 1
 
 user_agent = u"Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.6; en-US; " + \
     u"rv:1.9.2.11) Gecko/20101012 Firefox/3.6.11"
+
+
+
+
 
 class Opener:
     def __init__(self):
         self.cookieJar = http.cookiejar.CookieJar()
         cookie_processor = urllib.request.HTTPCookieProcessor(self.cookieJar)
-        #if os.environ.get('PROXIMO_URL', '') != '':
-        #    proxy = urllib2.ProxyHandler({'http': os.environ.get('PROXIMO_URL', '')})
-        #    auth = urllib2.HTTPBasicAuthHandler()
-        #    self.opener = urllib2.build_opener(cookie_processor, proxy, auth, urllib2.HTTPHandler)
-        #else:
         self.opener = urllib.request.build_opener(cookie_processor)
         self.opener.addheaders = [('User-Agent', user_agent)]
 
@@ -29,14 +30,12 @@ class Opener:
     def open(self, *args):
         url = args[0]
         if len(args) == 2:
-            data = args[1]
-            data_qsl = urllib.parse.parse_qs(data)
-            print(data_qsl)
-            data_encoded = bytes(urllib.parse.urlencode(data_qsl), 'utf-8')
-            #return self.opener.open(url, qsl)
-            return urllib.request.urlopen(url, data_encoded)
-        #return self.opener.open(url)
-        return urllib.request.urlopen(url)
+            paramstring = args[1]
+            data_tuple_list = urllib.parse.parse_qsl(paramstring,keep_blank_values=True)
+            opener_data = urllib.parse.urlencode(data_tuple_list).encode('UTF-8')
+            return self.opener.open(url, opener_data)
+        return self.opener.open(url)
+
 
 '''
 import mechanize
