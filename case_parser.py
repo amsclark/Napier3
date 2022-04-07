@@ -9,6 +9,7 @@ if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
 
 def parse_search(html):
+    html = html.decode('utf-8', errors='ignore')
     with open(tmp_dir + "search_results.html", "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
@@ -87,12 +88,14 @@ def parse_search(html):
     return (cases, too_many_results)
 
 def parse_case_summary(html, case):
+    html = html.decode('utf-8', errors='ignore')
     with open(tmp_dir + case['id'] + "_summary.html", "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
     case['county'] = soup.find_all('tr')[2].find_all('td')[0].string
 
 def parse_case_charges(html, case):
+    html = html.decode('utf-8', errors='ignore')
     with open(tmp_dir + case['id'] + "_charges.html", "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
@@ -216,6 +219,7 @@ def parse_case_charges(html, case):
     case['charges'] = charges
 
 def parse_case_financials(html, case):
+    html = html.decode('utf-8', errors='ignore')
     with open(tmp_dir + case['id'] + "_financials.html", "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')

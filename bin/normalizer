@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import re
 import sys
-from gunicorn.app.pasterapp import run
+from charset_normalizer.cli.normalizer import cli_detect
 if __name__ == '__main__':
     sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
-    sys.exit(run())
+    sys.exit(cli_detect())

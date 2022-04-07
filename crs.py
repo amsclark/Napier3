@@ -38,14 +38,14 @@ def get_dominant_charge(charges):
             charge_pair = charge_code_map.get(disposition)
             print("charge_code_map.get(disposition):"+str(charge_code_map.get(disposition)))
             charge_key = str(charge_pair.keys())
-            charge_key = charge_key.replace("['","")
-            charge_key = charge_key.replace("']","")
+            charge_key = charge_key.replace("dict_keys(['","")
+            charge_key = charge_key.replace("'])","")
             print(str(iterator)+": " + str(charge_key))
             charge_dict[charge_key] = charge_pair.get(charge_key) 
         print("charge_dict: "+str(charge_dict))
         iterator += 1
-        
-    sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1])
+    #sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1])
+    sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1] if item[1] is not None else float('inf'))
     print("sorted_tuples: " + str(sorted_tuples))
     sorted_charge = sorted_tuples[0]
     #sorted_charge = {k: v for k, v in sorted_tuples}
