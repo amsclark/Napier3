@@ -180,7 +180,7 @@ def generate_crs():
 
     data = json.loads(request.data)
 
-    wb = load_workbook('CRS 3.5.0 blank.xlsx')
+    wb = load_workbook('CRS 3.5.1.xlsx')
     ws = wb['CASE DATA']
     row = 4
    
@@ -196,7 +196,7 @@ def generate_crs():
     ws['B5'] = data['def_name'].strip() 
     ws['B6'] = data['def_dob']
  
-    fp = tmp_dir + "CRS_3.5.0_blank.xlsx"
+    fp = tmp_dir + "CRS_3.5.1.xlsx"
     wb.save(fp)
     session['file'] = fp
     return jsonify({'result': "success"})
