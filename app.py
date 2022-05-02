@@ -23,11 +23,15 @@ def get_reader(username=None, password=None, use_cookie_file=False):
         print("Loading cookies")
         reader.opener.load_cookies(session['cookies'])
     elif use_cookie_file:
+        pass
+        '''
         print("Loading cookies from file")
-        with open(tmp_dir + "cookies.txt", "r") as text_file:
+        with open(tmp_dir + "cookies.txt", "r", errors='ignore') as text_file:
             cookies = text_file.read()
+            cookies = cookies.encode('utf-8', errors='ignore')
             print(cookies)
             reader.opener.load_cookies(cookies)
+        '''
     elif username is None:
         print("Cannot login, no username provided")
         return (None, "No username provided")
@@ -42,6 +46,9 @@ def get_reader(username=None, password=None, use_cookie_file=False):
             text_file.write(reader.opener.get_cookies())
         
         result = reader.login(username, password)
+        
+        if isinstance(result, bytes):
+            result = result.decode('utf-8', errors='ignore')            
 
         if "The userID or password could not be validated" in result:
             print("Bad User ID or password")
@@ -160,7 +167,7 @@ def generate_crs():
             return "Bad session - no file"
         path = session['file']
         session.pop('file', None)
-        return send_file(path)
+        return send_file(path, as_attachment=True, attachment_filename="crs.xlsx")
 
     if 'cookies' not in session:
         return "Bad session"
@@ -173,16 +180,23 @@ def generate_crs():
 
     data = json.loads(request.data)
 
-    wb = load_workbook('CRS 3.4.4 blank.xlsx')
+    wb = load_workbook('CRS 3.5.1.xlsx')
     ws = wb['CASE DATA']
     row = 4
+   
+    #print(data['def_name'])
+    #print(data['def_dob'])
 
     for case in data['cases']:
         print("Adding " + case['id'])
         crs.process_case(case, ws, row)
         row += 1
-
-    fp = tmp_dir + "CRS 3.4.4 blank.xlsx"
+   
+    ws = wb['BASIC INFO']
+    ws['B5'] = data['def_name'].strip() 
+    ws['B6'] = data['def_dob']
+ 
+    fp = tmp_dir + "CRS_3.5.1.xlsx"
     wb.save(fp)
     session['file'] = fp
     return jsonify({'result': "success"})
@@ -195,4 +209,4 @@ def pluralize(number, singular = '', plural = 's'):
         return plural
 
 if __name__ == "__main__":
-	app.run()
+	app.run(host="0.0.0.0")
