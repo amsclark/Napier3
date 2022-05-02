@@ -5,7 +5,7 @@ This is a tool that collects court case data from Iowa's state court case inform
 The server is a [Flask app](https://flask.palletsprojects.com/en/1.1.x/) written in Python 2. The front end is written in html and javascript and uses jQuery and Bootstrap.
 
 ## Flow
-* The yser enters a name and clicks search
+* The user enters a name and clicks search
 * The server runs the name search on Iowa's court case information system, scrapes the results, and presents them to the user as a list of unique names / dates of birth and the number of cases for each
 * The user then selects from the groups of cases and clicks Create CRS
 * The front-end requests case details from the server, one case at a time

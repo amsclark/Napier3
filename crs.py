@@ -38,14 +38,14 @@ def get_dominant_charge(charges):
             charge_pair = charge_code_map.get(disposition)
             print("charge_code_map.get(disposition):"+str(charge_code_map.get(disposition)))
             charge_key = str(charge_pair.keys())
-            charge_key = charge_key.replace("['","")
-            charge_key = charge_key.replace("']","")
+            charge_key = charge_key.replace("dict_keys(['","")
+            charge_key = charge_key.replace("'])","")
             print(str(iterator)+": " + str(charge_key))
             charge_dict[charge_key] = charge_pair.get(charge_key) 
         print("charge_dict: "+str(charge_dict))
         iterator += 1
-        
-    sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1])
+    #sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1])
+    sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1] if item[1] is not None else float('inf'))
     print("sorted_tuples: " + str(sorted_tuples))
     sorted_charge = sorted_tuples[0]
     #sorted_charge = {k: v for k, v in sorted_tuples}
@@ -80,52 +80,55 @@ def get_primary_charge(charges):
 
 def get_finance_column(detail):
     if "COLLECTION BY CO ATTY" in detail:
-        return "R" # UNKNOWN
+        return "P" # UNKNOWN
     if "DELINQUENT REVOLVING FUND" in detail:
-        return "R" # UNKNOWN
+        return "P" # UNKNOWN
         
     if "FINE" in detail:
-        return "I" # FINE
+        return "R" # FINE
     if "DEFERRED JUDGMENT CIVIL PENALTY" in detail:
-        return "I" # FINE
+        return "R" # FINE
     if "INFRACTIONS-PENALTIES AND FORFEITURES-CITY" in detail:
-        return "I" # FINE
+        return "R" # FINE
     if "NONSCHEDULED CHAPTER 321" in detail:
-        return "I" # FINE
+        return "R" # FINE
     if "SCHEDULED VIOLATION/NON-SCHEDULED" in detail:
-        return "I" # FINE
+        return "R" # FINE
     
-    if "FILING" in detail:
-        return "J" # FILING
-    if "COURT COSTS" in detail:
-        return "J" # FILING
-    if "TRAFFIC/SIMP MISD APPEAL FEES" in detail:
-        return "J" # FILING
-    if "OTHER SIMPLE MISDEMEANORS" in detail:
-        return "J" # FILING
+    #if "FILING" in detail:
+    #    return "J" # FILING
+    #if "COURT COSTS" in detail:
+    #    return "J" # FILING
+    #if "TRAFFIC/SIMP MISD APPEAL FEES" in detail:
+    #    return "J" # FILING
+    #if "OTHER SIMPLE MISDEMEANORS" in detail:
+    #    return "J" # FILING
 
     if "INDIGENT DEFENSE" in detail:
-        return "K" # INDIGENT DEFENSE
+        return "J" # INDIGENT DEFENSE
 
     if "SURCHARGE" in detail:
-        return "L" # SURCHARGE
+        return "Q" # SURCHARGE
 
     if "ROOM/BOARD" in detail:
-        return "M" # JAIL / ROOM & BOARD
+        return "L" # JAIL / ROOM & BOARD
 
     if "RESTITUTION" in detail:
-        return "N" # RESTITUTION
+        return "S" # RESTITUTION
 
     if "THIRD PARTY" in detail:
-        return "O" # LINEBARGER COLLECTION FEE
+        return "K" # LINEBARGER COLLECTION FEE
 
     if "REVENUE" in detail:
-        return "O" #DEPARTMENT OF REVENUE COLLECTION FEE
+        return "K" #DEPARTMENT OF REVENUE COLLECTION FEE
 
     if "SHERIFF" in detail:
-        return "P" # SHERIFF
+        return "M" # SHERIFF
 
-    return "Q" # MISC
+    if "PROBATION" in detail:
+        return "N" # PROBATION REVOCATION FEE
+
+    return "O" # MISC
 
 def process_financials(case, worksheet, row):
     financials = {}
@@ -153,25 +156,27 @@ def process_case(case, worksheet, row):
     charge = get_dominant_charge(case['charges'])
     if charge is None:
           worksheet['C' + i] = "n/a"
+          worksheet['D' + i] = "n/a"
           # come back later and do this with a map / dictionary
           if case['id'][7:9]=="DR":
-              worksheet['D' + i] = "Domestic relations [civil]"
+              worksheet['E' + i] = "Domestic relations [civil]"
           elif case['id'][7:9]=="DA":
-              worksheet['D' + i] = "Domestic abuse [civil]"
+              worksheet['E' + i] = "Domestic abuse [civil]"
           elif case['id'][7:9]=="SC":
-              worksheet['D' + i] = "Small claims"
+              worksheet['E' + i] = "Small claims"
           elif case['id'][7:9]=="PC":
-              worksheet['D' + i] = "post conviction relief"
+              worksheet['E' + i] = "post conviction relief"
           else:
-              worksheet['D' + i] = "other civil"
-          worksheet['E' + i] = "n/a"
-          worksheet['F' + i] = "CIV"
+              worksheet['E' + i] = "other civil"
+          worksheet['F' + i] = "n/a"
+          worksheet['G' + i] = "CIV"
           process_financials(case, worksheet, i)
           return
     
-    worksheet['C' + i] = charge['dispositionDate']
-    worksheet['D' + i] = charge['description']
-    worksheet['E' + i] = charge['charge']
-    worksheet['F' + i] = charge['disposition']
+    worksheet['C' + i] = charge['offenseDate']
+    worksheet['D' + i] = charge['dispositionDate']
+    worksheet['E' + i] = charge['description']
+    worksheet['F' + i] = charge['charge']
+    worksheet['G' + i] = charge['disposition']
 
     process_financials(case, worksheet, i)
