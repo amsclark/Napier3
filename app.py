@@ -112,7 +112,7 @@ def search():
     case_dict = {}
     for case in cases:
         key = 'DOB-UNKNOWN ' + case['name']
-        if case['dob']:
+        if (case['dob']) and (case['dob'].isspace() != True):
             key = "{}-{}-{} {}".format(
                 case['dob'].split('/')[2],
                 case['dob'].split('/')[0],
