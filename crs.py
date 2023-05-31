@@ -155,19 +155,19 @@ def process_case(case, worksheet, row):
     worksheet['B' + i] = case['county']
     charge = get_dominant_charge(case['charges'])
     if charge is None:
-          worksheet['C' + i] = "n/a"
-          worksheet['D' + i] = "n/a"
+          worksheet['C' + i] = case['summary_created_date']
+          worksheet['D' + i] = case['summary_disposition_date']
           # come back later and do this with a map / dictionary
           if case['id'][7:9]=="DR":
-              worksheet['E' + i] = "Domestic relations [civil]"
+              worksheet['E' + i] = "Domestic relations [civil] - " + case['summary_dispo_status']
           elif case['id'][7:9]=="DA":
-              worksheet['E' + i] = "Domestic abuse [civil]"
+              worksheet['E' + i] = "Domestic abuse [civil] - " + case['summary_dispo_status']
           elif case['id'][7:9]=="SC":
-              worksheet['E' + i] = "Small claims"
+              worksheet['E' + i] = "Small claims - " + case['summary_dispo_status']
           elif case['id'][7:9]=="PC":
-              worksheet['E' + i] = "post conviction relief"
+              worksheet['E' + i] = "post conviction relief - " + case['summary_dispo_status']
           else:
-              worksheet['E' + i] = "other civil"
+              worksheet['E' + i] = "other civil - " + case['summary_dispo_status']
           worksheet['F' + i] = "n/a"
           worksheet['G' + i] = "CIV"
           process_financials(case, worksheet, i)
