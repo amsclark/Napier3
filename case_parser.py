@@ -110,11 +110,13 @@ def parse_case_charges(html, case):
     #disposition = {}
     charge_code_dict = {
         "GUILTY": "GTR",
+        "DNU-GUILTY": "GTR",
         "GUILTY BY COURT": "GTR",
         "GUILTY - NEGOTIATED/VOLUN PLEA": "GPL",
         "CONVERT TO SIMPLE MISDEM": "GPL",
         "ACQUITTED": "ACQ",
         "DISMISSED": "DISM",
+        "DNU-DISMISSED": "DISM",
         "DISMISSED BY COURT": "DISM",
         "DISMISSED BY OTHER": "DISM",
         "DEFERRED": "DEF",
