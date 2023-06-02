@@ -94,7 +94,11 @@ def parse_case_summary(html, case):
     soup = BeautifulSoup(html, 'html.parser')
     case['county'] = soup.find_all('tr')[2].find_all('td')[0].string
     case['summary_created_date'] = soup.find_all('tr')[2].find_all('td')[1].string
-    case['summary_disposition_date'] = soup.find_all('tr')[4].find_all('td')[1].string
+    try:
+        case['summary_disposition_date'] = soup.find_all('tr')[4].find_all('td')[1].string
+    except IndexError:
+        print("IndexError while trying to find disposition date. May be pending case.")
+        case['summary_disposition_date'] = ''
     case['summary_dispo_status'] = soup.find_all('tr')[4].find_all('td')[0].string
 
 def parse_case_charges(html, case):
