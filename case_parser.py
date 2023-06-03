@@ -100,6 +100,8 @@ def parse_case_summary(html, case):
         print("IndexError while trying to find disposition date. May be pending case.")
         case['summary_disposition_date'] = ''
     case['summary_dispo_status'] = soup.find_all('tr')[4].find_all('td')[0].string
+    if case['summary_dispo_status'] is None:
+        case['summary_dispo_status'] = ""
 
 def parse_case_charges(html, case):
     html = html.decode('utf-8', errors='ignore')
