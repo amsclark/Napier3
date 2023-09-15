@@ -93,6 +93,15 @@ def parse_case_summary(html, case):
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
     case['county'] = soup.find_all('tr')[2].find_all('td')[0].string
+    case['summary_created_date'] = soup.find_all('tr')[2].find_all('td')[1].string
+    try:
+        case['summary_disposition_date'] = soup.find_all('tr')[4].find_all('td')[1].string
+    except IndexError:
+        print("IndexError while trying to find disposition date. May be pending case.")
+        case['summary_disposition_date'] = ''
+    case['summary_dispo_status'] = soup.find_all('tr')[4].find_all('td')[0].string
+    if case['summary_dispo_status'] is None:
+        case['summary_dispo_status'] = ""
 
 def parse_case_charges(html, case):
     html = html.decode('utf-8', errors='ignore')
@@ -110,11 +119,13 @@ def parse_case_charges(html, case):
     #disposition = {}
     charge_code_dict = {
         "GUILTY": "GTR",
+        "DNU-GUILTY": "GTR",
         "GUILTY BY COURT": "GTR",
         "GUILTY - NEGOTIATED/VOLUN PLEA": "GPL",
         "CONVERT TO SIMPLE MISDEM": "GPL",
         "ACQUITTED": "ACQ",
         "DISMISSED": "DISM",
+        "DNU-DISMISSED": "DISM",
         "DISMISSED BY COURT": "DISM",
         "DISMISSED BY OTHER": "DISM",
         "DEFERRED": "DEF",

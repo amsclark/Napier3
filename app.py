@@ -112,12 +112,12 @@ def search():
     case_dict = {}
     for case in cases:
         key = 'DOB-UNKNOWN ' + case['name']
-        if case['dob']:
+        if (case['dob']) and (case['dob'].isspace() != True):
             key = "{}-{}-{} {}".format(
-                case['dob'].split('/')[2],
-                case['dob'].split('/')[0],
-                case['dob'].split('/')[1],
-                case['name']
+                case['dob'].split('/')[2].strip(),
+                case['dob'].split('/')[0].strip(),
+                case['dob'].split('/')[1].strip(),
+                case['name'].strip()
             )
         if key not in case_dict:
             case_dict[key] = []
