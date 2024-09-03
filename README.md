@@ -1,6 +1,8 @@
 # Iowa Court Scraper
 This is a tool that collects court case data from Iowa's state court case information system and enters it into a spreadsheet created by Iowa Legal Aid.
 
+## Created by Alex Kornya and contractors
+
 ## Stack
 The server is a [Flask app](https://flask.palletsprojects.com/en/1.1.x/) written in Python 2. The front end is written in html and javascript and uses jQuery and Bootstrap.
 
