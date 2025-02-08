@@ -141,6 +141,7 @@ def process_financials(case, worksheet, row):
             f['paid'] = '0'
         if not f['detail'].strip():
             financials[col] -= Decimal(f['paid'])
+            financials[col] += Decimal(f'amount'])
             continue
         col = get_finance_column(f['detail'])
         if col not in financials:
