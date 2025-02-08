@@ -134,8 +134,11 @@ def process_financials(case, worksheet, row):
     financials = {}
     col = None
     for f in case['financials']:
+        print(f)
         if f['amount'] is None:
-            f['amount'] = '0'
+           f['amount'] = '0'
+        if f['paid'] is None:
+            f['paid'] = '0'
         if not f['detail'].strip():
             financials[col] -= Decimal(f['paid'])
             continue
