@@ -6,8 +6,7 @@ import urllib, urllib.request, urllib.parse
 
 http.client.HTTPConnection.debuglevel = 1
 
-user_agent = u"Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.6; en-US; " + \
-    u"rv:1.9.2.11) Gecko/20101012 Firefox/3.6.11"
+user_agent = u"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 
 
