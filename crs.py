@@ -135,28 +135,28 @@ def process_financials(case, worksheet, row):
     col = None
     for f in case['financials']:
         print(f"Processing financial entry: {f}")
-        if f['amount'] is None:
-            f['amount'] = '0'
-        if f['paid'] is None:
-            f['paid'] = '0'
+        # For empty detail rows, use the actual amount value from the data
         if not f['detail'].strip():
             if col is not None:
-                print(f"Empty detail, adjusting financials[{col}] by -{f['paid']} and +{f['amount']}")
+                amount = f['amount'] if f['amount'] is not None else f['paid']
+                print(f"Empty detail, adjusting financials[{col}] by amount={amount}, paid={f['paid']}")
+                financials[col] += Decimal(amount)
                 financials[col] -= Decimal(f['paid'])
-                financials[col] += Decimal(f['amount'])
             continue
+            
         col = get_finance_column(f['detail'])
         print(f"Detail: {f['detail']}, Column: {col}")
         if col not in financials:
             financials[col] = Decimal(0)
         print(f"Before adjustment: financials[{col}] = {financials[col]}")
-        financials[col] += Decimal(f['amount'])
+        amount = f['amount'] if f['amount'] is not None else f['paid']
+        financials[col] += Decimal(amount)
         financials[col] -= Decimal(f['paid'])
         print(f"After adjustment: financials[{col}] = {financials[col]}")
     
     for f in financials:
-        print(f"Writing to worksheet: {f + row} = {financials[f]}")
-        worksheet[f + row] = financials[f]
+        print(f"Writing to worksheet: {f + str(row)} = {financials[f]}")
+        worksheet[f + str(row)] = financials[f]
 
 def process_case(case, worksheet, row):
     i = str(row)
