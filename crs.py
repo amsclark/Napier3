@@ -153,7 +153,7 @@ def process_financials(case, worksheet, row):
         financials[col] += Decimal(f['amount'])
         financials[col] -= Decimal(f['paid'])
         print(f"After adjustment: financials[{col}] = {financials[col]}")
-        
+    
     for f in financials:
         print(f"Writing to worksheet: {f + row} = {financials[f]}")
         worksheet[f + row] = financials[f]
