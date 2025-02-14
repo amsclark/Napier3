@@ -136,22 +136,21 @@ def process_financials(case, worksheet, row):
     for f in case['financials']:
         print(f)
         if f['amount'] is None:
-           f['amount'] = '0'
+            f['amount'] = '0'
         if f['paid'] is None:
             f['paid'] = '0'
         if not f['detail'].strip():
             financials[col] -= Decimal(f['paid'])
-            financials[col] += Decimal(f['amount'])
+            financials[col] +- Decimal(f['amount'])
             continue
         col = get_finance_column(f['detail'])
         if col not in financials:
             financials[col] = Decimal(0)
         financials[col] += Decimal(f['amount'])
         financials[col] -= Decimal(f['paid'])
-
+        
     for f in financials:
         worksheet[f + row] = financials[f]
-
 
 def process_case(case, worksheet, row):
     i = str(row)
