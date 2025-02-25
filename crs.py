@@ -159,9 +159,14 @@ def process_financials(case, worksheet, row):
         financials[col] -= Decimal(paid)
         print(f"After adjustment: financials[{col}] = {financials[col]}")
     
+    # Include total_due in financials
+    if 'total_due' in case:
+        financials['total_due'] = Decimal(case['total_due'].replace('$', '').replace(',', ''))
+
     for f in financials:
-        print(f"Writing to worksheet: {f + str(row)} = {financials[f]}")
-        worksheet[f + str(row)] = financials[f]
+        column = 'U' if f == 'total_due' else f
+        print(f"Writing to worksheet: {column + str(row)} = {financials[f]}")
+        worksheet[column + str(row)] = financials[f]
 
 def process_case(case, worksheet, row):
     i = str(row)
