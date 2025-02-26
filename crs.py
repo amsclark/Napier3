@@ -133,32 +133,32 @@ def get_finance_column(detail):
 def process_financials(case, worksheet, row):
     financials = {}
     col = None
+    previous_col = None
+    
     for f in case['financials']:
         print(f"Processing financial entry: {f}")
-        # For empty detail rows, always use paid amount as the amount since they should match
+        
         if not f['detail'].strip():
-            if col is not None:
-                paid = f['paid'] if f['paid'] is not None else '0'
-                # For empty detail rows, amount should equal paid
-                amount = paid
-                print(f"Empty detail, adjusting financials[{col}] by amount={amount}, paid={paid}")
-                financials[col] += Decimal(amount)
-                financials[col] -= Decimal(paid)
-            continue
-            
-        col = get_finance_column(f['detail'])
-        print(f"Detail: {f['detail']}, Column: {col}")
+            if previous_col is not None:
+                col = previous_col
+            else:
+                continue  # Skip only if we have no previous category
+        else:
+            # For rows with non-blank details, get new column categorization
+            col = get_finance_column(f['detail'])
+            previous_col = col
+            print(f"Detail: {f['detail']}, Column: {col}")
+
         if col not in financials:
             financials[col] = Decimal(0)
         print(f"Before adjustment: financials[{col}] = {financials[col]}")
-        
-        # For rows with details, handle None values
+
         amount = f['amount'] if f['amount'] is not None else '0'
         paid = f['paid'] if f['paid'] is not None else '0'
         financials[col] += Decimal(amount)
         financials[col] -= Decimal(paid)
         print(f"After adjustment: financials[{col}] = {financials[col]}")
-    
+
     # Include total_due in financials
     if 'total_due' in case:
         financials['total_due'] = Decimal(case['total_due'].replace('$', '').replace(',', ''))
