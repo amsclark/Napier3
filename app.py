@@ -206,9 +206,9 @@ def generate_crs():
     session['is_lite_download'] = is_lite
 
     if is_lite:
-        wb = load_workbook('CRS Lite 3.5.2.xlsx') # Corrected filename
+        wb = load_workbook('CRS Lite 3.5.3.xlsx') # Corrected filename
     else:
-        wb = load_workbook('CRS 3.5.2.xlsx')
+        wb = load_workbook('CRS 3.5.3.xlsx')
     ws = wb['CASE DATA']
     row = 4
    
