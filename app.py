@@ -86,6 +86,8 @@ def logout():
 def search():
     username = request.form['username']
     password = request.form['password']
+    is_lite = 'isLite' in request.form
+    session['isLite'] = is_lite
 
     if not username.startswith("ILA"):
         return "Invalid Username"
@@ -179,9 +181,10 @@ def generate_crs():
     session.pop('cookies', None)
 
     data = json.loads(request.data)
+    is_lite = session.get('isLite', False) # Get isLite from session, default to False
 
-    if isLite == True:
-        wb = load_workbook('CRS 3.5.2_LITE.xlsx')
+    if is_lite:
+        wb = load_workbook('CRS Lite 3.5.2.xlsx') # Corrected filename
     else:
         wb = load_workbook('CRS 3.5.2.xlsx')
     ws = wb['CASE DATA']
@@ -200,10 +203,10 @@ def generate_crs():
     ws['B6'] = data['def_dob']
  
 
-    if isLite == True: 
-        fp = tmp_dir + "CRS_3.5.2_LITE.xlsx"
+    if is_lite: 
+        fp = tmp_dir + "CRS Lite 3.5.2.xlsx" # Corrected filename
     else:
-        fp = tmp_dir + "CRS_3.5.2.xlsx"
+        fp = tmp_dir + "CRS 3.5.2.xlsx" # Corrected filename
     wb.save(fp)
     session['file'] = fp
     return jsonify({'result': "success"})
