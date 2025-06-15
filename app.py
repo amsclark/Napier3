@@ -9,6 +9,7 @@ import json
 import os
 import case_parser
 import platform
+import datetime # Added import
 
 app = Flask(__name__)
 app.secret_key = "NOTASECRET"
@@ -165,11 +166,27 @@ def get_case_details():
 @app.route('/crs', methods=['GET', 'POST'])
 def generate_crs():
     if request.method == 'GET':
-        if 'file' not in session:
-            return "Bad session - no file"
+        if 'file' not in session or 'def_name' not in session or 'is_lite_download' not in session: # Check for all needed session variables
+            return "Bad session - missing required data"
+        
         path = session['file']
+        def_name = session['def_name']
+        is_lite = session['is_lite_download']
+        
         session.pop('file', None)
-        return send_file(path, as_attachment=True, attachment_filename="crs.xlsx")
+        session.pop('def_name', None)
+        session.pop('is_lite_download', None)
+
+        now = datetime.datetime.now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        
+        filename_parts = [def_name.replace(" ", "_")]
+        if is_lite:
+            filename_parts.append("Lite")
+        filename_parts.append(timestamp)
+        attachment_filename = f"{'_'.join(filename_parts)}.xlsx"
+        
+        return send_file(path, as_attachment=True, download_name=attachment_filename) # Use download_name
 
     if 'cookies' not in session:
         return "Bad session"
@@ -182,6 +199,11 @@ def generate_crs():
 
     data = json.loads(request.data)
     is_lite = session.get('isLite', False) # Get isLite from session, default to False
+    def_name = data['def_name'].strip()
+
+    # Store data for GET request
+    session['def_name'] = def_name
+    session['is_lite_download'] = is_lite
 
     if is_lite:
         wb = load_workbook('CRS Lite 3.5.2.xlsx') # Corrected filename
@@ -204,9 +226,9 @@ def generate_crs():
  
 
     if is_lite: 
-        fp = tmp_dir + "CRS Lite 3.5.2.xlsx" # Corrected filename
+        fp = tmp_dir + f"{def_name.replace(' ', '_')}_Lite_CRS_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx" # Temp filename can also be more descriptive
     else:
-        fp = tmp_dir + "CRS 3.5.2.xlsx" # Corrected filename
+        fp = tmp_dir + f"{def_name.replace(' ', '_')}_CRS_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx" # Temp filename can also be more descriptive
     wb.save(fp)
     session['file'] = fp
     return jsonify({'result': "success"})
