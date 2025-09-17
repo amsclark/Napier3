@@ -90,8 +90,8 @@ def search():
     is_lite = 'isLite' in request.form
     session['isLite'] = is_lite
 
-    if not username.startswith("ILA"):
-        return "Invalid Username"
+    #if not username.startswith("ILA"):
+    #    return "Invalid Username"
 
     reader, error = get_reader(username, password)
     if reader is None:
@@ -242,3 +242,4 @@ def pluralize(number, singular = '', plural = 's'):
 
 if __name__ == "__main__":
 	app.run(host="0.0.0.0")
+
