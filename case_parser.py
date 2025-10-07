@@ -80,8 +80,8 @@ def parse_search(html):
             'TRUSTEE',
             'WARD',
             'WITNESS', 
-            'WITNESS – PLANTIFF',
-            'WITNESS - PLANTIFF'
+            'WITNESS – PLAINTIFF',
+            'WITNESS - PLAINTIFF'
             'JUVENILE - MOTHER OF', 
             'JUVENILE - FATHER OF',
             'ATTORNEY'
