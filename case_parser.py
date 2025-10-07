@@ -81,7 +81,8 @@ def parse_search(html):
             'WARD',
             'WITNESS', 
             'WITNESS – PLAINTIFF',
-            'WITNESS - PLAINTIFF'
+            'WITNESS - PLAINTIFF',
+            'WITNESS - PLAINTIFF',
             'JUVENILE - MOTHER OF', 
             'JUVENILE - FATHER OF',
             'ATTORNEY'
@@ -264,4 +265,5 @@ def parse_case_financials(html, case):
             'paidDate': cols[6].string
         })
     case['financials'] = financials
+
 
