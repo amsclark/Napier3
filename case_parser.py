@@ -83,6 +83,8 @@ def parse_search(html):
             'WITNESS – PLAINTIFF',
             'WITNESS - PLAINTIFF',
             'WITNESS - PLAINTIFF',
+            'WITNESS – DEFENSE',
+            'WITNESS - DEFENSE',
             'JUVENILE - MOTHER OF', 
             'JUVENILE - FATHER OF',
             'ATTORNEY'
