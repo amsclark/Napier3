@@ -10,6 +10,7 @@ import os
 import case_parser
 import platform
 import datetime # Added import
+import time
 
 app = Flask(__name__)
 app.secret_key = "NOTASECRET"
@@ -47,9 +48,19 @@ def get_reader(username=None, password=None, use_cookie_file=False):
             text_file.write(reader.opener.get_cookies())
         
         result = reader.login(username, password)
-        
+
         if isinstance(result, bytes):
-            result = result.decode('utf-8', errors='ignore')            
+            result = result.decode('utf-8', errors='ignore')
+
+        if "Concurrent Login Error" in result:
+            # A session that was never logged off (e.g. an abandoned search)
+            # leaves the account locked on the ICOS side, but it usually
+            # clears quickly, so retry once before giving up.
+            print("Concurrent login error, retrying login once")
+            time.sleep(2)
+            result = reader.login(username, password)
+            if isinstance(result, bytes):
+                result = result.decode('utf-8', errors='ignore')
 
         if "The userID or password could not be validated" in result:
             print("Bad User ID or password")
@@ -57,7 +68,7 @@ def get_reader(username=None, password=None, use_cookie_file=False):
 
         if "Concurrent Login Error" in result:
             print("User already logged in")
-            return (None, "User already logged in")
+            return (None, "Iowa Courts Online reports this account as already logged in, likely from an earlier session that was not logged off. Please wait a minute and try again.")
 
         print("Logged in")
     return (reader, "")
@@ -104,6 +115,10 @@ def search():
     print("Searching ", firstname, middlename, lastname)
     result = reader.search(firstname, middlename, lastname)
     sleep_reader(reader)
+
+    if not result or not result.strip():
+        print("Empty search response from ICOS")
+        return "Iowa Courts Online returned an empty response. Please try your search again."
 
     #result = None
     #with open("search_results.html", "r") as text_file:
