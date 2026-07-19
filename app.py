@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, render_template, request, send_file, session, url_for, redirect
+from werkzeug.utils import secure_filename
 from opener import Opener
 from openpyxl import load_workbook
 from pprint import pprint
@@ -9,16 +10,80 @@ import json
 import os
 import case_parser
 import platform
+import datetime # Added import
+import time
 
 app = Flask(__name__)
 # A guessable secret key lets anyone forge session cookies (which hold ICOS
-# session state and gate file downloads). Set SECRET_KEY in the app config;
-# the urandom fallback keeps sessions unforgeable but resets them on restart.
+# session state and gate the /crs file download). Set SECRET_KEY in the app
+# config; the urandom fallback keeps sessions unforgeable but resets them on
+# dyno restart.
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
 
 tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
+
+# --- ICOS connection keepalive -------------------------------------------
+# ICOS's edge throttles/tarpits the first connection(s) from an idle source IP
+# (this Heroku dyno), so a user's first search after a quiet spell stalls ~30s
+# and surfaces as Heroku's "Application error". Keep THIS dyno's path to ICOS
+# warm by pinging the login page on a timer from inside the web process, so it
+# shares the web dyno's egress IP (an external pinger would warm a different IP
+# and do nothing). Single-instance guard so multiple gunicorn workers don't
+# each ping.
+import threading
+import socket as _socket
+import urllib.request as _urlreq
+
+KEEPALIVE_URL = "https://www.iowacourts.state.ia.us/ESAWebApp/ESALogin.jsp"
+KEEPALIVE_SECS = 20
+KEEPALIVE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+_keepalive_lock = None
+
+def _keepalive_ping(timeout=6):
+    t0 = time.time()
+    try:
+        r = _urlreq.urlopen(_urlreq.Request(KEEPALIVE_URL, headers={"User-Agent": KEEPALIVE_UA}), timeout=timeout)
+        r.read()
+        return time.time() - t0, True
+    except Exception:
+        return time.time() - t0, False
+
+def _keepalive_loop():
+    # ICOS tarpits the first connection(s) from an idle source IP, and a single
+    # ping does NOT warm a cold path (it takes several attempts). So ping often,
+    # and the moment a ping comes back cold, BURST until it warms again, instead
+    # of waiting a full cycle. Keeps the web dyno's path to ICOS continuously
+    # warm so real searches don't land on a cold start.
+    while True:
+        dt, ok = _keepalive_ping()
+        if ok:
+            print("KEEPALIVE ok %.2fs" % dt, flush=True)
+        else:
+            for i in range(8):
+                dt2, ok2 = _keepalive_ping()
+                if ok2:
+                    print("KEEPALIVE re-warmed after %d burst tries (%.2fs)" % (i + 1, dt2), flush=True)
+                    break
+            else:
+                print("KEEPALIVE still cold after burst", flush=True)
+        time.sleep(KEEPALIVE_SECS)
+
+def _start_keepalive():
+    global _keepalive_lock
+    s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 47999))  # only one process per dyno wins the bind
+    except OSError:
+        s.close()
+        return
+    _keepalive_lock = s  # hold the bind for the life of the dyno
+    threading.Thread(target=_keepalive_loop, name="icos-keepalive", daemon=True).start()
+    print("KEEPALIVE started (every %ss)" % KEEPALIVE_SECS, flush=True)
+
+_start_keepalive()
+# -------------------------------------------------------------------------
 
 def get_reader(username=None, password=None, use_cookie_file=False):
     reader = Reader(Opener())
@@ -49,9 +114,20 @@ def get_reader(username=None, password=None, use_cookie_file=False):
             text_file.write(reader.opener.get_cookies())
         
         result = reader.login(username, password)
-        
+
         if isinstance(result, bytes):
-            result = result.decode('utf-8', errors='ignore')            
+            result = result.decode('utf-8', errors='ignore')
+
+        if "Concurrent Login Error" in result:
+            # ESA allows one session per account and offers no way to force-clear
+            # another session (the error page literally says "wait 15 minutes").
+            # Retry once in case it was a brief overlap, then surface a clear
+            # message. (This path is rare in practice -- staff spread accounts.)
+            print("Concurrent login error, retrying login once")
+            time.sleep(2)
+            result = reader.login(username, password)
+            if isinstance(result, bytes):
+                result = result.decode('utf-8', errors='ignore')
 
         if "The userID or password could not be validated" in result:
             print("Bad User ID or password")
@@ -59,7 +135,7 @@ def get_reader(username=None, password=None, use_cookie_file=False):
 
         if "Concurrent Login Error" in result:
             print("User already logged in")
-            return (None, "User already logged in")
+            return (None, "Iowa Courts Online reports this account as already logged in, likely from an earlier session that was not logged off. Please wait a minute and try again.")
 
         print("Logged in")
     return (reader, "")
@@ -89,8 +165,10 @@ def logout():
 def search():
     username = request.form['username']
     password = request.form['password']
+    is_lite = 'isLite' in request.form
+    session['isLite'] = is_lite
 
-    if not username.startswith("ILA"):
+    if not username.startswith("ILA") and not username.startswith("drakelegalclinic"):
         return "Invalid Username"
 
     reader, error = get_reader(username, password)
@@ -104,6 +182,10 @@ def search():
     print("Searching ", firstname, middlename, lastname)
     result = reader.search(firstname, middlename, lastname)
     sleep_reader(reader)
+
+    if not result or not result.strip():
+        print("Empty search response from ICOS")
+        return "Iowa Courts Online returned an empty response. Please try your search again."
 
     #result = None
     #with open("search_results.html", "r") as text_file:
@@ -166,12 +248,31 @@ def get_case_details():
 @app.route('/crs', methods=['GET', 'POST'])
 def generate_crs():
     if request.method == 'GET':
-        if 'file' not in session:
-            return "Bad session - no file"
+        if 'file' not in session or 'def_name' not in session or 'is_lite_download' not in session: # Check for all needed session variables
+            return "Bad session - missing required data"
+        
+        # only serve xlsx files that live directly inside tmp_dir, so a
+        # tampered cookie can't point this at an arbitrary file
+        path = os.path.realpath(session['file'])
+        if os.path.dirname(path) != os.path.realpath(tmp_dir).rstrip(os.sep) or not path.endswith('.xlsx'):
+            return "Bad session - invalid file"
+        def_name = session['def_name']
+        is_lite = session['is_lite_download']
+        
         session.pop('file', None)
-        # serve the fixed server-side path; never a path taken from the cookie
-        path = tmp_dir + "CRS_3.5.1.xlsx"
-        return send_file(path, as_attachment=True, download_name="crs.xlsx")
+        session.pop('def_name', None)
+        session.pop('is_lite_download', None)
+
+        now = datetime.datetime.now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        
+        filename_parts = [def_name.replace(" ", "_")]
+        if is_lite:
+            filename_parts.append("Lite")
+        filename_parts.append(timestamp)
+        attachment_filename = f"{'_'.join(filename_parts)}.xlsx"
+        
+        return send_file(path, as_attachment=True, download_name=attachment_filename) # Use download_name
 
     if 'cookies' not in session:
         return "Bad session"
@@ -183,8 +284,17 @@ def generate_crs():
     session.pop('cookies', None)
 
     data = json.loads(request.data)
+    is_lite = session.get('isLite', False) # Get isLite from session, default to False
+    def_name = data['def_name'].strip()
 
-    wb = load_workbook('CRS 3.5.1.xlsx')
+    # Store data for GET request
+    session['def_name'] = def_name
+    session['is_lite_download'] = is_lite
+
+    if is_lite:
+        wb = load_workbook('CRS Lite 3.5.5.xlsx') # Corrected filename
+    else:
+        wb = load_workbook('CRS 3.5.5.xlsx')
     ws = wb['CASE DATA']
     row = 4
    
@@ -200,7 +310,13 @@ def generate_crs():
     ws['B5'] = data['def_name'].strip() 
     ws['B6'] = data['def_dob']
  
-    fp = tmp_dir + "CRS_3.5.1.xlsx"
+
+    # def_name is user-supplied; sanitize it before using it in a filesystem path
+    safe_name = secure_filename(def_name.replace(' ', '_')) or "case"
+    if is_lite:
+        fp = tmp_dir + f"{safe_name}_Lite_CRS_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx" # Temp filename can also be more descriptive
+    else:
+        fp = tmp_dir + f"{safe_name}_CRS_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx" # Temp filename can also be more descriptive
     wb.save(fp)
     session['file'] = fp
     return jsonify({'result': "success"})
@@ -214,3 +330,7 @@ def pluralize(number, singular = '', plural = 's'):
 
 if __name__ == "__main__":
 	app.run(host="0.0.0.0")
+
+
+
+

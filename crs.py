@@ -1,4 +1,5 @@
 from decimal import Decimal
+from openpyxl.styles import Alignment # Added import
 
 charge_code_map = {
     "GUILTY": {"GTR":1},
@@ -133,64 +134,81 @@ def get_finance_column(detail):
 def process_financials(case, worksheet, row):
     financials = {}
     col = None
+    previous_col = None
+    
     for f in case['financials']:
         print(f"Processing financial entry: {f}")
-        # For empty detail rows, always use paid amount as the amount since they should match
+        
         if not f['detail'].strip():
-            if col is not None:
-                paid = f['paid'] if f['paid'] is not None else '0'
-                # For empty detail rows, amount should equal paid
-                amount = paid
-                print(f"Empty detail, adjusting financials[{col}] by amount={amount}, paid={paid}")
-                financials[col] += Decimal(amount)
-                financials[col] -= Decimal(paid)
-            continue
-            
-        col = get_finance_column(f['detail'])
-        print(f"Detail: {f['detail']}, Column: {col}")
+            if previous_col is not None:
+                col = previous_col
+            else:
+                continue  # Skip only if we have no previous category
+        else:
+            # For rows with non-blank details, get new column categorization
+            col = get_finance_column(f['detail'])
+            previous_col = col
+            print(f"Detail: {f['detail']}, Column: {col}")
+
         if col not in financials:
             financials[col] = Decimal(0)
         print(f"Before adjustment: financials[{col}] = {financials[col]}")
-        
-        # For rows with details, handle None values
+
         amount = f['amount'] if f['amount'] is not None else '0'
         paid = f['paid'] if f['paid'] is not None else '0'
         financials[col] += Decimal(amount)
         financials[col] -= Decimal(paid)
         print(f"After adjustment: financials[{col}] = {financials[col]}")
-    
+
+    # Include total_due in financials
+    if 'total_due' in case:
+        financials['total_due'] = Decimal(case['total_due'].replace('$', '').replace(',', ''))
+
     for f in financials:
-        print(f"Writing to worksheet: {f + str(row)} = {financials[f]}")
-        worksheet[f + str(row)] = financials[f]
+        column = 'U' if f == 'total_due' else f
+        print(f"Writing to worksheet: {column + str(row)} = {financials[f]}")
+        worksheet[column + str(row)] = financials[f]
 
 def process_case(case, worksheet, row):
     i = str(row)
     worksheet['A' + i] = case['id']
     worksheet['B' + i] = case['county']
     charge = get_dominant_charge(case['charges'])
+    
+    cell_E = worksheet['E' + i] # Get cell E
+
     if charge is None:
           worksheet['C' + i] = case['summary_created_date']
           worksheet['D' + i] = case['summary_disposition_date']
           # come back later and do this with a map / dictionary
+          description_text = ""
           if case['id'][7:9]=="DR":
-              worksheet['E' + i] = "Domestic relations [civil] - " + case['summary_dispo_status']
+              description_text = "Domestic relations [civil] - " + case['summary_dispo_status']
           elif case['id'][7:9]=="DA":
-              worksheet['E' + i] = "Domestic abuse [civil] - " + case['summary_dispo_status']
+              description_text = "Domestic abuse [civil] - " + case['summary_dispo_status']
           elif case['id'][7:9]=="SC":
-              worksheet['E' + i] = "Small claims - " + case['summary_dispo_status']
+              description_text = "Small claims - " + case['summary_dispo_status']
           elif case['id'][7:9]=="PC":
-              worksheet['E' + i] = "post conviction relief - " + case['summary_dispo_status']
+              description_text = "post conviction relief - " + case['summary_dispo_status']
           else:
-              worksheet['E' + i] = "other civil - " + case['summary_dispo_status']
+              description_text = "other civil - " + case['summary_dispo_status']
+          cell_E.value = description_text
           worksheet['F' + i] = "n/a"
           worksheet['G' + i] = "CIV"
           process_financials(case, worksheet, i)
-          return
-    
-    worksheet['C' + i] = charge['offenseDate']
-    worksheet['D' + i] = charge['dispositionDate']
-    worksheet['E' + i] = charge['description']
-    worksheet['F' + i] = charge['charge']
-    worksheet['G' + i] = charge['disposition']
+          # return # This was here, but we want to apply alignment, so moved it down
+    else:
+        worksheet['C' + i] = charge['offenseDate']
+        worksheet['D' + i] = charge['dispositionDate']
+        cell_E.value = charge['description']
+        worksheet['F' + i] = charge['charge']
+        worksheet['G' + i] = charge['disposition']
+
+    cell_E.alignment = Alignment(wrap_text=True) # Apply text wrapping
+
+    # If charge was None, we still need to process financials if it wasn't returned early
+    if charge is None:
+        # process_financials(case, worksheet, i) # Already called above if charge is None
+        return # Now we can return
 
     process_financials(case, worksheet, i)

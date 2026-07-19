@@ -81,12 +81,21 @@ def parse_search(html):
             'LIEN FILER', 
             'NAME OF TRUST', 
             'OBLIGOR', 
-            'PAYOR', 
-            'TRUSTEE', 
+            'OBLIGEE',
+            'PAYOR',
+            'PAYEE',
+            'TRUSTEE',
+            'WARD',
             'WITNESS', 
+            'WITNESS – PLAINTIFF',
+            'WITNESS - PLAINTIFF',
+            'WITNESS - PLAINTIFF',
+            'WITNESS – DEFENSE',
+            'WITNESS - DEFENSE',
             'JUVENILE - MOTHER OF', 
             'JUVENILE - FATHER OF',
-            'ATTORNEY'
+            'ATTORNEY',
+            'INTERESTED PARTY'
             ]
         if (case['role'] in non_party_designations):
             print("Supressing non-party case")
@@ -241,6 +250,18 @@ def parse_case_financials(html, case):
     with open(_dump_path(case['id'], "_financials.html"), "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
+    
+    # Extract the total amount due from the top half of the page
+    financial_summary_table = soup.find('table', {'id': 'one_col'})
+    if financial_summary_table:
+        rows = financial_summary_table.find_all('tr')
+        for row in rows:
+            cols = row.find_all('td')
+            if len(cols) >= 5 and cols[4].get_text().strip().startswith('$'):
+                case['total_due'] = cols[4].get_text().strip()
+                break
+    
+    # Extract the financial details from the bottom half of the page
     financials = []
     rows = soup.find('form').find_all('tr')
     for row in rows:
@@ -254,3 +275,5 @@ def parse_case_financials(html, case):
             'paidDate': cols[6].string
         })
     case['financials'] = financials
+
+
