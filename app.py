@@ -11,7 +11,10 @@ import case_parser
 import platform
 
 app = Flask(__name__)
-app.secret_key = "NOTASECRET"
+# A guessable secret key lets anyone forge session cookies (which hold ICOS
+# session state and gate file downloads). Set SECRET_KEY in the app config;
+# the urandom fallback keeps sessions unforgeable but resets them on restart.
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
 
 tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
@@ -165,9 +168,10 @@ def generate_crs():
     if request.method == 'GET':
         if 'file' not in session:
             return "Bad session - no file"
-        path = session['file']
         session.pop('file', None)
-        return send_file(path, as_attachment=True, attachment_filename="crs.xlsx")
+        # serve the fixed server-side path; never a path taken from the cookie
+        path = tmp_dir + "CRS_3.5.1.xlsx"
+        return send_file(path, as_attachment=True, download_name="crs.xlsx")
 
     if 'cookies' not in session:
         return "Bad session"
