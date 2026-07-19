@@ -1,7 +1,7 @@
 from bs4 import BeautifulSoup
+from werkzeug.utils import secure_filename
 import os
 import platform
-import re
 #import datetime
 from datetime import *
 import time
@@ -11,10 +11,9 @@ if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
 
 def _dump_path(case_id, suffix):
-    # case ids come from scraped HTML / request forms; strip anything that
-    # could escape tmp_dir before using them as a filename
-    safe_id = re.sub(r'[^A-Za-z0-9 ._-]', '_', case_id).lstrip('.')
-    return os.path.join(tmp_dir, safe_id + suffix)
+    # case ids come from scraped HTML / request forms; sanitize before
+    # using them as a filename so they cannot escape tmp_dir
+    return os.path.join(tmp_dir, secure_filename(case_id) + suffix)
 
 def parse_search(html):
     html = html.decode('utf-8', errors='ignore')
