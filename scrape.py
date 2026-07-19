@@ -9,8 +9,6 @@ import parser
 first = "GEORGE"
 last = "BROWN"
 
-print(os.environ['username'], os.environ['password'])
-
 reader = Reader(Opener())
 reader.init()
 result = reader.login(os.environ['username'], os.environ['password'])

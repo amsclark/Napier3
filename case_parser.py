@@ -1,5 +1,7 @@
 from bs4 import BeautifulSoup
+import os
 import platform
+import re
 #import datetime
 from datetime import *
 import time
@@ -7,6 +9,12 @@ import time
 tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
+
+def _dump_path(case_id, suffix):
+    # case ids come from scraped HTML / request forms; strip anything that
+    # could escape tmp_dir before using them as a filename
+    safe_id = re.sub(r'[^A-Za-z0-9 ._-]', '_', case_id).lstrip('.')
+    return os.path.join(tmp_dir, safe_id + suffix)
 
 def parse_search(html):
     html = html.decode('utf-8', errors='ignore')
@@ -89,7 +97,7 @@ def parse_search(html):
 
 def parse_case_summary(html, case):
     html = html.decode('utf-8', errors='ignore')
-    with open(tmp_dir + case['id'] + "_summary.html", "w") as text_file:
+    with open(_dump_path(case['id'], "_summary.html"), "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
     case['county'] = soup.find_all('tr')[2].find_all('td')[0].string
@@ -105,7 +113,7 @@ def parse_case_summary(html, case):
 
 def parse_case_charges(html, case):
     html = html.decode('utf-8', errors='ignore')
-    with open(tmp_dir + case['id'] + "_charges.html", "w") as text_file:
+    with open(_dump_path(case['id'], "_charges.html"), "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
     charges = []
@@ -231,7 +239,7 @@ def parse_case_charges(html, case):
 
 def parse_case_financials(html, case):
     html = html.decode('utf-8', errors='ignore')
-    with open(tmp_dir + case['id'] + "_financials.html", "w") as text_file:
+    with open(_dump_path(case['id'], "_financials.html"), "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
     financials = []
