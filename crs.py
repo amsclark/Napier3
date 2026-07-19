@@ -1,5 +1,9 @@
 from decimal import Decimal
 from openpyxl.styles import Alignment # Added import
+from openpyxl.styles import Font, PatternFill
+
+MISMATCH_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+MISMATCH_FONT = Font(color="9C0006")
 
 charge_code_map = {
     "GUILTY": {"GTR":1},
@@ -168,6 +172,24 @@ def process_financials(case, worksheet, row):
         column = 'U' if f == 'total_due' else f
         print(f"Writing to worksheet: {column + str(row)} = {financials[f]}")
         worksheet[column + str(row)] = financials[f]
+
+    # ICOS's line-item table shows original assessments only: payments and
+    # third-party collection fees ICOS excludes from the amount due are
+    # visible only in its summary total. When our itemized sum disagrees with
+    # that total, the ICOS figure (column U) is the authoritative amount owed
+    # — flag the row so staff don't take the itemized categories at face value.
+    if 'total_due' in financials:
+        itemized = sum(v for k, v in financials.items() if k != 'total_due')
+        if abs(itemized - financials['total_due']) > Decimal('0.01'):
+            cell_u = worksheet['U' + str(row)]
+            cell_u.fill = MISMATCH_FILL
+            cell_u.font = MISMATCH_FONT
+            worksheet['V' + str(row)] = (
+                "Itemized fees total $%s but ICOS shows $%s due - trust the ICOS "
+                "total; difference is usually paid or third-party collection fees "
+                "ICOS no longer counts" % (itemized, financials['total_due'])
+            )
+            worksheet['V' + str(row)].font = MISMATCH_FONT
 
 def process_case(case, worksheet, row):
     i = str(row)
