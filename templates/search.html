@@ -12,7 +12,7 @@
             <div>To get more complete results, go back to the search screen and add a middle name or other details to narrow your search.</div>
         </div>
     {% endif %}
-    
+
     <form id="crs">
         {% for key in keys %}
             <div class="form-check">
@@ -26,76 +26,45 @@
     </form>
     <a href="/logout" class="btn">New Search</a>
 
-    <div id="status"></div>
-
+    <div id="status" class="mt-2"></div>
 
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script>
-        var cases = {{ cases|tojson }};
-        var casesToDownload = [];
-        var casesCollected = 0;
-        var caseErrors = 0;
+        var searchJobId = {{ search_job_id|tojson }};
 
-        var downloadedCases = [];
-
-        function downloadCases() {
-            if (casesToDownload.length) {
-                var caseId = casesToDownload.pop();
-                console.log(caseId);
-                $.post('/case', {
-                    'caseId': caseId
-                })
-                .done(function(caseDetails) {
-                    downloadedCases.push(caseDetails);
-                    casesCollected += 1;
-                })
-                .fail(function() {
-                    console.log("Error");
-                    caseErrors += 1;
-                })
-                .always(function() {
-                    $("#status").html(casesCollected + " cases collected - " + caseErrors + " errors");
-                    downloadCases();
-                });
-            } else {
-                console.log("Done Downloading");
-                generateCRS();
-            }
-        }
-
-        function generateCRS() {
-            console.log("Generating CRS");
-	    def_string = $("input[name='caseId']:checked")[0].value;
-	    def_dob = def_string.slice(0, def_string.indexOf(" "));
-	    def_name = def_string.slice(def_string.indexOf(" "));
-            $.ajax({
-                type: "POST",
-                url: "/crs",
-                data: JSON.stringify({ 'def_name': def_name, 'def_dob': def_dob, 'cases': downloadedCases }),
-                contentType: "application/json; charset=utf-8",
-                dataType: "json"
-            })
-            .done(function() {
-                window.location = "/crs";
-            })
-            .fail(function() {
-                console.log("Error");
-            });
-        }
-
+        // The cases are pulled from Iowa Courts and the workbook is built on the
+        // server, so the run survives a closed laptop; this page just hands off
+        // the selection and follows the job's progress page.
         $(document).ready(function () {
             $("#crs").submit(function (e) {
                 e.preventDefault();
+                var keys = $("input[name='caseId']:checked").map(function () {
+                    return $(this).val();
+                }).get();
+                if (!keys.length) {
+                    $("#status").text("Pick a name first.");
+                    return false;
+                }
                 $("#crs-submit-button").attr("disabled", true);
-		
-                $("input[name='caseId']:checked").each(function () {
-                    console.log($(this).val());
-                    var caseIds = cases[$(this).val()];
-                    $.each(caseIds, function(){
-                        casesToDownload.push(this);
-                    });
+                $("#status").text("Starting...");
+
+                $.ajax({
+                    type: "POST",
+                    url: "/crs-job",
+                    data: JSON.stringify({ 'search_job_id': searchJobId, 'keys': keys }),
+                    contentType: "application/json; charset=utf-8",
+                    dataType: "json"
+                })
+                .done(function (response) {
+                    window.location = response.progress_url;
+                })
+                .fail(function (xhr) {
+                    var response = xhr.responseJSON;
+                    $("#crs-submit-button").attr("disabled", false);
+                    $("#status").text(response && response.error
+                        ? response.error
+                        : "Could not start the CRS. Please try again.");
                 });
-                downloadCases();
                 return false;
             });
         });

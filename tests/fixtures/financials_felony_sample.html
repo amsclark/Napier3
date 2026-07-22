@@ -1,0 +1,43 @@
+<!--
+  Shape of an ICOS "Financial" case page, modelled on Dubuque case
+  01311 FECR000000 (the reported collection-costs discrepancy).
+
+  What matters here, and what the parser has to survive:
+    * the summary table lists per-category original / paid / due, and a total
+      row with the three figures and no label;
+    * the itemization below lists ORIGINAL assessments with the Paid column
+      blank on every row, even for fees that were in fact paid;
+    * the third-party (Linebarger) collection fee appears as a line item but
+      is excluded from the ICOS totals: 1706.60 itemized - 304.75 = 1401.85.
+-->
+<html>
+<body>
+<table id="one_col">
+  <tr><td>Category</td><td></td><td>Original</td><td>Paid</td><td>Due</td></tr>
+  <tr><td>SHERIFFS FEES - LOCAL</td><td></td><td>579.00</td><td>0.00</td><td>579.00</td></tr>
+  <tr><td>RESTITUTIONS</td><td></td><td>500.00</td><td>0.00</td><td>500.00</td></tr>
+  <tr><td>INDIGENT DEFENSE-FELONY-REIMBURSE STATE</td><td></td><td>50.00</td><td>0.00</td><td>50.00</td></tr>
+  <tr><td>DELINQUENT REVOLVING FUND OBLIGATION</td><td></td><td>90.00</td><td>0.00</td><td>90.00</td></tr>
+  <tr><td>IOWA DEPT OF REVENUE COLLECTIONS FEE</td><td></td><td>182.85</td><td>182.85</td><td>0.00</td></tr>
+  <tr><td></td><td></td><td>$1401.85</td><td>$182.85</td><td>$1219.00</td></tr>
+  <tr><td>SUPPORT/ALIMONY</td><td></td><td>N/A</td><td>0.00</td><td>N/A</td></tr>
+</table>
+
+<form>
+<table>
+  <tr><td></td><td>Detail</td><td>Payor/Payee</td><td>Obligor/Obligee</td><td>Original Amount</td><td>Paid Amount</td><td>Date</td></tr>
+  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>30.00</td><td></td><td></td></tr>
+  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
+  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
+  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
+  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
+  <tr><td></td><td>SHERIFFS FEES - LOCAL</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>188.40</td><td></td><td></td></tr>
+  <tr><td></td><td>SHERIFFS FEES - LOCAL</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>390.60</td><td></td><td></td></tr>
+  <tr><td></td><td>RESTITUTIONS</td><td>PAT TESTER / WALMART</td><td>PAT TESTER / WALMART</td><td>500.00</td><td></td><td></td></tr>
+  <tr><td></td><td>INDIGENT DEFENSE-FELONY-REIMBURSE STATE</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>50.00</td><td></td><td></td></tr>
+  <tr><td></td><td>IOWA DEPT OF REVENUE COLLECTIONS FEE</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>182.85</td><td></td><td></td></tr>
+  <tr><td></td><td>THIRD PARTY DEBT COLLECTION FEE</td><td>PAT TESTER / SON, LLP LINEBARGER GOGGAN BLAIR &amp; SAMP</td><td>PAT TESTER / SON, LLP LINEBARGER GOGGAN BLAIR &amp; SAMP</td><td>304.75</td><td></td><td></td></tr>
+</table>
+</form>
+</body>
+</html>
