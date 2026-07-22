@@ -121,6 +121,26 @@ def test_bad_password_fails_immediately():
     assert clock.slept == []  # no point retrying a wrong password
 
 
+def test_unmarked_rejection_is_not_mistaken_for_success():
+    # ESA has answered a bad user ID with a short page carrying no rejection
+    # message. Believing that login would send the search into a full retry
+    # budget against a session that was never established.
+    client, _, _ = build([
+        FetchResult(OK, LOGIN_OK),
+        FetchResult(OK, b"<html>ESA Login</html>"),
+    ])
+    with pytest.raises(IcosBadCredentials) as excinfo:
+        client.login("ILA99", "dummy")
+    assert "check them and try again" in excinfo.value.message.lower()
+    assert client.logged_in is False
+
+
+def test_full_size_login_page_is_accepted():
+    client, _, _ = build([FetchResult(OK, LOGIN_OK), FetchResult(OK, LOGIN_OK)])
+    client.login("ILATEST", "secret")
+    assert client.logged_in is True
+
+
 def test_concurrent_login_waits_and_then_succeeds():
     client, clock, messages = build([
         FetchResult(OK, LOGIN_OK),

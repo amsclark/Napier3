@@ -30,6 +30,14 @@ CONCURRENT_INTERVAL = 75
 BAD_CREDS_MARKER = "The userID or password could not be validated"
 CONCURRENT_MARKER = "Concurrent Login Error"
 
+# ESA does not always put the rejection message on a failed login -- a bad user
+# ID has come back as a bare ~700 byte page with no marker at all. Signed in,
+# ESA hands back the whole search screen (~28 KB); the concurrent-login error is
+# ~3.7 KB. So a small unmarked page means we are not signed in, and treating it
+# as success would leave the search retrying against a session that will never
+# work.
+MIN_SIGNED_IN_BYTES = 8000
+
 
 def _env_seconds(name, default_minutes):
     try:
@@ -163,6 +171,13 @@ class IcosClient:
                     waited_for_lock = True
                 self._sleep(CONCURRENT_INTERVAL)
                 continue
+
+            if len(body) < MIN_SIGNED_IN_BYTES:
+                print("ICOS login rejected: %db response, no marker" % len(body),
+                      flush=True)
+                raise IcosBadCredentials(
+                    "Iowa Courts Online did not sign in with that user ID and "
+                    "password. Please check them and try again.")
 
             self.logged_in = True
             self.username = username
