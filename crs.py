@@ -135,59 +135,101 @@ def get_finance_column(detail):
 
     return "O" # MISC
 
-def process_financials(case, worksheet, row):
+def is_excluded_fee(detail):
+    """Fees ICOS lists but does not count toward the balance.
+
+    A third-party (Linebarger) collection fee appears as a line item, yet ICOS
+    leaves it out of the case totals entirely -- summing the itemization at face
+    value put money in the collection-costs column that the defendant is not
+    shown as owing.
+    """
+    return "THIRD PARTY" in (detail or "").upper()
+
+
+def summary_financials(case):
+    """Per-column amounts owed, taken from the ICOS summary table.
+
+    The summary reflects payments; the itemization does not. Where ICOS breaks
+    the balance out by category, that is the number to report.
+    """
+    columns = {}
+    for category in case.get('summary_categories') or []:
+        if is_excluded_fee(category['label']):
+            continue
+        due = category['due']
+        if due is None:
+            continue
+        column = get_finance_column(category['label'])
+        columns[column] = columns.get(column, Decimal(0)) + due
+    return columns
+
+
+def itemized_financials(case):
     financials = {}
     col = None
     previous_col = None
-    
+
     for f in case['financials']:
-        print(f"Processing financial entry: {f}")
-        
-        if not f['detail'].strip():
+        detail = f['detail'] or ''
+        if is_excluded_fee(detail):
+            # Not part of what ICOS says is owed; counting it inflated the
+            # collection-costs column.
+            previous_col = None
+            continue
+
+        if not detail.strip():
             if previous_col is not None:
                 col = previous_col
             else:
                 continue  # Skip only if we have no previous category
         else:
             # For rows with non-blank details, get new column categorization
-            col = get_finance_column(f['detail'])
+            col = get_finance_column(detail)
             previous_col = col
-            print(f"Detail: {f['detail']}, Column: {col}")
 
         if col not in financials:
             financials[col] = Decimal(0)
-        print(f"Before adjustment: financials[{col}] = {financials[col]}")
 
         amount = f['amount'] if f['amount'] is not None else '0'
         paid = f['paid'] if f['paid'] is not None else '0'
         financials[col] += Decimal(amount)
         financials[col] -= Decimal(paid)
-        print(f"After adjustment: financials[{col}] = {financials[col]}")
 
-    # Include total_due in financials
+    return financials
+
+
+def process_financials(case, worksheet, row):
+    # Prefer ICOS's own per-category balances; fall back to the itemization for
+    # cases where ICOS doesn't break the summary out by category.
+    financials = summary_financials(case)
+    source = 'summary'
+    if not financials:
+        financials = itemized_financials(case)
+        source = 'itemized'
+
+    total_due = None
     if 'total_due' in case:
-        financials['total_due'] = Decimal(case['total_due'].replace('$', '').replace(',', ''))
+        total_due = Decimal(case['total_due'].replace('$', '').replace(',', ''))
 
-    for f in financials:
-        column = 'U' if f == 'total_due' else f
-        print(f"Writing to worksheet: {column + str(row)} = {financials[f]}")
-        worksheet[column + str(row)] = financials[f]
+    for column, value in financials.items():
+        worksheet[column + str(row)] = value
+    if total_due is not None:
+        worksheet['U' + str(row)] = total_due
 
-    # ICOS's line-item table shows original assessments only: payments and
-    # third-party collection fees ICOS excludes from the amount due are
-    # visible only in its summary total. When our itemized sum disagrees with
-    # that total, the ICOS figure (column U) is the authoritative amount owed
-    # — flag the row so staff don't take the itemized categories at face value.
-    if 'total_due' in financials:
-        itemized = sum(v for k, v in financials.items() if k != 'total_due')
-        if abs(itemized - financials['total_due']) > Decimal('0.01'):
+    # If the per-category figures still don't add up to the balance ICOS
+    # reports, the ICOS figure (column U) is the one to trust -- flag the row so
+    # staff don't take the categories at face value.
+    if total_due is not None:
+        categorized = sum(financials.values(), Decimal(0))
+        if abs(categorized - total_due) > Decimal('0.01'):
             cell_u = worksheet['U' + str(row)]
             cell_u.fill = MISMATCH_FILL
             cell_u.font = MISMATCH_FONT
             worksheet['V' + str(row)] = (
-                "Itemized fees total $%s but ICOS shows $%s due - trust the ICOS "
-                "total; difference is usually paid or third-party collection fees "
-                "ICOS no longer counts" % (itemized, financials['total_due'])
+                "Category fees total $%s but ICOS shows $%s due (%s figures) - trust "
+                "the ICOS total; the difference is usually payments or third-party "
+                "collection fees ICOS no longer counts"
+                % (categorized, total_due, source)
             )
             worksheet['V' + str(row)].font = MISMATCH_FONT
 

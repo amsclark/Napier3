@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+from decimal import Decimal, InvalidOperation
 from werkzeug.utils import secure_filename
 import os
 import platform
@@ -245,22 +246,78 @@ def parse_case_charges(html, case):
         
     case['charges'] = charges
 
+def parse_money(text):
+    """A dollar figure from an ICOS cell, or None if the cell isn't one.
+
+    ICOS writes blanks, "N/A" and "0.00" in the same columns as real amounts,
+    so callers need to tell "no figure here" from "zero".
+    """
+    if text is None:
+        return None
+    cleaned = text.replace(u'\xa0', u' ').strip().replace('$', '').replace(',', '')
+    if not cleaned or cleaned.upper() == 'N/A':
+        return None
+    negative = cleaned.startswith('(') and cleaned.endswith(')')
+    if negative:
+        cleaned = cleaned[1:-1]
+    try:
+        value = Decimal(cleaned)
+    except InvalidOperation:
+        return None
+    return -value if negative else value
+
+
+def parse_financial_summary(soup):
+    """The top-of-page summary: per-category (original, paid, due) plus the total.
+
+    This summary is what ICOS itself treats as owed. The itemization below it
+    lists original assessments only -- payments and the third-party collection
+    fee ICOS excludes from the balance show up here and nowhere else -- so this
+    is the authoritative source for what a defendant actually owes.
+
+    Parsed by shape rather than by fixed column offsets: a row carrying a label
+    plus three figures is a category, and a row with three figures and no label
+    is the total.
+    """
+    table = soup.find('table', {'id': 'one_col'})
+    if table is None:
+        return None, []
+
+    total_due = None
+    categories = []
+    for row in table.find_all('tr'):
+        cells = [c.get_text().replace(u'\xa0', u' ').strip() for c in row.find_all('td')]
+        amounts = [parse_money(c) for c in cells]
+        figures = [a for a in amounts if a is not None]
+        labels = [c for c, a in zip(cells, amounts) if c and a is None and c.upper() != 'N/A']
+        if len(figures) < 3:
+            continue
+        original, paid, due = figures[-3], figures[-2], figures[-1]
+        if labels:
+            categories.append({
+                'label': labels[0],
+                'original': original,
+                'paid': paid,
+                'due': due,
+            })
+        elif total_due is None:
+            total_due = due
+
+    return total_due, categories
+
+
 def parse_case_financials(html, case):
     html = html.decode('utf-8', errors='ignore')
     with open(_dump_path(case['id'], "_financials.html"), "w") as text_file:
         text_file.write(html)
     soup = BeautifulSoup(html, 'html.parser')
-    
-    # Extract the total amount due from the top half of the page
-    financial_summary_table = soup.find('table', {'id': 'one_col'})
-    if financial_summary_table:
-        rows = financial_summary_table.find_all('tr')
-        for row in rows:
-            cols = row.find_all('td')
-            if len(cols) >= 5 and cols[4].get_text().strip().startswith('$'):
-                case['total_due'] = cols[4].get_text().strip()
-                break
-    
+
+    # Extract the summary from the top half of the page
+    total_due, categories = parse_financial_summary(soup)
+    case['summary_categories'] = categories
+    if total_due is not None:
+        case['total_due'] = "$%s" % total_due
+
     # Extract the financial details from the bottom half of the page
     financials = []
     rows = soup.find('form').find_all('tr')
