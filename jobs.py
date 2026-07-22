@@ -4,11 +4,11 @@ Searches now run longer than Heroku's 30 second request limit allows (they
 retry through court-side stalls), so the work happens on a background thread
 and the browser polls for progress.
 
-State lives in this process's memory: the app runs as a single gunicorn
-process with threads, and the hosting arrangement is fixed by contract, so
-there is no shared store to put it in. A dyno restart therefore loses running
-jobs; callers get a clear "the server restarted, please run your search again"
-rather than a silent hang.
+State lives in this process's memory, so the Procfile pins gunicorn to a single
+worker with threads. Heroku's Python buildpack otherwise sets WEB_CONCURRENCY=2
+and half the progress polls land on a worker that has never heard of the job.
+A dyno restart still loses running jobs; callers get a clear "the server
+restarted, please run your search again" rather than a silent hang.
 """
 
 import threading
