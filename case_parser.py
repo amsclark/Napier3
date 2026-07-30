@@ -11,15 +11,29 @@ tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
 
-def _dump_path(case_id, suffix):
-    # case ids come from scraped HTML / request forms; sanitize before
-    # using them as a filename so they cannot escape tmp_dir
-    return os.path.join(tmp_dir, secure_filename(case_id) + suffix)
+def _dump(name, html):
+    """Write a scraped page to tmp_dir, but only when asked to.
+
+    These pages are the unredacted court record for a named person. The
+    search dump holds every name and date of birth the search matched, and
+    a case dump holds one defendant's charges and finances. Writing them
+    was unconditional, so a production dyno accumulated privileged client
+    data on local disk for as long as it stayed up, for nobody's benefit.
+    They are genuinely useful when working on the parsers, so the capability
+    stays and the default flips: off unless NAPIER_DUMP_HTML is set.
+
+    Names are built from case ids, which come from scraped HTML and request
+    forms, so they are sanitized here and cannot escape tmp_dir.
+    """
+    if not os.environ.get('NAPIER_DUMP_HTML'):
+        return
+    os.makedirs(tmp_dir, exist_ok=True)
+    with open(os.path.join(tmp_dir, secure_filename(name)), 'w') as text_file:
+        text_file.write(html)
 
 def parse_search(html):
     html = html.decode('utf-8', errors='ignore')
-    with open(tmp_dir + "search_results.html", "w") as text_file:
-        text_file.write(html)
+    _dump("search_results.html", html)
     soup = BeautifulSoup(html, 'html.parser')
     too_many_results = len(soup.find_all(text="Your query returned more than 200 records.")) > 0
     if too_many_results:
@@ -33,7 +47,9 @@ def parse_search(html):
             'id': list(cols[0].stripped_strings)[0].replace(u'\xa0', u' '),
             'title': cols[2].string,
             'name': cols[3].string.strip(),
-            'dob': cols[4].string.replace(u'\xa0', u''),
+            # stripped like 'name' above; ICOS pads every cell with
+            # CRLFs and tabs, and a caller comparing to a real date loses.
+            'dob': cols[4].string.replace(u'\xa0', u'').strip(),
             'role': cols[5].string
         }
         if case['id'] == 'Case ID':
@@ -106,8 +122,7 @@ def parse_search(html):
 
 def parse_case_summary(html, case):
     html = html.decode('utf-8', errors='ignore')
-    with open(_dump_path(case['id'], "_summary.html"), "w") as text_file:
-        text_file.write(html)
+    _dump(case['id'] + "_summary.html", html)
     soup = BeautifulSoup(html, 'html.parser')
     case['county'] = soup.find_all('tr')[2].find_all('td')[0].string
     case['summary_created_date'] = soup.find_all('tr')[2].find_all('td')[1].string
@@ -122,8 +137,7 @@ def parse_case_summary(html, case):
 
 def parse_case_charges(html, case):
     html = html.decode('utf-8', errors='ignore')
-    with open(_dump_path(case['id'], "_charges.html"), "w") as text_file:
-        text_file.write(html)
+    _dump(case['id'] + "_charges.html", html)
     soup = BeautifulSoup(html, 'html.parser')
     charges = []
     charge_list = list()
@@ -308,8 +322,7 @@ def parse_financial_summary(soup):
 
 def parse_case_financials(html, case):
     html = html.decode('utf-8', errors='ignore')
-    with open(_dump_path(case['id'], "_financials.html"), "w") as text_file:
-        text_file.write(html)
+    _dump(case['id'] + "_financials.html", html)
     soup = BeautifulSoup(html, 'html.parser')
 
     # Extract the summary from the top half of the page

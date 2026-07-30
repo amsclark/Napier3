@@ -51,6 +51,9 @@ Config vars:
 * `RETRY_BUDGET_MIN` (default 45) - how long a job keeps retrying a stalled ICOS
 * `CONCURRENT_WAIT_MIN` (default 16) - how long to wait out a locked ESA account
 * `NAPIER_DISABLE_BACKGROUND` - set to `1` to skip the keepalive and reapers (tests)
+* `NAPIER_DUMP_HTML` - set to `1` to write scraped ICOS pages to `tmp/`. Off by
+  default, and it should stay off in production: those pages are the unredacted
+  court record for everyone a search matched
 * `MAILGUN_DOMAIN` - the Mailgun sending domain, for failure alerts
 * `MAILGUN_API_KEY` - the Mailgun private API key
 * `ALERT_EMAIL_TO` - where failure alerts go; leaving any of these three unset
@@ -118,5 +121,16 @@ the financial reconciliation against a fixture built from a real case, and
 alerting against a real local HTTP server, so an alert is proven to leave the
 process rather than proven to have been asked to.
 
-Raw html from ICOS is written to `tmp/` as searches run, which is useful when
-working on the parsers.
+Set `NAPIER_DUMP_HTML=1` to have raw ICOS html written to `tmp/` as searches
+run, which is useful when working on the parsers. It is off by default. A
+search results page lists every person whose name matched, with their dates of
+birth, so a production dyno that wrote one held privileged client data on local
+disk for as long as it stayed up, for nobody's benefit.
+
+### A name search is not a person search
+
+One real search during development returned 120 rows covering nine different
+people who shared a surname. `parse_search` is what separates them, and the
+results page is where staff pick the one they meant. `tests/fixtures/
+search_results_sample.html` is that page, scrubbed, cut to one row per shape
+that changes the parser's mind.
