@@ -135,6 +135,163 @@ def get_finance_column(detail):
 
     return "O" # MISC
 
+ICOS_BUCKETS = ('COSTS', 'FINE', 'SURCHARGE', 'RESTITUTION', 'OTHER')
+
+# Rows the summary counts as COSTS. Everything the summary does not put in one
+# of the four named buckets falls into OTHER, so only COSTS needs listing.
+COSTS_MARKERS = (
+    'SHERIFF', 'INDIGENT DEFENSE', 'COURT COSTS', 'FILING', 'CLERK',
+    'WITNESS', 'JURY', 'SERVICE', 'ROOM/BOARD', 'ATTORNEY FEE',
+    'TRANSCRIPT', 'APPEAL FEES', 'DEPOSITION',
+)
+
+FINE_MARKERS = (
+    'FINE', 'DEFERRED JUDGMENT CIVIL PENALTY',
+    'INFRACTIONS-PENALTIES AND FORFEITURES-CITY',
+    'NONSCHEDULED CHAPTER 321', 'SCHEDULED VIOLATION/NON-SCHEDULED',
+)
+
+
+def get_summary_bucket(detail):
+    """Which of the five ICOS summary buckets a line item rolls up into.
+
+    The summary is a rollup, not a fee breakdown, so reconciling a payment back
+    to a fee means knowing which bucket each line fed. Getting this wrong is
+    caught by the partition check in reconcile_financials rather than producing
+    a wrong number, so an unrecognised fee costs us the reconciliation and
+    nothing else.
+    """
+    text = (detail or '').upper()
+    if 'SURCHARGE' in text:
+        return 'SURCHARGE'
+    if 'RESTITUTION' in text:
+        return 'RESTITUTION'
+    if any(m in text for m in FINE_MARKERS):
+        return 'FINE'
+    if any(m in text for m in COSTS_MARKERS):
+        return 'COSTS'
+    return 'OTHER'
+
+
+def _unique_paid_subset(amounts, target):
+    """Indices of the rows that sum to target, when exactly one set does.
+
+    ICOS records payments per bucket, not per line. Where only one combination
+    of lines can account for the amount paid, that combination is the answer.
+    Where several could, we cannot tell which fee was paid and say so.
+    """
+    if target == 0:
+        return frozenset()
+    if target == sum(amounts):
+        return frozenset(range(len(amounts)))
+    if len(amounts) == 1:
+        return frozenset([0]) if amounts[0] == target else None
+    if len(amounts) > 18:
+        return None  # combinatorially unreasonable; treat as ambiguous
+
+    from itertools import combinations
+    found = None
+    for size in range(1, len(amounts)):
+        for combo in combinations(range(len(amounts)), size):
+            if sum(amounts[i] for i in combo) != target:
+                continue
+            if found is not None:
+                return None  # more than one explanation
+            found = frozenset(combo)
+    return found
+
+
+def reconcile_financials(case):
+    """Per-column amounts owed, keeping the fee breakdown and the ICOS balance.
+
+    The summary reconciles against what ICOS says is due but collapses every fee
+    into five buckets. The itemization keeps the fee detail but shows original
+    assessments with the Paid column blank, so it overstates anything already
+    paid. This partitions the itemization into the buckets the summary reports,
+    checks each bucket against its summary original, and then subtracts the
+    bucket's payment from the specific lines that account for it.
+
+    Returns (columns, note). columns is None when the itemization cannot be
+    reconciled against the summary, which means the caller should fall back.
+    note is None when every payment was resolved, or a string naming the buckets
+    whose payment could not be attributed to particular lines.
+    """
+    categories = case.get('summary_categories')
+    rows = case.get('financials')
+    if not categories or not rows:
+        return None, None
+
+    summary = {}
+    for category in categories:
+        if category.get('original') is None:
+            return None, None
+        summary[category['label'].upper()] = category
+    if set(summary) != set(ICOS_BUCKETS):
+        return None, None
+
+    # Partition the itemization, carrying the last detail across continuation
+    # rows the way itemized_financials does.
+    buckets = {name: [] for name in ICOS_BUCKETS}
+    last_detail = None
+    for row in rows:
+        detail = row.get('detail') or ''
+        if is_excluded_fee(detail):
+            last_detail = None
+            continue
+        if not detail.strip():
+            if last_detail is None:
+                continue
+            detail = last_detail
+        else:
+            last_detail = detail
+        amount = row.get('amount')
+        if amount is None:
+            continue
+        buckets[get_summary_bucket(detail)].append(
+            (detail, Decimal(str(amount))))
+
+    # Every bucket must add up to what the summary says was assessed. If it
+    # does not, the partition is wrong and any payment we attributed off it
+    # would be wrong too.
+    for name in ICOS_BUCKETS:
+        assessed = sum((amt for _, amt in buckets[name]), Decimal(0))
+        if abs(assessed - summary[name]['original']) > Decimal('0.01'):
+            return None, None
+
+    columns = {}
+    unresolved = []
+    for name in ICOS_BUCKETS:
+        entries = buckets[name]
+        if not entries:
+            continue
+        paid = summary[name].get('paid') or Decimal(0)
+        amounts = [amt for _, amt in entries]
+        settled = _unique_paid_subset(amounts, paid)
+        if settled is None:
+            # Cannot say which line was paid. Report the bucket's balance in
+            # MISC rather than guessing a fee it might not belong to.
+            unresolved.append(name)
+            due = summary[name].get('due')
+            if due is None:
+                due = sum(amounts, Decimal(0)) - paid
+            columns['O'] = columns.get('O', Decimal(0)) + due
+            continue
+        for index, (detail, amount) in enumerate(entries):
+            owed = Decimal(0) if index in settled else amount
+            if owed == 0:
+                continue
+            column = get_finance_column(detail)
+            columns[column] = columns.get(column, Decimal(0)) + owed
+
+    note = None
+    if unresolved:
+        note = ("ICOS records payments per category, not per fee. The payment "
+                "in %s could not be tied to a specific line, so that balance "
+                "is reported under MISC."
+                % ", ".join(unresolved))
+    return columns, note
+
+
 def is_excluded_fee(detail):
     """Fees ICOS lists but does not count toward the balance.
 

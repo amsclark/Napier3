@@ -146,6 +146,100 @@ def test_itemized_fallback_flags_the_mismatch(felony_case):
     assert 'trust the ICOS total' in sheet.value_of('V4')
 
 
+def test_reconciled_keeps_the_breakdown_and_matches_icos(felony_case):
+    """The whole point: fee detail and the ICOS balance at the same time.
+
+    The summary path gets the total right and loses the fees. The itemized path
+    keeps the fees and overstates the total by whatever was already paid.
+    Partitioning the itemization into the summary's buckets and subtracting each
+    bucket's payment from the lines that account for it gets both.
+    """
+    columns, note = crs.reconcile_financials(felony_case)
+    assert note is None
+    assert columns == {
+        'M': Decimal('579.00'),   # two sheriff fees, nothing paid
+        'J': Decimal('50.00'),    # indigent defense
+        'P': Decimal('90.00'),    # revolving fund, five lines
+        'S': Decimal('500.00'),   # restitution
+    }
+    assert sum(columns.values()) == Decimal('1219.00')
+    assert 'K' not in columns   # the revenue fee was paid; this was the bug
+
+
+def test_reconciled_total_equals_the_icos_total(felony_case):
+    columns, _ = crs.reconcile_financials(felony_case)
+    total_due = Decimal(felony_case['total_due'].replace('$', ''))
+    assert sum(columns.values()) == total_due
+
+
+def test_reconciliation_needs_both_halves(felony_case):
+    del felony_case['summary_categories']
+    assert crs.reconcile_financials(felony_case) == (None, None)
+
+
+def test_reconciliation_refuses_a_partition_that_does_not_add_up(felony_case):
+    # If a fee lands in the wrong bucket the bucket stops matching its summary
+    # original. That must cost us the reconciliation, not produce a wrong split.
+    felony_case['financials'][0]['amount'] = '31.00'
+    columns, note = crs.reconcile_financials(felony_case)
+    assert columns is None and note is None
+
+
+def test_ambiguous_payment_is_flagged_not_guessed():
+    # Two lines of the same amount in one bucket, one of them paid. Nothing on
+    # the page says which, so the balance goes to MISC and the row gets a note.
+    case = {
+        'total_due': '$25.00',
+        'summary_categories': [
+            {'label': 'COSTS', 'original': Decimal('0'), 'paid': Decimal('0'),
+             'due': Decimal('0')},
+            {'label': 'FINE', 'original': Decimal('0'), 'paid': Decimal('0'),
+             'due': Decimal('0')},
+            {'label': 'SURCHARGE', 'original': Decimal('0'),
+             'paid': Decimal('0'), 'due': Decimal('0')},
+            {'label': 'RESTITUTION', 'original': Decimal('0'),
+             'paid': Decimal('0'), 'due': Decimal('0')},
+            {'label': 'OTHER', 'original': Decimal('50.00'),
+             'paid': Decimal('25.00'), 'due': Decimal('25.00')},
+        ],
+        'financials': [
+            {'detail': 'DELINQUENT REVOLVING FUND OBLIGATION',
+             'amount': '25.00', 'paid': None, 'paidDate': None},
+            {'detail': 'IOWA DEPT OF REVENUE COLLECTIONS FEE',
+             'amount': '25.00', 'paid': None, 'paidDate': None},
+        ],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert columns == {'O': Decimal('25.00')}
+    assert note is not None and 'OTHER' in note
+
+
+def test_third_party_fee_stays_out_of_the_partition(felony_case):
+    # ICOS itemises the Linebarger fee but leaves it out of the totals, so it
+    # must not be counted when checking a bucket against its summary original.
+    details = [f['detail'] for f in felony_case['financials']]
+    assert any('THIRD PARTY' in (d or '') for d in details)
+    columns, note = crs.reconcile_financials(felony_case)
+    assert columns is not None
+    assert Decimal('304.75') not in columns.values()
+
+
+@pytest.mark.parametrize("detail,bucket", [
+    ("SHERIFFS FEES - LOCAL", "COSTS"),
+    ("INDIGENT DEFENSE-FELONY-REIMBURSE STATE", "COSTS"),
+    ("RESTITUTIONS", "RESTITUTION"),
+    ("CRIMINAL PENALTY SURCHARGE", "SURCHARGE"),
+    ("FINE", "FINE"),
+    ("NONSCHEDULED CHAPTER 321", "FINE"),
+    ("DNU-DELINQUENT REVOLVING FUND OBLIGATION", "OTHER"),
+    ("IOWA DEPT OF REVENUE COLLECTIONS FEE", "OTHER"),
+    ("", "OTHER"),
+    (None, "OTHER"),
+])
+def test_summary_bucket_classification(detail, bucket):
+    assert crs.get_summary_bucket(detail) == bucket
+
+
 @pytest.mark.parametrize("text,expected", [
     ("$1,401.85", Decimal('1401.85')),
     ("0.00", Decimal('0')),
