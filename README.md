@@ -51,32 +51,52 @@ Config vars:
 * `RETRY_BUDGET_MIN` (default 45) - how long a job keeps retrying a stalled ICOS
 * `CONCURRENT_WAIT_MIN` (default 16) - how long to wait out a locked ESA account
 * `NAPIER_DISABLE_BACKGROUND` - set to `1` to skip the keepalive and reapers (tests)
-* `NAPIER_ALERT_URL` - where to push failure alerts; unset means no alerts
+* `MAILGUN_DOMAIN` - the Mailgun sending domain, for failure alerts
+* `MAILGUN_API_KEY` - the Mailgun private API key
+* `ALERT_EMAIL_TO` - where failure alerts go; leaving any of these three unset
+  turns alerting into a logged no-op
+* `ALERT_EMAIL_FROM` (optional) - defaults to `Napier <napier@MAILGUN_DOMAIN>`
 
 Useful log filters: `heroku logs -a crs-napier | grep -E 'ICOS|KEEPALIVE|JOB|ALERT'`.
 
 ### Alerts
 
-Napier runs unattended, so the two failures that leave staff stuck now push a
-notification instead of waiting to be found in a log: ICOS becoming unreachable,
-and a job crashing on something the app did not anticipate. Point
-`NAPIER_ALERT_URL` at an ntfy topic, or at anything else that takes an HTTPS
-POST with a text body.
+Napier runs unattended. When a search dies after forty-five minutes of retrying,
+or a case will not parse, the only record used to be a line in `heroku logs`
+that got read after staff complained rather than before. Napier now emails the
+detail needed to diagnose a failure without shelling into Heroku.
 
-Alerts are per episode rather than per occurrence. A condition sends once when
-it starts, at most hourly while it lasts, and once more when it clears, so an
-afternoon of ICOS being down is a handful of messages rather than one every
-twenty seconds. A failure to deliver an alert is logged and otherwise ignored,
-because a notification endpoint being down must not take Napier down with it.
+Seven things send mail: ICOS exhausting the retry budget, an ESA account still
+locked when the wait gives up, a run that succeeded but needed three or more
+attempts, an unusable response once signed in, a case that would not parse, a
+job crashing, and an unhandled exception in a request. A bad password does not,
+because it is always a typo. Nor does a cold keepalive, which is the normal
+state of an idle path to ICOS and recovers on its own; paging on it would train
+everyone to ignore Napier's mail.
 
-Alerts carry the shape of a failure and never its content: which subsystem,
-which exception type, how long it has been going. The endpoint is a third-party
-service and the payloads here are client court records, so no name, case number
-or exception message is ever sent. That detail stays in the dyno log.
+Sending is one POST to the Mailgun HTTP API over `urllib`, on a daemon thread
+with its own timeout. No SMTP handshake to stall a worker, no dependency, no
+Heroku add-on. A failed send is logged and dropped, because a mail outage must
+not become a failed search.
+
+An alert that repeats is an alert that gets muted. A forty-five minute retry
+budget at escalating backoff is dozens of attempts, and a clinic morning puts
+several staff behind the same broken ICOS. So it is one email per job per
+failure class, with a floor of one per class per ten minutes across all jobs on
+top, and one digest when the job ends carrying every event including the ones
+that were suppressed.
+
+Alerts carry case numbers but never people. A case number is court public record
+and a parse-failure alert without one gives nobody anything to look at. The
+defendant's name and date of birth are the privileged part and are never
+assembled into an alert. Exception messages are dropped for the same reason: a
+parser that dies on a case tends to quote that case back. What survives is the
+traceback's frames, which are our own source, plus the exception type. Both
+guards have tests that fail when the guard is removed.
 
 The keepalive used to log every ping, which was 4,300 lines a day and buried
-everything worth reading. It now logs state changes and a heartbeat every
-fifteen minutes.
+everything worth reading. It now logs state changes and a heartbeat every ten
+minutes.
 
 ## Development
 

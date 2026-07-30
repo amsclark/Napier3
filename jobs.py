@@ -92,16 +92,10 @@ def start(kind, target, *args, **kwargs):
             if message is None:
                 print("JOB %s %s crashed: %r" % (kind, job.id[:8], e), flush=True)
                 # Staff get an apology they cannot act on, so someone who can
-                # act has to hear about it. The exception type and job id are
-                # enough to find the traceback in the dyno log; the exception
-                # message is deliberately left out, because a parser failing on
-                # a case tends to quote that case.
-                alerts.raise_alert(
-                    "job-crash-%s" % kind,
-                    "Napier %s job crashed" % kind,
-                    "A %s job ended in an unhandled %s and the user was shown a "
-                    "generic apology. Job %s in the dyno log has the traceback."
-                    % (kind, type(e).__name__, job.id[:8]))
+                # act has to hear about it.
+                alerts.record(job.id[:8], kind, alerts.JOB_FAILED,
+                              progress=alerts.recent_progress(job),
+                              **{'traceback': alerts.safe_traceback(e)})
                 message = ("Something went wrong inside Napier. Please try again, "
                            "and let Clark Management Consulting know if it keeps "
                            "happening.")
