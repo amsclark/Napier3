@@ -1,43 +1,605 @@
 <!--
-  Shape of an ICOS "Financial" case page, modelled on Dubuque case
-  01311 FECR000000 (the reported collection-costs discrepancy).
+  REAL ICOS financials page for Dubuque case 01311 FECR000000, captured
+  2026-07-30 from the live ESA app (TViewFinancials) and scrubbed.
 
-  What matters here, and what the parser has to survive:
-    * the summary table lists per-category original / paid / due, and a total
-      row with the three figures and no label;
-    * the itemization below lists ORIGINAL assessments with the Paid column
-      blank on every row, even for fees that were in fact paid;
-    * the third-party (Linebarger) collection fee appears as a line item but
-      is excluded from the ICOS totals: 1706.60 itemized - 304.75 = 1401.85.
+  Scrubbing applied, and nothing else:
+    * the defendant's name is replaced with TEST DEFENDANT;
+    * the signed-in ESA account in the page footer is replaced with testuser.
+  The markup is otherwise what the server returned, CRLF line endings and all,
+  including the uppercase tags, the one unclosed <TD>, and the commented-out
+  <TD> in every detail row. Parsers have to survive all three. The one U+FFFD
+  in the footer is a copyright sign the server mislabels as utf-8; it sits in
+  boilerplate no parser reads.
+
+  sha256 of the scrubbed capture, before this comment and before the account
+  scrub: a3262d010bb10cd79ab0782932229b91ae683fec2eec87ab6faabaa5a158a1c0
+
+  What this page shows that the earlier modelled fixture got wrong:
+    * the summary table is a five-bucket rollup (COSTS, FINE, SURCHARGE,
+      RESTITUTION, OTHER), NOT a per-fee breakdown. Anything that maps summary
+      labels onto CRS fee columns lands almost everything in MISC;
+    * the itemization below lists ORIGINAL assessments with Paid and Date
+      blank on every row, even for the revenue fee that was in fact paid;
+    * the third-party (Linebarger) fee of 304.75 is itemized but excluded from
+      the ICOS totals: 1706.60 itemized - 304.75 = 1401.85 original, less
+      182.85 paid = 1219.00 due.
 -->
-<html>
+
+<!doctype html>
+<!-- paulirish.com/2008/conditional-stylesheets-vs-css-hacks-answer-neither/ -->
+<!--[if lt IE 7 ]> <html class="no-js ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]>    <html class="no-js ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]>    <html class="no-js ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!-->
+
+<html class="no-js" lang="en">
+<!--<![endif]-->
+<head>
+<meta charset="utf-8">
+
+<!-- Always force latest IE rendering engine (even in intranet) & Chrome Frame Remove this if you use the .htaccess -->
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+
+
+
+
+
+
+
+	
+	
+
+
+
+<title>Financials</title>
+<meta name="description" content="">
+<meta name="author" content="">
+
+<!-- Mobile viewport optimized: j.mp/bplateviewport -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- CSS: implied media="all" -->
+<link rel="stylesheet" href="css/style.css?v=2">
+<link rel="stylesheet" type="text/css" href="js/libs/jquery-ui-1.12.1.custom/jquery-ui.css">
+<link rel="stylesheet" href="css/ICO.css">
+
+<!-- All JavaScript at the bottom, except for Modernizr which enables HTML5 elements & feature detects -->
+<script src="js/libs/modernizr-1.7.min.js"></script>
+
+</head>
+
 <body>
+<br>
+
+
 <table id="one_col">
-  <tr><td>Category</td><td></td><td>Original</td><td>Paid</td><td>Due</td></tr>
-  <tr><td>SHERIFFS FEES - LOCAL</td><td></td><td>579.00</td><td>0.00</td><td>579.00</td></tr>
-  <tr><td>RESTITUTIONS</td><td></td><td>500.00</td><td>0.00</td><td>500.00</td></tr>
-  <tr><td>INDIGENT DEFENSE-FELONY-REIMBURSE STATE</td><td></td><td>50.00</td><td>0.00</td><td>50.00</td></tr>
-  <tr><td>DELINQUENT REVOLVING FUND OBLIGATION</td><td></td><td>90.00</td><td>0.00</td><td>90.00</td></tr>
-  <tr><td>IOWA DEPT OF REVENUE COLLECTIONS FEE</td><td></td><td>182.85</td><td>182.85</td><td>0.00</td></tr>
-  <tr><td></td><td></td><td>$1401.85</td><td>$182.85</td><td>$1219.00</td></tr>
-  <tr><td>SUPPORT/ALIMONY</td><td></td><td>N/A</td><td>0.00</td><td>N/A</td></tr>
+	<TR>
+		<TD colspan=9><B>Financials</B><BR>
+		Title: ST VS TEST DEFENDANT<BR>
+		Case: 01311  FECR000000 (DUBUQUE)<BR>
+		Citation Number: </TD>
+	</TR>
+	<TR>
+		<TD class="header"></TD>
+		<TD class="header_left">Summary</TD>
+		<TD class="header_right">Orig</TD>
+		<TD class="header_right">Paid</TD>
+		<TD class="header_right">Due</TD>
+		<TD class="header" colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>COSTS</TD>
+		<TD class="number">629.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">629.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>FINE</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>SURCHARGE</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>RESTITUTION</TD>
+		<TD class="number">500.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">500.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>OTHER</TD>
+		<TD class="number">272.85</TD>
+		<TD class="number">182.85</TD>
+		<TD class="number">90.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	<TR>
+		<TD></TD>
+		<TD></TD>
+		<TD class="number">
+		<HR>
+		</TD>
+		<TD class="number">
+		<HR>
+		</TD>
+		<TD class="number">
+		<HR>
+		</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD></TD>
+		<TD class="number">$1401.85</TD>
+		<TD class="number">$182.85</TD>
+		<TD class="number">$1219.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+		<TR>
+			<TD></TD>
+			<TD><button type="button" id="payLaterButton">Add to Cart</button> &nbsp; <button type="button" id="reviewShoppingCartButton">Review Cart</button>
+			<TD></TD>
+			<TD></TD>
+			<TD></TD>
+			<TD colspan="4"></TD>
+		</TR>
+	
+	<TR>
+		<TD></TD>
+		<TD></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD></TD>
+		<TD>SUPPORT/ALIMONY</TD>
+		<TD class="number">N/A</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">N/A</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	<TR>
+		<TD></TD>
+		<TD></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD colspan="4"></TD>
+	</TR>
 </table>
 
-<form>
-<table>
-  <tr><td></td><td>Detail</td><td>Payor/Payee</td><td>Obligor/Obligee</td><td>Original Amount</td><td>Paid Amount</td><td>Date</td></tr>
-  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>30.00</td><td></td><td></td></tr>
-  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
-  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
-  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
-  <tr><td></td><td>DNU-DELINQUENT REVOLVING FUND OBLIGATION</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>15.00</td><td></td><td></td></tr>
-  <tr><td></td><td>SHERIFFS FEES - LOCAL</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>188.40</td><td></td><td></td></tr>
-  <tr><td></td><td>SHERIFFS FEES - LOCAL</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>PAT TESTER / DUBUQUE COUNTY SHERIFFS DEPT</td><td>390.60</td><td></td><td></td></tr>
-  <tr><td></td><td>RESTITUTIONS</td><td>PAT TESTER / WALMART</td><td>PAT TESTER / WALMART</td><td>500.00</td><td></td><td></td></tr>
-  <tr><td></td><td>INDIGENT DEFENSE-FELONY-REIMBURSE STATE</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>50.00</td><td></td><td></td></tr>
-  <tr><td></td><td>IOWA DEPT OF REVENUE COLLECTIONS FEE</td><td>PAT TESTER / STATE OF IOWA</td><td>PAT TESTER / STATE OF IOWA</td><td>182.85</td><td></td><td></td></tr>
-  <tr><td></td><td>THIRD PARTY DEBT COLLECTION FEE</td><td>PAT TESTER / SON, LLP LINEBARGER GOGGAN BLAIR &amp; SAMP</td><td>PAT TESTER / SON, LLP LINEBARGER GOGGAN BLAIR &amp; SAMP</td><td>304.75</td><td></td><td></td></tr>
+<div class="hidden" id="payLaterDiv" title="Add Case to Shopping Cart">
+	<div>Adding Case: <span id="payLaterCaseId"></span></div>
+	<div style="border: 5px solid #1C6EA4;color:#FF0004;background-color:#B2BEB5;"  id="warrantWarning">
+		WARNING: Payment of fines does not satisfy outstanding WARRANT!!  Contact Clerk of Court or Sheriff
+	</div>
+	<div>Enter the amount to pay:</div>
+	<div id="payLaterAmountDiv">
+		<span></span>
+		<input type="text" id="payLaterAmount" />
+	</div>
+	<div>
+		<button type="button" id="addToCart">Add to Cart</button>
+		<button type="button" id="addToCartAndCheckout">Add to Cart and Checkout</button>
+	</div>
+</div>
+
+<br>
+
+
+
+<FORM action="/ESAWebApp/PayRecInput" METHOD="POST">
+<table id="one_col">
+	<TR>
+		<TD class="header"></TD>
+		<TD class="header_left">Detail</TD>
+		<TD class="header_left">Payor/Payee</TD>
+		<TD class="header_left">Obligor/Obligee</TD>
+		<TD class="header_right">Original Amount</TD>
+		<TD class="header_right">Paid Amount</TD>
+		<TD class="header_right">Date</TD>
+		<TD class="header_right">Receipt</TD>
+		<TD class="header_right">Type</TD>
+	</TR>
+	
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>DNU-DELINQUENT REVOLVING FUND OBLIGATION</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">30.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=10">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>DNU-DELINQUENT REVOLVING FUND OBLIGATION</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">15.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=12">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>DNU-DELINQUENT REVOLVING FUND OBLIGATION</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">15.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=13">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>DNU-DELINQUENT REVOLVING FUND OBLIGATION</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">15.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=11">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>DNU-DELINQUENT REVOLVING FUND OBLIGATION</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">15.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=9">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>SHERIFFS FEES - LOCAL</TD>
+			<TD>TEST DEFENDANT /  DUBUQUE COUNTY SHERIFFS DEPT</TD>
+			<TD>TEST DEFENDANT /  DUBUQUE COUNTY SHERIFFS DEPT</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">188.40</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=6">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>SHERIFFS FEES - LOCAL</TD>
+			<TD>TEST DEFENDANT /  DUBUQUE COUNTY SHERIFFS DEPT</TD>
+			<TD>TEST DEFENDANT /  DUBUQUE COUNTY SHERIFFS DEPT</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">390.60</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=7">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>RESTITUTIONS</TD>
+			<TD>TEST DEFENDANT /  WALMART</TD>
+			<TD>TEST DEFENDANT /  WALMART</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">500.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=16">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>INDIGENT DEFENSE-FELONY-REIMBURSE STATE</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">50.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=8">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>IOWA DEPT OF REVENUE COLLECTIONS FEE</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<TD>TEST DEFENDANT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">182.85</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=14">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>THIRD PARTY DEBT COLLECTION FEE</TD>
+			<TD>TEST DEFENDANT / SON, LLP LINEBARGER GOGGAN BLAIR &amp; SAMP</TD>
+			<TD>TEST DEFENDANT / SON, LLP LINEBARGER GOGGAN BLAIR &amp; SAMP</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">304.75</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=15">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+  </table>
+</FORM>
+
+
+
+
+
+
+
+
+
+ 
+    <script language=javascript>
+        function login(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/ESALogin.jsp"
+        }
+        function registration(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/Registration"
+        }
+ 
+        function goToPassword() {
+            parent.location.href = "/ESAWebApp/ChangePasswordServlet";
+        }
+ 
+        function goToEditUser() {
+            parent.location.href = "/ESAWebApp/EditUserServlet?getEditPage=true";
+        }
+    </script>
+
+<table width="100%">
+    <tr>
+		<td align=right><font face=Arial size=1>CN=testuser,O=JUDICIAL</font></td>
+    </tr>
 </table>
-</form>
+
+
+
+<div style="text-align: center;">
+	<form name="logoffForm" action="/ESAWebApp/EPALogout" target="_parent" method=POST>
+		<input type=submit name="logoffButton" value="Logoff" style="inline-block"> 
+		<input type=button name="changePassword" value="Change Password" onclick="javaScript:goToPassword()" style="inline-block">
+	</form>
+</div>
+
+
+
+<table width=100%>
+	<tr>
+		<td width=100%>
+
+			<p align=center><font size=2>Please Logoff when you are through accessing case detail information.</font></p>
+			<p align=center><font size=2>For exclusive use by the Iowa Courts<br>� State of Iowa,&nbsp; All Rights Reserved</font></p>
+
+		</td>
+	</tr>
+</table>
+
+
+
+
+<!-- JavaScript at the bottom for fast page loading -->
+
+<script src="js/libs/jquery-3.3.1.min.js"></script>
+<script src="js/libs/jquery-ui-1.12.1.custom/jquery-ui.min.js"></script>
+<script src="js/plugins.js"></script>
+<script src="js/Registration.js"></script>
+<script>
+	var varCaseID = '01311  FECR000000';
+	var varMaxAmt = '$1219.00';
+	var shoppingCartId = "null";
+	
+	varMaxAmt = varMaxAmt.replace('$', '');
+	$("#payNowButton").click(function() {
+		document.TrialForm.caseId.value = varCaseID;
+		document.TrialForm.citationNbr.value='';
+		document.TrialForm.deny.value = 'N'; //part of fix for bug 1679
+		document.TrialForm.denyMssg.value = '';
+		document.TrialForm.submit();
+	});
+	$("#payLaterButton").click(function() {
+		$('#payLaterCaseId').text(varCaseID);
+		$('#payLaterAmount').val(varMaxAmt);
+		$("#payLaterDiv").removeClass('hidden');
+		$('#payLaterDiv').dialog();
+	});
+	$("#reviewShoppingCartButton").click(function() {
+		top.location.href = "/ESAWebApp/ReviewShoppingCart";
+	});
+	$("#addToCart").click(function() {
+		var varPayAmt = $('#payLaterAmount').val();
+		if (parseInt(varPayAmt) > parseInt(varMaxAmt)) {
+			alert('You cannot pay more than is owed.');
+			$('#payLaterAmount').val(varMaxAmt).focus();
+		} else {
+			$.post("/ESAWebApp/AddPayLater", 
+				{ caseID: varCaseID, payAmt: varPayAmt
+				}, 
+				function (data, status) {
+					$('#payLaterResponseDiv').html(data);
+				}
+			);
+			$('#payLaterDiv').dialog('close');
+			$('#reviewShoppingCartButton').prop("disabled", false);
+		};
+	});
+	$('#addToCartAndCheckout').click(function() {
+		var varPayAmt = $('#payLaterAmount').val();
+		if (parseInt(varPayAmt) > parseInt(varMaxAmt)) {
+			alert('You cannot pay more than is owed.');
+			$('#payLaterAmount').val(varMaxAmt).focus();
+		} else {
+			$.post("/ESAWebApp/AddPayLater", 
+				{ caseID: varCaseID, payAmt: varPayAmt
+				}, 
+				function (data, status) {
+					$('#payLaterResponseDiv').html(data);
+				}
+			);
+			$('#payLaterDiv').dialog('close');
+		};
+		top.location.href = "/ESAWebApp/ReviewShoppingCart";
+	});
+	
+	$( document ).ready(function() {
+		$('#reviewShoppingCartButton').prop("disabled", true);
+		if ("null" != shoppingCartId) {
+			$('#reviewShoppingCartButton').prop("disabled", false);
+		}
+		console.log('warrantCheck = ' + 0);
+		var warrantCheck = 0;
+		if (warrantCheck < 1) {
+			$('#warrantWarning').hide();
+		}
+	});
+	
+</script>
+<!-- end scripts-->
+<!--[if lt IE 7 ]>
+    <script src="js/libs/dd_belatedpng.js"></script>
+    <script>DD_belatedPNG.fix('img, .png_bg');  </script>
+  <![endif]-->
 </body>
 </html>
