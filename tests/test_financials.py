@@ -57,14 +57,21 @@ def test_summary_total_due_is_the_icos_balance(felony_case):
     assert felony_case['total_due'] == "$1219.00"
 
 
+def test_summary_is_a_rollup_not_a_fee_breakdown(felony_case):
+    # ICOS summarises into five fixed buckets. It does not break the balance
+    # out by fee type, so there is no per-fee row to read a payment off.
+    labels = [c['label'] for c in felony_case['summary_categories']]
+    assert labels == ['COSTS', 'FINE', 'SURCHARGE', 'RESTITUTION', 'OTHER']
+
+
 def test_summary_categories_carry_payments(felony_case):
     by_label = {c['label']: c for c in felony_case['summary_categories']}
-    revenue = by_label['IOWA DEPT OF REVENUE COLLECTIONS FEE']
-    # The itemization shows this fee at face value with no payment; only the
-    # summary records that it was paid.
-    assert revenue['original'] == Decimal('182.85')
-    assert revenue['paid'] == Decimal('182.85')
-    assert revenue['due'] == Decimal('0.00')
+    # The revenue fee lands in OTHER. The itemization shows it at face value
+    # with the Paid column blank; only the summary records that it was paid.
+    other = by_label['OTHER']
+    assert other['original'] == Decimal('272.85')
+    assert other['paid'] == Decimal('182.85')
+    assert other['due'] == Decimal('90.00')
 
 
 def test_summary_skips_na_rows(felony_case):
@@ -77,7 +84,30 @@ def test_collection_costs_column_is_zero(felony_case):
     crs.process_financials(felony_case, sheet, 4)
     # K is collection costs: the Linebarger fee is excluded by ICOS and the
     # revenue fee was paid, so nothing is owed here. This is the $487.60 bug.
+    # On the summary path K is never written at all, because the summary has no
+    # collection-fee bucket to map from -- see the MISC test below.
     assert sheet.value_of('K4') in (None, Decimal('0'), Decimal('0.00'))
+
+
+def test_summary_path_collapses_fee_detail_into_misc(felony_case):
+    """Documents a real cost of preferring the summary, so it stays visible.
+
+    The summary reconciles against the ICOS balance, which is what the reported
+    bug was about. But its five buckets carry no fee detail, so COSTS and OTHER
+    both fall through to MISC and the columns the CRS workbook exists to fill --
+    sheriff, indigent defense, collection fee, revolving fund -- come back empty.
+    The itemization resolves the same case as M=579.00, J=50.00, K=182.85,
+    P=90.00, S=500.00, but overstates the balance by the 182.85 already paid.
+
+    If the reporting strategy changes, this test should fail and force the call.
+    """
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    assert sheet.value_of('O4') == Decimal('719.00')   # COSTS 629 + OTHER 90
+    assert sheet.value_of('S4') == Decimal('500.00')
+    assert sheet.value_of('M4') is None                # sheriff fees, itemised only
+    assert sheet.value_of('J4') is None                # indigent defense
+    assert sheet.value_of('P4') is None                # revolving fund
 
 
 def test_categories_reconcile_against_icos_total(felony_case):
