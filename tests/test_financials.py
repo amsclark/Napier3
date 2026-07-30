@@ -1,8 +1,9 @@
 """Court-debt reporting: what Napier reports as owed must match ICOS.
 
-Reported July 2026: Napier showed $487.60 of collection costs on Dubuque case
-FECR000000 that ICOS does not show as owed. Two separate mechanisms, both
-covered here.
+Reported July 2026: Napier showed $487.60 of collection costs on a Dubuque
+felony case that ICOS does not show as owed. Two separate mechanisms, both
+covered here. The fixture is that real page with the case and the defendant
+scrubbed out, because this repo is public.
 """
 
 import os
