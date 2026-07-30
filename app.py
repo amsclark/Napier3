@@ -41,7 +41,7 @@ KEEPALIVE_BURST = 8
 # A ping every 20 seconds logging a line each time is 4,300 lines a day, which
 # buries the job and ICOS lines that someone reads a log to find. Every change
 # of state is logged; a steady healthy ping only says so this often.
-KEEPALIVE_LOG_SECS = 15 * 60
+KEEPALIVE_LOG_SECS = 10 * 60
 _keepalive_lock = None
 _keepalive_state = {"ok": None, "logged_at": 0.0, "cold_since": None}
 
@@ -83,27 +83,20 @@ def _keepalive_cycle(state, now=None):
         else:
             print("KEEPALIVE still cold after burst", flush=True)
 
+    # Deliberately does not alert. A cold keepalive is the normal state of an
+    # idle path to ICOS and it recovers on its own, so paging on it would train
+    # everyone to ignore Napier's email. Staff-visible failures are alerted
+    # where they happen, in the retry classifier and the job engine.
     if ok:
         if state["cold_since"] is not None:
-            alerts.clear_alert(
-                "icos-keepalive",
-                "Napier can reach ICOS again",
-                "The keepalive warmed the path back up after %s. Searches "
-                "should work normally." % _describe_duration(now - state["cold_since"]))
+            print("KEEPALIVE warm again after %s"
+                  % _describe_duration(now - state["cold_since"]), flush=True)
             state["cold_since"] = None
         if state["ok"] is not True or now - state["logged_at"] >= KEEPALIVE_LOG_SECS:
             print("KEEPALIVE ok %.2fs" % dt, flush=True)
             state["logged_at"] = now
-    else:
-        if state["cold_since"] is None:
-            state["cold_since"] = now
-        alerts.raise_alert(
-            "icos-keepalive",
-            "Napier cannot reach ICOS",
-            "%d keepalive attempts on the ICOS login page failed in a row, so "
-            "searches will stall or fail until this clears. Cold for %s."
-            % (KEEPALIVE_BURST + 1, _describe_duration(now - state["cold_since"])),
-            priority="urgent")
+    elif state["cold_since"] is None:
+        state["cold_since"] = now
     state["ok"] = ok
     return state
 
@@ -256,6 +249,26 @@ def download(job_id):
     return send_file(path, as_attachment=True,
                      download_name=tasks.download_name(job.result['def_name'],
                                                        job.result['is_lite']))
+
+
+@app.errorhandler(Exception)
+def unhandled(e):
+    """Anything that got past a route without being handled.
+
+    Background jobs report their own failures, so what lands here is a bug in a
+    request path, which is the case nobody would otherwise find out about: the
+    user sees a 500 and closes the tab. Re-raised afterwards so Flask still
+    produces its normal error response and the traceback still reaches the log.
+    """
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        # 404s and the like are routing, not breakage.
+        return e
+    # The request path is included and the query string is not, since a search
+    # is submitted as a POST body and a path is only ever a route plus a job id.
+    alerts.record(request.path, 'web', alerts.UNHANDLED,
+                  **{'traceback': alerts.safe_traceback(e)})
+    raise e
 
 
 @app.template_filter('pluralize')

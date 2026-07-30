@@ -17,8 +17,12 @@ Timing is injectable so the retry behaviour can be tested without real waits.
 import os
 import time
 
+import alerts
 from opener import Opener
 from reader import Reader
+
+# Attempts before a run that still succeeded is worth an early-warning email.
+SLOW_RECOVERY_ATTEMPTS = alerts.SLOW_RECOVERY_ATTEMPTS
 
 # Backoff between attempts, in seconds; the last value repeats once reached.
 BACKOFF = [2, 5, 10, 30, 60, 120, 120, 300]
@@ -50,6 +54,19 @@ def backoff_for(attempt):
     return BACKOFF[min(attempt, len(BACKOFF) - 1)]
 
 
+def _describe(seconds):
+    if seconds < 90:
+        return "%ds" % round(seconds)
+    return "%dm%02ds" % (int(seconds // 60), int(seconds % 60))
+
+
+def _timeline(waits):
+    """The backoff actually used, so an alert shows the shape of the stall."""
+    if not waits:
+        return "none"
+    return "+".join(str(w) for w in waits) + "s"
+
+
 class IcosError(Exception):
     """Base for failures we surface to staff with a plain-language message."""
 
@@ -73,9 +90,13 @@ class IcosUnavailable(IcosError):
 class IcosClient:
     def __init__(self, log=None, reader=None, budget_seconds=None,
                  concurrent_budget_seconds=None, sleep=time.sleep,
-                 monotonic=time.monotonic):
+                 monotonic=time.monotonic, alert=None):
         self.reader = reader if reader is not None else Reader(Opener())
         self._log = log or (lambda message: None)
+        # Alerting is a callback rather than an import so this module stays
+        # testable without a mail path, and so alerts describe the
+        # classification below rather than a raw exception.
+        self._alert = alert or (lambda failure, **fields: None)
         self._sleep = sleep
         self._monotonic = monotonic
         self.budget = budget_seconds if budget_seconds is not None \
@@ -85,6 +106,15 @@ class IcosClient:
             else _env_seconds("CONCURRENT_WAIT_MIN", 16)
         self.logged_in = False
         self.username = None
+
+    def set_alert(self, alert):
+        """Point alerts at a different job.
+
+        The CRS job inherits the live session the search job created, so
+        without this a case failure during CRS is filed under the search that
+        produced the results list.
+        """
+        self._alert = alert or (lambda failure, **fields: None)
 
     # -- retry core --------------------------------------------------------
 
@@ -108,24 +138,51 @@ class IcosClient:
         started = self._monotonic()
         attempt = 0
         last = "no response"
+        waits = []
+        endpoint = None
         while True:
             url, data = build_request()
+            endpoint = url.rsplit("/", 1)[-1].split("?")[0] or "ESAWebApp"
             result = self.reader.fetch_once(url, data)
             if result.ok:
                 if validate is None or validate(result.body):
+                    if attempt >= SLOW_RECOVERY_ATTEMPTS:
+                        # It worked, so staff see nothing. But ICOS needing this
+                        # many tries is how a bad afternoon starts, and knowing
+                        # before the complaints is the whole point of alerting.
+                        self._alert(
+                            alerts.SLOW_RECOVERY, endpoint=endpoint,
+                            attempts=attempt + 1,
+                            elapsed=_describe(self._monotonic() - started),
+                            backoff=_timeline(waits), status=result.status,
+                            note="The search went through, so nobody was told. "
+                                 "ICOS is degrading.")
                     return result.body
                 last = "unusable response"
             else:
                 last = result.outcome.lower()
 
+            # Only after login: before it, an unusable response is usually a
+            # rejected credential working as designed, which is not news.
+            if self.logged_in:
+                self._alert(alerts.BAD_RESPONSE, endpoint=endpoint,
+                            attempts=attempt + 1, status=result.status,
+                            **{'response size': '%db' % len(result.body)})
+
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)
             if elapsed + wait > self.budget:
+                self._alert(alerts.RETRY_EXHAUSTED, endpoint=endpoint,
+                            attempts=attempt + 1, elapsed=_describe(elapsed),
+                            backoff=_timeline(waits),
+                            note="Last result: %s. Staff were told to try again "
+                                 "later." % last)
                 raise IcosUnavailable(
                     "Iowa Courts Online did not respond after %d minutes of retrying "
                     "(last result: %s). The court site is likely down. Please try "
                     "again later." % (round(self.budget / 60), last))
             self._log(self._attempt_message(what, attempt, elapsed))
+            waits.append(wait)
             self._sleep(wait)
             attempt += 1
 
@@ -157,6 +214,12 @@ class IcosClient:
                 # the only thing that works.
                 elapsed = self._monotonic() - started
                 if elapsed + CONCURRENT_INTERVAL > self.concurrent_budget:
+                    self._alert(
+                        alerts.CONCURRENT_EXHAUSTED,
+                        account=alerts.username_prefix(username),
+                        elapsed=_describe(elapsed),
+                        note="ESA never released the lock. This is shared "
+                             "accounts colliding, not an ICOS fault.")
                     raise IcosAccountLocked(
                         "This Iowa Courts account is still logged in from another "
                         "session and Iowa Courts has not released it. Try again in a "

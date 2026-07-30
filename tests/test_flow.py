@@ -37,12 +37,18 @@ class FakeClient:
     login_error = None
     search_error = None
 
-    def __init__(self, log=None, **kwargs):
+    def __init__(self, log=None, alert=None, **kwargs):
         self.log = log or (lambda m: None)
+        self.alert = alert
         self.logged_in = False
         self.logged_off = False
         self.cases = []
         FakeClient.instances.append(self)
+
+    def set_alert(self, alert):
+        # The CRS job inherits the search job's session and rebinds alerting
+        # to itself; a stub that skipped this would hide a break in that.
+        self.alert = alert
 
     def login(self, username, password):
         if FakeClient.login_error:

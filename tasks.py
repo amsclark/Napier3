@@ -12,6 +12,7 @@ import platform
 from openpyxl import load_workbook
 from werkzeug.utils import secure_filename
 
+import alerts
 import case_parser
 import crs
 import icos_sessions
@@ -38,7 +39,7 @@ def group_cases(cases):
 
 
 def search_task(job, username, password, firstname, middlename, lastname):
-    client = IcosClient(log=job.log)
+    client = IcosClient(log=job.log, alert=alerts.emitter(job))
     keep_session = False
     try:
         client.login(username, password)
@@ -63,12 +64,14 @@ def search_task(job, username, password, firstname, middlename, lastname):
     finally:
         if not keep_session:
             client.logoff()
+        alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
 def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
     client = icos_sessions.get(session_token)
     if client is None:
         raise LookupError("session expired")
+    client.set_alert(alerts.emitter(job))
 
     try:
         case_ids = []
@@ -89,6 +92,13 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
                 # One unparseable case should not cost staff the whole run --
                 # collect it, report it, and build the CRS from the rest.
                 print("Case %s failed to parse: %r" % (case_id, e), flush=True)
+                # The case id is in the alert on purpose: it is court public
+                # record, and without it nobody can go look at the page that
+                # broke the parser.
+                alerts.record(job.id[:8], job.kind, alerts.PARSE_FAILURE,
+                              progress=alerts.recent_progress(job),
+                              case=case_id,
+                              **{'traceback': alerts.safe_traceback(e)})
                 failed.append(case_id)
                 continue
             cases.append(case)
@@ -114,6 +124,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
         return "/job/%s/download" % job.id
     finally:
         icos_sessions.close(session_token)
+        alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
 def build_workbook(cases, def_name, def_dob, is_lite):
