@@ -3,6 +3,7 @@ import os
 import platform
 import time
 
+import alerts
 import icos_sessions
 import jobs
 import tasks
@@ -36,7 +37,13 @@ import urllib.request as _urlreq
 KEEPALIVE_URL = "https://www.iowacourts.state.ia.us/ESAWebApp/ESALogin.jsp"
 KEEPALIVE_SECS = 20
 KEEPALIVE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+KEEPALIVE_BURST = 8
+# A ping every 20 seconds logging a line each time is 4,300 lines a day, which
+# buries the job and ICOS lines that someone reads a log to find. Every change
+# of state is logged; a steady healthy ping only says so this often.
+KEEPALIVE_LOG_SECS = 15 * 60
 _keepalive_lock = None
+_keepalive_state = {"ok": None, "logged_at": 0.0, "cold_since": None}
 
 def _keepalive_ping(timeout=6):
     t0 = time.time()
@@ -47,24 +54,67 @@ def _keepalive_ping(timeout=6):
     except Exception:
         return time.time() - t0, False
 
-def _keepalive_loop():
+def _describe_duration(seconds):
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "under a minute"
+    if minutes < 60:
+        return "%d minute%s" % (minutes, "" if minutes == 1 else "s")
+    hours = minutes / 60.0
+    return "%.1f hours" % hours
+
+def _keepalive_cycle(state, now=None):
     # ICOS tarpits the first connection(s) from an idle source IP, and a single
     # ping does NOT warm a cold path (it takes several attempts). So ping often,
     # and the moment a ping comes back cold, BURST until it warms again, instead
     # of waiting a full cycle. Keeps the web dyno's path to ICOS continuously
     # warm so real searches don't land on a cold start.
-    while True:
-        dt, ok = _keepalive_ping()
-        if ok:
-            print("KEEPALIVE ok %.2fs" % dt, flush=True)
+    #
+    # One iteration, split out of the loop below so the alerting can be tested
+    # without waiting on a timer.
+    now = time.time() if now is None else now
+    dt, ok = _keepalive_ping()
+    if not ok:
+        for i in range(KEEPALIVE_BURST):
+            dt, ok = _keepalive_ping()
+            if ok:
+                print("KEEPALIVE re-warmed after %d burst tries (%.2fs)" % (i + 1, dt), flush=True)
+                break
         else:
-            for i in range(8):
-                dt2, ok2 = _keepalive_ping()
-                if ok2:
-                    print("KEEPALIVE re-warmed after %d burst tries (%.2fs)" % (i + 1, dt2), flush=True)
-                    break
-            else:
-                print("KEEPALIVE still cold after burst", flush=True)
+            print("KEEPALIVE still cold after burst", flush=True)
+
+    if ok:
+        if state["cold_since"] is not None:
+            alerts.clear_alert(
+                "icos-keepalive",
+                "Napier can reach ICOS again",
+                "The keepalive warmed the path back up after %s. Searches "
+                "should work normally." % _describe_duration(now - state["cold_since"]))
+            state["cold_since"] = None
+        if state["ok"] is not True or now - state["logged_at"] >= KEEPALIVE_LOG_SECS:
+            print("KEEPALIVE ok %.2fs" % dt, flush=True)
+            state["logged_at"] = now
+    else:
+        if state["cold_since"] is None:
+            state["cold_since"] = now
+        alerts.raise_alert(
+            "icos-keepalive",
+            "Napier cannot reach ICOS",
+            "%d keepalive attempts on the ICOS login page failed in a row, so "
+            "searches will stall or fail until this clears. Cold for %s."
+            % (KEEPALIVE_BURST + 1, _describe_duration(now - state["cold_since"])),
+            priority="urgent")
+    state["ok"] = ok
+    return state
+
+def _keepalive_loop():
+    while True:
+        try:
+            _keepalive_cycle(_keepalive_state)
+        except Exception as e:
+            # A keepalive thread that dies is invisible until searches start
+            # failing, so swallow and keep pinging.
+            print("KEEPALIVE cycle error (%s)" % type(e).__name__, flush=True)
         time.sleep(KEEPALIVE_SECS)
 
 def _start_background_threads():

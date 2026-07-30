@@ -51,8 +51,32 @@ Config vars:
 * `RETRY_BUDGET_MIN` (default 45) - how long a job keeps retrying a stalled ICOS
 * `CONCURRENT_WAIT_MIN` (default 16) - how long to wait out a locked ESA account
 * `NAPIER_DISABLE_BACKGROUND` - set to `1` to skip the keepalive and reapers (tests)
+* `NAPIER_ALERT_URL` - where to push failure alerts; unset means no alerts
 
-Useful log filters: `heroku logs -a crs-napier | grep -E 'ICOS|KEEPALIVE|JOB'`.
+Useful log filters: `heroku logs -a crs-napier | grep -E 'ICOS|KEEPALIVE|JOB|ALERT'`.
+
+### Alerts
+
+Napier runs unattended, so the two failures that leave staff stuck now push a
+notification instead of waiting to be found in a log: ICOS becoming unreachable,
+and a job crashing on something the app did not anticipate. Point
+`NAPIER_ALERT_URL` at an ntfy topic, or at anything else that takes an HTTPS
+POST with a text body.
+
+Alerts are per episode rather than per occurrence. A condition sends once when
+it starts, at most hourly while it lasts, and once more when it clears, so an
+afternoon of ICOS being down is a handful of messages rather than one every
+twenty seconds. A failure to deliver an alert is logged and otherwise ignored,
+because a notification endpoint being down must not take Napier down with it.
+
+Alerts carry the shape of a failure and never its content: which subsystem,
+which exception type, how long it has been going. The endpoint is a third-party
+service and the payloads here are client court records, so no name, case number
+or exception message is ever sent. That detail stays in the dyno log.
+
+The keepalive used to log every ping, which was 4,300 lines a day and buried
+everything worth reading. It now logs state changes and a heartbeat every
+fifteen minutes.
 
 ## Development
 
@@ -70,7 +94,9 @@ Open http://127.0.0.1:5000/ and use the website to create a spreadsheet.
 
 `tests/` covers the retry engine (with virtual time, so no real waiting), the
 job engine and session reaper, the staff-facing flow against a fake court site,
-and the financial reconciliation against a fixture built from a real case.
+the financial reconciliation against a fixture built from a real case, and
+alerting against a real local HTTP server, so an alert is proven to leave the
+process rather than proven to have been asked to.
 
 Raw html from ICOS is written to `tmp/` as searches run, which is useful when
 working on the parsers.
