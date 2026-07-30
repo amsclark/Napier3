@@ -60,10 +60,22 @@ CLASS_FLOOR_SECONDS = 10 * 60
 
 MAILGUN_ENDPOINT = 'https://api.mailgun.net/v3/%s/messages'
 
-_sent = set()          # (job_id, failure class) already emailed
+# Both maps below are keyed by something unique per job, and the web error path
+# has no end-of-job digest to clean up after itself, so without a cap a dyno
+# that stays up for weeks accumulates one entry per request that ever threw.
+# Anything evicted is old enough that re-alerting on it would be correct.
+MAX_TRACKED_JOBS = 500
+
+_sent = {}             # job_id -> failure classes already emailed for that job
 _class_floor = {}      # failure class -> when it last went out, any job
 _pending = {}          # job_id -> the events behind the end-of-job digest
 _lock = threading.Lock()
+
+
+def _forget(job_id):
+    """Drop a job's bookkeeping. Caller holds the lock."""
+    _pending.pop(job_id, None)
+    _sent.pop(job_id, None)
 
 
 # -- what may and may not go in an email ----------------------------------
@@ -183,12 +195,15 @@ def record(job_id, kind, failure, progress=None, now=None, **fields):
     now = time.time() if now is None else now
     with _lock:
         _pending.setdefault(job_id, []).append((failure, dict(fields)))
-        if (job_id, failure) in _sent:
+        # Dicts keep insertion order, so the first key is the oldest job.
+        while len(_pending) > MAX_TRACKED_JOBS:
+            _forget(next(iter(_pending)))
+        if failure in _sent.get(job_id, ()):
             return None
         last = _class_floor.get(failure)
         if last is not None and now - last < CLASS_FLOOR_SECONDS:
             return None
-        _sent.add((job_id, failure))
+        _sent.setdefault(job_id, set()).add(failure)
         _class_floor[failure] = now
     return _send('Napier: %s' % failure,
                  _format(job_id, kind, failure, fields, progress))
@@ -201,7 +216,9 @@ def digest(job_id, kind, progress=None):
     where the full picture of a bad run lands.
     """
     with _lock:
-        events = _pending.pop(job_id, None)
+        events = _pending.get(job_id)
+        # The job is over either way, so its dedup state goes with it.
+        _forget(job_id)
     if not events:
         return None
     lines = ['%s job %s finished with %d problem%s.'
