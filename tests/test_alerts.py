@@ -490,3 +490,27 @@ def test_a_case_that_will_not_parse_alerts_with_the_case_and_not_the_person(
     for message in mailbox:
         assert 'TESTER' not in message['text']      # privileged, never sent
         assert '01/01/1900' not in message['text']
+
+
+# -- bookkeeping does not grow forever ------------------------------------
+
+
+def test_a_digested_job_is_forgotten_entirely(mailbox):
+    send(alerts.record('job1234', 'search', alerts.JOB_FAILED))
+    send(alerts.digest('job1234', 'search'))
+    assert 'job1234' not in alerts._pending
+    assert 'job1234' not in alerts._sent   # dedup state died with the job
+
+
+def test_the_web_error_path_cannot_grow_without_bound(mailbox):
+    # A request path is the job id here and there is no end-of-job digest to
+    # clean up after it, so a dyno that stays up for weeks would otherwise keep
+    # one entry per request that ever threw.
+    for i in range(alerts.MAX_TRACKED_JOBS * 2):
+        alerts.record('/job/%d/download' % i, 'web', alerts.UNHANDLED)
+    settle()
+    assert len(alerts._pending) == alerts.MAX_TRACKED_JOBS
+    assert len(alerts._sent) <= alerts.MAX_TRACKED_JOBS
+    # The survivors are the recent ones.
+    assert '/job/0/download' not in alerts._pending
+    assert '/job/%d/download' % (alerts.MAX_TRACKED_JOBS * 2 - 1) in alerts._pending
