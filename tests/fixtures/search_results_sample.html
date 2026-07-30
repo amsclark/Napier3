@@ -1,0 +1,315 @@
+<!--
+  Real ICOS trial search results page captured 2026-07-30 from the live ESA
+  app, then scrubbed of everything that identifies a person or a case. This
+  repo is public; the original is not in it.
+
+  The real page returned 120 result rows covering nine different people who
+  happened to share a surname, which is the thing this fixture exists to
+  document: a name search is not a person search, and parse_search is what
+  decides who is who. Six rows are kept, one per shape that changes what the
+  parser does.
+
+  Scrubbing applied, and nothing else:
+    * names are replaced with TESTER, PAT Q and TESTER, SAM;
+    * dates of birth are replaced with 01/01/1900 and 02/02/1901;
+    * case ids are replaced with court 00000 and sequence 000000 upward,
+      which is not a court and are not cases;
+    * the signed-in ESA account in the footer is replaced with ilatest.
+  Everything else is what the server returned: the uppercase tags, the
+  bgcolor attributes, and in particular the DOB cell's padding of CRLFs and
+  tabs, which the name cell does not have. That asymmetry is why dob needs
+  stripping and name does not.
+
+  The rows, in order:
+    1. a defendant with a date of birth: the ordinary case
+    2. a second person, same surname, different date of birth
+    3. a defendant with a blank date of birth: ICOS leaves the cell padded
+       but empty, and these must not all collapse into one person
+    4. INTERESTED PARTY: suppressed, the subject is not a party
+    5. NO ACCESS NONPARTY FILER: NOT suppressed today, which looks wrong
+    6. PRO SE DEFENDANT: kept, a party is a party whether represented or not
+
+  The unredacted capture is held off-repo on the engagement workstation with
+  its sha256, so this file can be diffed against what the server sent:
+    sha256 1f734ecaa7265e201018f4a4202e6df1ebfb7a6428bea07123aa8dddeaed77b1
+-->
+
+<html>
+<head>
+<title>Trial Search Results</title>
+<script language="javascript">
+function mySubmit(id, pin){
+	if (id.substring(7,9) == "JI") {
+		document.JiForm.caseId.value = id;
+		document.JiForm.peopleId.value = pin;
+		document.JiForm.submit();
+	} else {
+		document.TrialForm.caseid.value = id;
+		document.TrialForm.submit();
+	}
+}
+</script>
+<style type="text/css">
+	a:link {
+		COLOR: #0000FF;
+	}
+	a:visited {
+		COLOR: #800080 !important; 
+	}
+	a:hover {
+		COLOR: #FF0000;
+	}
+	a:active {
+		COLOR: #0000FF;
+	}
+</style>
+<script src="js\libs\jquery-3.3.1.min.js"></script>
+</head>
+<body>
+<table border="0" cellpadding="7" cellspacing="0" width="100%">
+<tr>
+<td bgcolor="#cccccc"><font size="2"><b><u>Case ID</u></b></font></td>
+<td bgcolor="#cccccc"><font size="2"><b><u>Initiated Date</u></b></font></td>
+<td bgcolor="#cccccc"><font size="2"><b><u>Title</u></b></font></td>
+<td bgcolor="#cccccc"><font size="2"><b><u>Name</u></b></font></td>
+<td bgcolor="#cccccc"><font size="2"><b><u>DOB</u></b></font></td>
+<td bgcolor="#cccccc"><font size="2"><b><u>Role</u></b></font></td>
+</tr>
+<tr>
+<td bgcolor="#EDEDED" nowrap="" valign="top" width="15%"><font face="Courier New" size="2"> <a href="javascript:mySubmit('00000++FECR000000','BU0000000')">00000  FECR000000</a></font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">03/04/1999</font></td>
+<td bgcolor="#EDEDED" valign="top" width="40%"><font size="2">STATE V TESTER PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="25%"><font size="2">TESTER, PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">
+				
+				01/01/1900
+				
+				</font></td>
+<td bgcolor="#ededed" valign="top" width="10%"><font size="2">DEFENDANT</font></td>
+</tr>
+<tr>
+<td bgcolor="#EDEDED" nowrap="" valign="top" width="15%"><font face="Courier New" size="2"> <a href="javascript:mySubmit('00000++SMCR000001','BU0000000')">00000  SMCR000001</a></font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">05/06/2001</font></td>
+<td bgcolor="#EDEDED" valign="top" width="40%"><font size="2">STATE V TESTER SAM</font></td>
+<td bgcolor="#EDEDED" valign="top" width="25%"><font size="2">TESTER, SAM</font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">
+				
+				02/02/1901
+				
+				</font></td>
+<td bgcolor="#ededed" valign="top" width="10%"><font size="2">DEFENDANT</font></td>
+</tr>
+<tr>
+<td bgcolor="#EDEDED" nowrap="" valign="top" width="15%"><font face="Courier New" size="2"> <a href="javascript:mySubmit('00000++SCSC000002','BU0000000')">00000  SCSC000002</a></font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">07/08/2003</font></td>
+<td bgcolor="#EDEDED" valign="top" width="40%"><font size="2">ACME V TESTER PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="25%"><font size="2">TESTER, PAT Q </font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">
+				
+				 
+				
+				</font></td>
+<td bgcolor="#ededed" valign="top" width="10%"><font size="2">DEFENDANT</font></td>
+</tr>
+<tr>
+<td bgcolor="#EDEDED" nowrap="" valign="top" width="15%"><font face="Courier New" size="2"> <a href="javascript:mySubmit('00000++CDDM000003','BU0000000')">00000  CDDM000003</a></font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">09/10/2005</font></td>
+<td bgcolor="#EDEDED" valign="top" width="40%"><font size="2">IN RE TESTER PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="25%"><font size="2">TESTER, PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">
+				
+				01/01/1900
+				
+				</font></td>
+<td bgcolor="#ededed" valign="top" width="10%"><font size="2">INTERESTED PARTY</font></td>
+</tr>
+<tr>
+<td bgcolor="#EDEDED" nowrap="" valign="top" width="15%"><font face="Courier New" size="2"> <a href="javascript:mySubmit('00000++LACV000004','BU0000000')">00000  LACV000004</a></font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">11/12/2007</font></td>
+<td bgcolor="#EDEDED" valign="top" width="40%"><font size="2">ACME V TESTER PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="25%"><font size="2">TESTER, PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">
+				
+				01/01/1900
+				
+				</font></td>
+<td bgcolor="#ededed" valign="top" width="10%"><font size="2">NO ACCESS NONPARTY FILER</font></td>
+</tr>
+<tr>
+<td bgcolor="#EDEDED" nowrap="" valign="top" width="15%"><font face="Courier New" size="2"> <a href="javascript:mySubmit('00000++SRCR000005','BU0000000')">00000  SRCR000005</a></font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">01/02/2009</font></td>
+<td bgcolor="#EDEDED" valign="top" width="40%"><font size="2">STATE V TESTER PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="25%"><font size="2">TESTER, PAT Q</font></td>
+<td bgcolor="#EDEDED" valign="top" width="10%"><font size="2">
+				
+				01/01/1900
+				
+				</font></td>
+<td bgcolor="#ededed" valign="top" width="10%"><font size="2">PRO SE DEFENDANT</font></td>
+</tr>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</table>
+<script language="javascript">
+        function login(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/ESALogin.jsp"
+        }
+        function registration(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/Registration"
+        }
+ 
+        function goToPassword() {
+            parent.location.href = "/ESAWebApp/ChangePasswordServlet";
+        }
+ 
+        function goToEditUser() {
+            parent.location.href = "/ESAWebApp/EditUserServlet?getEditPage=true";
+        }
+    </script>
+<table width="100%">
+<tr>
+<td align="right"><font face="Arial" size="1">CN=ilatest,O=JUDICIAL</font></td>
+</tr>
+</table>
+<div style="text-align: center;">
+<form action="/ESAWebApp/EPALogout" method="POST" name="logoffForm" target="_parent">
+<input name="logoffButton" style="inline-block" type="submit" value="Logoff"/>
+<input name="changePassword" onclick="javaScript:goToPassword()" style="inline-block" type="button" value="Change Password"/>
+</form>
+</div>
+<table width="100%">
+<tr>
+<td width="100%">
+<p align="center"><font size="2">Please Logoff when you are through accessing case detail information.</font></p>
+<p align="center"><font size="2">For exclusive use by the Iowa Courts<br/> State of Iowa,  All Rights Reserved</font></p>
+</td>
+</tr>
+</table>
+<form action="/ESAWebApp/TIndexFrm" method="post" name="TrialForm" target="_parent">
+<input name="caseid" type="hidden" value=" "/>
+<input name="screen" type="hidden" value="T"/>
+</form>
+<form action="/ESAWebApp/JIndexFrm" method="post" name="JiForm" target="_parent">
+<input name="caseId" type="hidden" value=" "/>
+<input name="peopleId" type="hidden" value=" "/>
+<input name="screen" type="hidden" value="J"/>
+</form>
+<script type="text/javascript">
+	$(function()() {
+		$(document).tooltip();
+	});
+</script>
+</body>
+</html>
