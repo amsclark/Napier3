@@ -1,9 +1,11 @@
 <!--
-  REAL ICOS financials page for Dubuque case 01311 FECR000000, captured
-  2026-07-30 from the live ESA app (TViewFinancials) and scrubbed.
+  Real ICOS financials page captured 2026-07-30 from the live ESA app
+  (TViewFinancials), then scrubbed of everything that identifies the case
+  or the defendant. This repo is public; the original is not in it.
 
   Scrubbing applied, and nothing else:
     * the defendant's name is replaced with TEST DEFENDANT;
+    * the case number is replaced with FECR000000, which is not a case;
     * the signed-in ESA account in the page footer is replaced with testuser.
   The markup is otherwise what the server returned, CRLF line endings and all,
   including the uppercase tags, the one unclosed <TD>, and the commented-out
@@ -11,8 +13,8 @@
   in the footer is a copyright sign the server mislabels as utf-8; it sits in
   boilerplate no parser reads.
 
-  sha256 of the scrubbed capture, before this comment and before the account
-  scrub: a3262d010bb10cd79ab0782932229b91ae683fec2eec87ab6faabaa5a158a1c0
+  The unredacted capture is held off-repo on the engagement workstation,
+  with its sha256, so this file can be diffed against what the server sent.
 
   What this page shows that the earlier modelled fixture got wrong:
     * the summary table is a five-bucket rollup (COSTS, FINE, SURCHARGE,
