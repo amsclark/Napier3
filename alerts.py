@@ -1,108 +1,246 @@
-"""Out-of-band alerts for failures nobody is watching the logs for.
+"""Realtime failure alerting by email.
 
-Napier runs unattended. When ICOS stops answering or a job crashes, the only
-record is a line in `heroku logs`, which is read after someone complains rather
-than before. This module pushes the handful of failures worth waking up for to
-a notification endpoint, and pushes the all-clear when they end.
+Napier runs unattended. When a search dies after forty-five minutes of retrying,
+or a case will not parse, or something throws where nobody expected it, the only
+record today is a line in `heroku logs` that gets read after staff complain
+rather than before. This module emails the detail needed to diagnose a failure
+without shelling into Heroku.
 
-Set NAPIER_ALERT_URL to an ntfy topic (or anything that accepts an HTTPS POST
-with a text body). Unset, every call here is a no-op, which is what tests and
-local development want.
+Configured with `MAILGUN_DOMAIN`, `MAILGUN_API_KEY` and `ALERT_EMAIL_TO`, plus
+an optional `ALERT_EMAIL_FROM`. Any of them missing and every path here becomes
+a logged no-op, which is what local development and the test suite want. The
+Mailgun HTTP API is one POST with no SMTP handshake to stall a worker, and it is
+reached with `urllib`, so alerting adds no dependency and no Heroku add-on.
 
-Two rules shape the rest of this module.
+Three things shape the rest of this module.
 
-Nothing from ICOS goes into an alert. The endpoint is a third-party service and
-the payloads are client court records, so alerts carry the shape of a failure
-(which subsystem, which exception type, how long) and never its content. No
-names, no case numbers, no exception messages, since a parser blowing up on a
-case tends to put that case in its message. The full detail stays in the Heroku
-log, which is inside the trust boundary.
+Delivery never blocks the work. Sends run on a short daemon thread with their
+own timeout, and a failed send is logged and dropped. A mail outage must not
+turn into a failed search.
 
-An alert that repeats is an alert that gets muted. A sustained ICOS outage would
-otherwise fire every twenty seconds, so alerts are per episode: one when a
-condition starts, an hourly reminder while it continues, one when it clears.
+An alert that repeats is an alert that gets muted. A forty-five minute retry
+budget at escalating backoff produces dozens of attempts, and a clinic morning
+puts several staff behind the same broken ICOS. So it is one email per job per
+failure class, then one digest when the job ends, with a floor of one email per
+class per ten minutes across all jobs on top.
+
+Alerts carry case numbers but never people. A case number is court public record
+and a parse-failure alert without one is not actionable, so case ids are in.
+The defendant's name and date of birth are the privileged part under Article 5
+and are never assembled into an alert. Exception messages are dropped for the
+same reason: a parser that dies on a case usually quotes that case back. What
+survives is the traceback's frames, which are our own source, plus the exception
+type.
 """
 
+import base64
 import os
 import threading
 import time
+import traceback
+import urllib.parse
 import urllib.request
 
-ALERT_URL_ENV = 'NAPIER_ALERT_URL'
+# Failure classes. The wording is the email subject line, so it reads as English.
+RETRY_EXHAUSTED = 'ICOS retry budget exhausted'
+CONCURRENT_EXHAUSTED = 'ESA account stayed locked'
+SLOW_RECOVERY = 'ICOS needed repeated retries'
+BAD_RESPONSE = 'unusable response from ICOS'
+PARSE_FAILURE = 'case could not be read'
+JOB_FAILED = 'job failed'
+UNHANDLED = 'unhandled exception'
 
-# ntfy accepts exactly these and silently 400s on anything else, so an invalid
-# priority means the alert is never delivered and nothing says so. Validate here
-# rather than discover it during an outage.
-PRIORITIES = ('min', 'low', 'default', 'high', 'urgent', 'max')
+# A run that eventually worked but took this many attempts is the early warning
+# that ICOS is degrading, which is worth one email before staff start noticing.
+SLOW_RECOVERY_ATTEMPTS = 3
 
-# How long a still-firing condition waits before it reminds anyone.
-REMINDER_SECONDS = 60 * 60
+# Floor across all jobs, so a broad ICOS outage during a clinic sends a handful
+# of emails rather than one per staffer per attempt.
+CLASS_FLOOR_SECONDS = 10 * 60
 
-_firing = {}
+MAILGUN_ENDPOINT = 'https://api.mailgun.net/v3/%s/messages'
+
+_sent = set()          # (job_id, failure class) already emailed
+_class_floor = {}      # failure class -> when it last went out, any job
+_pending = {}          # job_id -> the events behind the end-of-job digest
 _lock = threading.Lock()
 
 
-def _post(title, body, priority, tags):
-    url = os.environ.get(ALERT_URL_ENV)
-    if not url:
+# -- what may and may not go in an email ----------------------------------
+
+def username_prefix(username):
+    """The account family, never the account.
+
+    Article 1.2 keeps credentials out of anything we transmit, and the useful
+    signal is which pool of logins collided, not which login.
+    """
+    if not username:
+        return 'unknown'
+    lowered = username.lower()
+    if lowered.startswith('drakelegalclinic'):
+        return 'drakelegalclinic'
+    if lowered.startswith('ila'):
+        return 'ILA##'
+    return 'other'
+
+
+def safe_traceback(exc):
+    """Frames and exception type, without the exception's own message.
+
+    The frames are Napier's source and carry nothing about a client. The
+    message is the risk: a parser failing on a case tends to include the case,
+    and sometimes the defendant, in what it raises. Exceptions we authored
+    ourselves carry a `.message` written for staff, so that one is safe to keep.
+    """
+    if exc is None:
+        return ''
+    frames = ''.join(traceback.format_tb(exc.__traceback__))
+    authored = getattr(exc, 'message', None)
+    tail = type(exc).__name__
+    if authored:
+        tail = '%s: %s' % (tail, authored)
+    return frames + tail
+
+
+def _format(job_id, kind, failure, fields, progress):
+    lines = ['%s job %s' % (kind, job_id), '']
+    for label in ('classification', 'endpoint', 'attempts', 'elapsed',
+                  'backoff', 'status', 'response size', 'account', 'case'):
+        value = fields.get(label)
+        if value is not None:
+            lines.append('%-14s %s' % (label + ':', value))
+    lines.insert(2, '%-14s %s' % ('failure:', failure))
+
+    note = fields.get('note')
+    if note:
+        lines += ['', note]
+
+    tb = fields.get('traceback')
+    if tb:
+        lines += ['', 'Traceback (exception message withheld under Article 5):',
+                  tb]
+
+    if progress:
+        lines += ['', 'Last %d progress lines:' % len(progress)]
+        lines += ['  ' + line for line in progress]
+
+    return '\n'.join(lines)
+
+
+# -- delivery -------------------------------------------------------------
+
+def _mailgun(subject, body):
+    domain = os.environ.get('MAILGUN_DOMAIN')
+    key = os.environ.get('MAILGUN_API_KEY')
+    to = os.environ.get('ALERT_EMAIL_TO')
+    if not (domain and key and to):
         return False
-    if priority not in PRIORITIES:
-        print("ALERT bad priority %r, sending as default" % (priority,), flush=True)
-        priority = 'default'
-    request = urllib.request.Request(
-        url, data=body.encode('utf-8'), method='POST',
-        headers={'Title': title, 'Priority': priority, 'Tags': tags})
+    sender = os.environ.get('ALERT_EMAIL_FROM') or 'Napier <napier@%s>' % domain
+    data = urllib.parse.urlencode({
+        'from': sender,
+        'to': to,
+        'subject': subject,
+        'text': body,
+    }).encode('utf-8')
+    request = urllib.request.Request(MAILGUN_ENDPOINT % domain, data=data)
+    request.add_header('Authorization', 'Basic ' + base64.b64encode(
+        ('api:%s' % key).encode('utf-8')).decode('ascii'))
     urllib.request.urlopen(request, timeout=10).read()
     return True
 
 
-def _send(title, body, priority, tags):
-    """Deliver one alert. Never raises: alerting must not take the app down."""
+def _deliver(subject, body):
     try:
-        sent = _post(title, body, priority, tags)
+        if _mailgun(subject, body):
+            print('ALERT sent: %s' % subject, flush=True)
+        else:
+            print('ALERT not configured, would have sent: %s' % subject, flush=True)
     except Exception as e:
-        print("ALERT delivery failed (%s): %s" % (type(e).__name__, title), flush=True)
-        return False
-    print("ALERT %s %s" % ("sent" if sent else "suppressed (no %s)" % ALERT_URL_ENV,
-                           title), flush=True)
-    return sent
+        # A mail outage must never become a failed search.
+        print('ALERT delivery failed (%s): %s' % (type(e).__name__, subject),
+              flush=True)
 
 
-def raise_alert(event, title, body, priority='high', tags='rotating_light'):
-    """Report that `event` is broken.
+def _send(subject, body):
+    """Hand the send to a daemon thread and get out of the way.
 
-    Sends on the first call, then at most once an hour while the condition
-    lasts, so an outage is one page plus a reminder rather than a stream.
+    Returned so tests can join it. Nothing in the app waits on it.
     """
-    now = time.time()
+    thread = threading.Thread(target=_deliver, args=(subject, body),
+                              name='alert', daemon=True)
+    thread.start()
+    return thread
+
+
+# -- the API the rest of the app uses --------------------------------------
+
+def record(job_id, kind, failure, progress=None, now=None, **fields):
+    """Note a failure, and email about it if this is the first of its kind.
+
+    Every call is remembered for the end-of-job digest whether or not it sends,
+    so suppressing an email never loses the event.
+    """
+    now = time.time() if now is None else now
     with _lock:
-        last = _firing.get(event)
-        if last is not None and now - last < REMINDER_SECONDS:
-            return False
-        _firing[event] = now
-    if last is not None:
-        title = "%s (still)" % title
-    return _send(title, body, priority, tags)
+        _pending.setdefault(job_id, []).append((failure, dict(fields)))
+        if (job_id, failure) in _sent:
+            return None
+        last = _class_floor.get(failure)
+        if last is not None and now - last < CLASS_FLOOR_SECONDS:
+            return None
+        _sent.add((job_id, failure))
+        _class_floor[failure] = now
+    return _send('Napier: %s' % failure,
+                 _format(job_id, kind, failure, fields, progress))
 
 
-def clear_alert(event, title, body, tags='white_check_mark'):
-    """Report that `event` recovered, if it had been reported broken.
+def digest(job_id, kind, progress=None):
+    """One closing email with the whole timeline, if anything went wrong.
 
-    Silent when the event was never firing, so a healthy app is silent.
+    The per-failure emails are deliberately terse and rate limited, so this is
+    where the full picture of a bad run lands.
     """
     with _lock:
-        if event not in _firing:
-            return False
-        del _firing[event]
-    return _send(title, body, 'default', tags)
+        events = _pending.pop(job_id, None)
+    if not events:
+        return None
+    lines = ['%s job %s finished with %d problem%s.'
+             % (kind, job_id, len(events), '' if len(events) == 1 else 's'), '']
+    for index, (failure, fields) in enumerate(events, start=1):
+        detail = ', '.join('%s %s' % (k, v) for k, v in sorted(fields.items())
+                           if k not in ('traceback', 'note'))
+        lines.append('%2d. %s%s' % (index, failure, ' (%s)' % detail if detail else ''))
+    if progress:
+        lines += ['', 'Last %d progress lines:' % len(progress)]
+        lines += ['  ' + line for line in progress]
+    return _send('Napier: %s job ended with %d problem%s'
+                 % (kind, len(events), '' if len(events) == 1 else 's'),
+                 '\n'.join(lines))
 
 
-def is_firing(event):
-    with _lock:
-        return event in _firing
+def emitter(job):
+    """An alert callback bound to one job, for handing to IcosClient."""
+    def emit(failure, **fields):
+        return record(job.id[:8], job.kind, failure,
+                      progress=recent_progress(job), **fields)
+    return emit
+
+
+def recent_progress(job, limit=20):
+    """The tail of a job's staff-facing progress log.
+
+    These are messages Napier wrote for a person to read on the progress page.
+    They report counts, retry state and case ids, never the search subject.
+    """
+    try:
+        return [entry['message'] for entry in job.progress[-limit:]]
+    except Exception:
+        return []
 
 
 def reset():
-    """Forget all firing state. For tests."""
+    """Forget all dedup and digest state. For tests."""
     with _lock:
-        _firing.clear()
+        _sent.clear()
+        _class_floor.clear()
+        _pending.clear()
