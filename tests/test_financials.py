@@ -90,25 +90,62 @@ def test_collection_costs_column_is_zero(felony_case):
     assert sheet.value_of('K4') in (None, Decimal('0'), Decimal('0.00'))
 
 
-def test_summary_path_collapses_fee_detail_into_misc(felony_case):
-    """Documents a real cost of preferring the summary, so it stays visible.
+def test_the_written_row_keeps_the_fee_detail(felony_case):
+    """What the summary path used to cost, and no longer does.
 
-    The summary reconciles against the ICOS balance, which is what the reported
-    bug was about. But its five buckets carry no fee detail, so COSTS and OTHER
-    both fall through to MISC and the columns the CRS workbook exists to fill --
-    sheriff, indigent defense, collection fee, revolving fund -- come back empty.
-    The itemization resolves the same case as M=579.00, J=50.00, K=182.85,
-    P=90.00, S=500.00, but overstates the balance by the 182.85 already paid.
-
-    If the reporting strategy changes, this test should fail and force the call.
+    Preferring the summary reconciled against the ICOS balance, which is what
+    the reported bug was about, but its five buckets carry no fee detail: COSTS
+    and OTHER both fell through to MISC and the columns the CRS workbook exists
+    to fill came back empty. Reconciling gets both, so the row now carries the
+    fees by name and still totals to what ICOS says is owed.
     """
     sheet = FakeSheet()
     crs.process_financials(felony_case, sheet, 4)
+    assert sheet.value_of('M4') == Decimal('579.00')   # sheriff fees
+    assert sheet.value_of('J4') == Decimal('50.00')    # indigent defense
+    assert sheet.value_of('P4') == Decimal('90.00')    # revolving fund
+    assert sheet.value_of('S4') == Decimal('500.00')   # restitution
+    assert sheet.value_of('O4') is None                # nothing left to dump in MISC
+    assert sheet.value_of('U4') == Decimal('1219.00')
+
+
+def test_the_summary_path_is_still_there_when_reconciling_fails(felony_case):
+    """A partition that does not add up must fall back, not guess.
+
+    Moving a fee off its assessed amount breaks the bucket check inside
+    `reconcile_financials`, which is the whole safety net: the reconciliation is
+    given up rather than a wrong split being written.
+    """
+    felony_case['financials'][0]['amount'] = '31.00'
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
     assert sheet.value_of('O4') == Decimal('719.00')   # COSTS 629 + OTHER 90
-    assert sheet.value_of('S4') == Decimal('500.00')
-    assert sheet.value_of('M4') is None                # sheriff fees, itemised only
-    assert sheet.value_of('J4') is None                # indigent defense
-    assert sheet.value_of('P4') is None                # revolving fund
+    assert sheet.value_of('M4') is None                # detail is gone, as before
+    assert 'not a per-fee breakdown' in sheet.value_of('V4')
+
+
+def test_a_collapsed_row_says_it_is_collapsed(felony_case):
+    """An empty sheriff column has two meanings and staff cannot see which.
+
+    Folded into MISCELLANEOUS looks exactly like never charged. The row that
+    cannot be reconciled has to say so on its face, since nothing else about it
+    is different.
+    """
+    felony_case['financials'][0]['amount'] = '31.00'
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    note = sheet.value_of('V4')
+    assert 'MISCELLANEOUS' in note
+    assert 'ICOS total is still right' in note
+
+
+def test_the_itemized_fallback_says_the_figures_are_assessed(felony_case):
+    del felony_case['summary_categories']
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    note = sheet.value_of('V4')
+    assert 'no category summary' in note
+    assert 'assessed rather than owed' in note
 
 
 def test_categories_reconcile_against_icos_total(felony_case):
