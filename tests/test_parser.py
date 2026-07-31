@@ -36,10 +36,11 @@ def ids(cases):
 def test_the_search_page_parses_into_one_row_per_party_case(search_page):
     cases, too_many = case_parser.parse_search(search_page)
     assert too_many is False
-    # The INTERESTED PARTY row is dropped; the other four are parties.
+    # The INTERESTED PARTY and NO ACCESS NONPARTY FILER rows are dropped as
+    # people who touched a case without being charged in it. The other four
+    # are parties.
     assert ids(cases) == ['00000  FECR000000', '00000  SMCR000001',
-                          '00000  SCSC000002', '00000  LACV000004',
-                          '00000  SRCR000005']
+                          '00000  SCSC000002', '00000  SRCR000005']
 
 
 def test_a_date_of_birth_arrives_without_the_padding_icos_wraps_it_in(search_page):
@@ -67,8 +68,7 @@ def test_two_people_sharing_a_surname_do_not_become_one_person(search_page):
     sam = [k for k in keys if k.startswith('1901-02-02')]
     unknown = [k for k in keys if k.startswith('DOB-UNKNOWN')]
     assert len(pat) == len(sam) == len(unknown) == 1
-    assert grouped[pat[0]] == ['00000  FECR000000', '00000  LACV000004',
-                               '00000  SRCR000005']
+    assert grouped[pat[0]] == ['00000  FECR000000', '00000  SRCR000005']
     assert grouped[sam[0]] == ['00000  SMCR000001']
     assert grouped[unknown[0]] == ['00000  SCSC000002']
 
@@ -78,16 +78,56 @@ def test_a_pro_se_defendant_is_still_a_defendant(search_page):
     assert '00000  SRCR000005' in ids(cases)
 
 
-@pytest.mark.xfail(reason='NO ACCESS NONPARTY FILER is missing from '
-                          'non_party_designations, so a case where the subject '
-                          'only filed something is scraped as if they were a '
-                          'party. Found on a real search page 2026-07-30; '
-                          'left failing until Ari confirms it should be '
-                          'suppressed.',
-                   strict=True)
 def test_a_nonparty_filer_is_not_a_party(search_page):
+    """Filing one document into a case is not being charged in it.
+
+    This role turned up on a real search page on 2026-07-30 and was not in the
+    suppression list, so the case was pulled as if the client were a party to
+    it. `parse_case_charges` reads every charge row on a case page and does no
+    filtering by person, because in the ordinary case the person searched for
+    is the defendant, so the effect was to write the actual defendant's
+    charges and court debt into this client's record summary.
+    """
     cases, _ = case_parser.parse_search(search_page)
     assert '00000  LACV000004' not in ids(cases)
+
+
+def role_row(role):
+    """One results row carrying the given role, otherwise well formed."""
+    return ("""<html><body><table>
+      <tr><td>00000&nbsp;&nbsp;FECR000000</td><td>Case ID</td>
+          <td>STATE VS TESTER</td><td>TESTER, PAT Q</td>
+          <td>01/01/1900</td><td>%s</td></tr>
+      </table></body></html>""" % role).encode('utf-8')
+
+
+# ICOS pads the date of birth cell with CRLFs and tabs on the real page and
+# leaves the role cell alone, which is the only reason matching roles against
+# exact strings has ever worked. If that ever flips, every one of these roles
+# starts being read as a party at once, and a suppression list that silently
+# stops suppressing looks exactly like a list that had nothing to suppress.
+PADDED_ROLES = [
+    'NO ACCESS NONPARTY FILER',
+    '\r\n\t\tNO ACCESS NONPARTY FILER\r\n\t\t',
+    '&nbsp;NO ACCESS NONPARTY FILER',
+    '  NO ACCESS  NONPARTY  FILER  ',
+    '<font size="2">\r\n\tNO ACCESS NONPARTY FILER\r\n\t</font>',
+    'INTERESTED PARTY',
+    '\r\n\t\tINTERESTED PARTY\t\r\n',
+]
+
+
+@pytest.mark.parametrize('role', PADDED_ROLES)
+def test_padding_around_a_role_does_not_turn_it_into_a_party(role):
+    cases, _ = case_parser.parse_search(role_row(role))
+    assert cases == []
+
+
+def test_a_padded_defendant_is_still_read_as_a_defendant():
+    """The normalizing must not swallow the roles we want to keep."""
+    cases, _ = case_parser.parse_search(role_row('\r\n\tDEFENDANT\r\n\t'))
+    assert ids(cases) == ['00000  FECR000000']
+    assert cases[0]['role'] == 'DEFENDANT'
 
 
 # -- what gets written to disk --------------------------------------------
