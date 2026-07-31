@@ -1,73 +1,217 @@
 {% extends 'base.html' %}
+{% block title %}Results: Napier{% endblock %}
+
+{% block head %}
+<style>
+.result-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.1rem;
+}
+
+.bulk {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: .85rem;
+  color: var(--brand-bright);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.people { display: grid; gap: .5rem; margin-bottom: 1.5rem; }
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  padding: .8rem .95rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+
+.person:hover { border-color: var(--ink-faint); }
+
+.person:has(input:checked) {
+  border-color: var(--brand-bright);
+  background: color-mix(in srgb, var(--brand-bright) 7%, var(--surface));
+}
+
+.person input { flex: none; margin: 0; }
+.person-main { flex: 1 1 auto; min-width: 0; }
+
+.person-name {
+  font-weight: 600;
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.person-dob {
+  display: block;
+  font-size: .83rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.tally {
+  flex: none;
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--line-soft);
+  border-radius: 999px;
+  padding: .2rem .65rem;
+  white-space: nowrap;
+}
+
+.selected-count {
+  font-size: .88rem;
+  color: var(--ink-soft);
+  margin: 0;
+}
+</style>
+{% endblock %}
 
 {% block content %}
-    <h3>Results</h3>
+<div class="card">
+  <div class="result-head">
+    <div>
+      <h1>Who is your client?</h1>
+      <p class="lede" style="margin-bottom:0">
+        Iowa Courts groups cases by name and date of birth. Pick every entry
+        that is the same person and Napier will build one workbook from all of
+        them.
+      </p>
+    </div>
+  </div>
 
-    {% if too_many_results %}
-        <div class="alert alert-warning">
-            <div>Your query returned more than 200 records.</div>
-            <div>A subset of the results (the first 200 records found) is shown below.</div>
-            <div>Cases where the person's role is an attorney or other non-party designation are automatically excluded from the list below.</div>
-            <div>However, the 200-record limit may have prevented some of your client's actual cases from appearing.</div>
-            <div>To get more complete results, go back to the search screen and add a middle name or other details to narrow your search.</div>
-        </div>
-    {% endif %}
+  {% if too_many_results %}
+    <div class="notice" role="alert">
+      <p class="notice-title">Iowa Courts stopped counting at 200 records.</p>
+      <p>
+        Only the first 200 are shown, so some of your client's cases may be
+        missing. Cases where the person is an attorney or another non-party are
+        left out of this list on purpose.
+      </p>
+      <p>
+        Go back and add a middle name or more of the name to narrow it down.
+      </p>
+    </div>
+  {% endif %}
 
-    <form id="crs">
-        {% for key in keys %}
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="caseId" value="{{ key }}">
-                <label class="form-check-label">
-                    {{ key }} <span class="text-muted">({{ cases[key] | length }} case{{ cases[key] | length | pluralize("","s") }})</span>
-                </label>
-            </div>
-        {% endfor %}
-        <button id="crs-submit-button" type="submit" class="btn btn-primary">Create CRS</button>
-    </form>
-    <a href="/logout" class="btn">New Search</a>
+  <form id="crs">
+    <div class="result-head" style="margin-bottom:.6rem">
+      <p class="selected-count" id="count">Nothing picked yet</p>
+      <button type="button" class="bulk" id="toggle-all">Select all</button>
+    </div>
 
-    <div id="status" class="mt-2"></div>
+    <div class="people">
+      {% for key in keys %}
+        {% set parts = key.split(' ', 1) %}
+        <label class="person">
+          <input type="checkbox" name="caseId" value="{{ key }}">
+          <span class="person-main">
+            <span class="person-name">{{ parts[1] if parts|length > 1 else key }}</span>
+            {% if parts|length > 1 %}
+              <span class="person-dob">Born {{ parts[0] }}</span>
+            {% endif %}
+          </span>
+          <span class="tally">{{ cases[key] | length }} case{{ cases[key] | length | pluralize("","s") }}</span>
+        </label>
+      {% endfor %}
+    </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script>
-        var searchJobId = {{ search_job_id|tojson }};
+    <div class="actions">
+      <button id="crs-submit-button" type="submit" class="btn btn-primary">Create the CRS</button>
+      <a href="/logout" class="btn btn-quiet">Start a new search</a>
+    </div>
+  </form>
 
-        // The cases are pulled from Iowa Courts and the workbook is built on the
-        // server, so the run survives a closed laptop; this page just hands off
-        // the selection and follows the job's progress page.
-        $(document).ready(function () {
-            $("#crs").submit(function (e) {
-                e.preventDefault();
-                var keys = $("input[name='caseId']:checked").map(function () {
-                    return $(this).val();
-                }).get();
-                if (!keys.length) {
-                    $("#status").text("Pick a name first.");
-                    return false;
-                }
-                $("#crs-submit-button").attr("disabled", true);
-                $("#status").text("Starting...");
+  <div id="status" class="notice notice-stop" role="alert" hidden></div>
+</div>
 
-                $.ajax({
-                    type: "POST",
-                    url: "/crs-job",
-                    data: JSON.stringify({ 'search_job_id': searchJobId, 'keys': keys }),
-                    contentType: "application/json; charset=utf-8",
-                    dataType: "json"
-                })
-                .done(function (response) {
-                    window.location = response.progress_url;
-                })
-                .fail(function (xhr) {
-                    var response = xhr.responseJSON;
-                    $("#crs-submit-button").attr("disabled", false);
-                    $("#status").text(response && response.error
-                        ? response.error
-                        : "Could not start the CRS. Please try again.");
-                });
-                return false;
-            });
-        });
-    </script>
+<script>
+var searchJobId = {{ search_job_id|tojson }};
+var form = document.getElementById("crs");
+var button = document.getElementById("crs-submit-button");
+var statusBox = document.getElementById("status");
+var countLine = document.getElementById("count");
+var toggleAll = document.getElementById("toggle-all");
 
+function boxes() {
+  return Array.prototype.slice.call(
+    form.querySelectorAll("input[name='caseId']"));
+}
+
+function picked() {
+  return boxes().filter(function (b) { return b.checked; });
+}
+
+function refresh() {
+  var n = picked().length;
+  countLine.textContent = n === 0
+    ? "Nothing picked yet"
+    : n + (n === 1 ? " name picked" : " names picked");
+  toggleAll.textContent = n === boxes().length && n > 0 ? "Clear all" : "Select all";
+}
+
+function say(message) {
+  statusBox.textContent = message;
+  statusBox.hidden = !message;
+}
+
+form.addEventListener("change", refresh);
+
+toggleAll.addEventListener("click", function () {
+  var turnOn = picked().length !== boxes().length;
+  boxes().forEach(function (b) { b.checked = turnOn; });
+  refresh();
+});
+
+// The cases are pulled from Iowa Courts and the workbook is built on the
+// server, so the run survives a closed laptop; this page just hands off the
+// selection and follows the job's progress page.
+form.addEventListener("submit", function (e) {
+  e.preventDefault();
+  var keys = picked().map(function (b) { return b.value; });
+  if (!keys.length) {
+    say("Pick at least one name first.");
+    return;
+  }
+  say("");
+  button.disabled = true;
+  button.textContent = "Starting...";
+
+  fetch("/crs-job", {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ search_job_id: searchJobId, keys: keys })
+  }).then(function (response) {
+    return response.json().catch(function () { return null; })
+      .then(function (body) { return { ok: response.ok, body: body }; });
+  }).then(function (result) {
+    if (result.ok && result.body && result.body.progress_url) {
+      window.location = result.body.progress_url;
+      return;
+    }
+    button.disabled = false;
+    button.textContent = "Create the CRS";
+    say((result.body && result.body.error) ||
+        "Could not start the CRS. Please try again.");
+  }).catch(function () {
+    button.disabled = false;
+    button.textContent = "Create the CRS";
+    say("Could not start the CRS. Please try again.");
+  });
+});
+
+refresh();
+</script>
 {% endblock %}
