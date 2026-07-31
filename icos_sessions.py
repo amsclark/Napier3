@@ -78,6 +78,12 @@ def close_all():
     with _lock:
         clients = [entry["client"] for entry in _sessions.values()]
         _sessions.clear()
+    if clients:
+        # Says so in the dyno log because the alternative is a locked account
+        # with nothing anywhere explaining why. The reaper announces itself for
+        # the same reason.
+        print("Shutting down: logging off %d Iowa Courts session(s)"
+              % len(clients), flush=True)
     for client in clients:
         try:
             client.logoff()
