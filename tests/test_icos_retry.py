@@ -206,6 +206,16 @@ def test_a_problem_report_page_is_never_taken_for_a_case():
         client.case_bundle(CASE_ID)
 
 
+def test_a_problem_report_at_login_is_not_a_bad_password():
+    """It is 3404 bytes, well under MIN_SIGNED_IN_BYTES, so without a check of
+    its own it lands on the size fallback and staff are told to check
+    credentials that were never wrong."""
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
+                         budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.login("ILA00", "password")
+
+
 def test_a_problem_report_on_a_search_is_not_an_empty_record():
     """The same page can come back for a search, where it has no rows and so
     parses as a search that matched nobody. "No Iowa record" is the answer a
