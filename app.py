@@ -1,28 +1,26 @@
 from flask import Flask, jsonify, render_template, request, send_file, session, url_for, redirect
-from werkzeug.utils import secure_filename
-from opener import Opener
-from openpyxl import load_workbook
-from pprint import pprint
-from reader import Reader
-import ast
-import crs
-import json
 import os
-import case_parser
 import platform
-import datetime # Added import
 import time
 
+import alerts
+import icos_sessions
+import jobs
+import tasks
+
 app = Flask(__name__)
-# A guessable secret key lets anyone forge session cookies (which hold ICOS
-# session state and gate the /crs file download). Set SECRET_KEY in the app
-# config; the urandom fallback keeps sessions unforgeable but resets them on
-# dyno restart.
+# A guessable secret key lets anyone forge session cookies (which hold the ICOS
+# session token and gate the CRS download). Set SECRET_KEY in the app config;
+# the urandom fallback keeps sessions unforgeable but resets them on dyno
+# restart.
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
 
 tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
+
+RESTARTED_MESSAGE = ("Napier restarted and this search is no longer available. "
+                     "Please run the search again.")
 
 # --- ICOS connection keepalive -------------------------------------------
 # ICOS's edge throttles/tarpits the first connection(s) from an idle source IP
@@ -39,7 +37,13 @@ import urllib.request as _urlreq
 KEEPALIVE_URL = "https://www.iowacourts.state.ia.us/ESAWebApp/ESALogin.jsp"
 KEEPALIVE_SECS = 20
 KEEPALIVE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+KEEPALIVE_BURST = 8
+# A ping every 20 seconds logging a line each time is 4,300 lines a day, which
+# buries the job and ICOS lines that someone reads a log to find. Every change
+# of state is logged; a steady healthy ping only says so this often.
+KEEPALIVE_LOG_SECS = 10 * 60
 _keepalive_lock = None
+_keepalive_state = {"ok": None, "logged_at": 0.0, "cold_since": None}
 
 def _keepalive_ping(timeout=6):
     t0 = time.time()
@@ -50,27 +54,63 @@ def _keepalive_ping(timeout=6):
     except Exception:
         return time.time() - t0, False
 
-def _keepalive_loop():
+def _describe_duration(seconds):
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "under a minute"
+    if minutes < 60:
+        return "%d minute%s" % (minutes, "" if minutes == 1 else "s")
+    hours = minutes / 60.0
+    return "%.1f hours" % hours
+
+def _keepalive_cycle(state, now=None):
     # ICOS tarpits the first connection(s) from an idle source IP, and a single
     # ping does NOT warm a cold path (it takes several attempts). So ping often,
     # and the moment a ping comes back cold, BURST until it warms again, instead
     # of waiting a full cycle. Keeps the web dyno's path to ICOS continuously
     # warm so real searches don't land on a cold start.
-    while True:
-        dt, ok = _keepalive_ping()
-        if ok:
-            print("KEEPALIVE ok %.2fs" % dt, flush=True)
+    #
+    # One iteration, split out of the loop below so the alerting can be tested
+    # without waiting on a timer.
+    now = time.time() if now is None else now
+    dt, ok = _keepalive_ping()
+    if not ok:
+        for i in range(KEEPALIVE_BURST):
+            dt, ok = _keepalive_ping()
+            if ok:
+                print("KEEPALIVE re-warmed after %d burst tries (%.2fs)" % (i + 1, dt), flush=True)
+                break
         else:
-            for i in range(8):
-                dt2, ok2 = _keepalive_ping()
-                if ok2:
-                    print("KEEPALIVE re-warmed after %d burst tries (%.2fs)" % (i + 1, dt2), flush=True)
-                    break
-            else:
-                print("KEEPALIVE still cold after burst", flush=True)
+            print("KEEPALIVE still cold after burst", flush=True)
+
+    # Deliberately does not alert. A cold keepalive is the normal state of an
+    # idle path to ICOS and it recovers on its own, so paging on it would train
+    # everyone to ignore Napier's email. Staff-visible failures are alerted
+    # where they happen, in the retry classifier and the job engine.
+    if ok:
+        if state["cold_since"] is not None:
+            print("KEEPALIVE warm again after %s"
+                  % _describe_duration(now - state["cold_since"]), flush=True)
+            state["cold_since"] = None
+        if state["ok"] is not True or now - state["logged_at"] >= KEEPALIVE_LOG_SECS:
+            print("KEEPALIVE ok %.2fs" % dt, flush=True)
+            state["logged_at"] = now
+    elif state["cold_since"] is None:
+        state["cold_since"] = now
+    state["ok"] = ok
+    return state
+
+def _keepalive_loop():
+    while True:
+        try:
+            _keepalive_cycle(_keepalive_state)
+        except Exception as e:
+            # A keepalive thread that dies is invisible until searches start
+            # failing, so swallow and keep pinging.
+            print("KEEPALIVE cycle error (%s)" % type(e).__name__, flush=True)
         time.sleep(KEEPALIVE_SECS)
 
-def _start_keepalive():
+def _start_background_threads():
     global _keepalive_lock
     s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
     try:
@@ -81,245 +121,159 @@ def _start_keepalive():
     _keepalive_lock = s  # hold the bind for the life of the dyno
     threading.Thread(target=_keepalive_loop, name="icos-keepalive", daemon=True).start()
     print("KEEPALIVE started (every %ss)" % KEEPALIVE_SECS, flush=True)
+    icos_sessions.start_reaper()
+    jobs.start_janitor()
+    # Heroku deploys and its daily dyno cycle both kill this process. Whatever
+    # the store is holding has to be handed back to ICOS on the way out, or the
+    # shared account stays locked for staff who did nothing but show up.
+    icos_sessions.install_shutdown_hooks()
 
-_start_keepalive()
+# Guarded so tests (and anything importing the app for inspection) don't start
+# pinging the live court site.
+if os.environ.get('NAPIER_DISABLE_BACKGROUND') != '1':
+    _start_background_threads()
 # -------------------------------------------------------------------------
 
-def get_reader(username=None, password=None, use_cookie_file=False):
-    reader = Reader(Opener())
-    if 'cookies' in session:
-        print("Loading cookies")
-        reader.opener.load_cookies(session['cookies'])
-    elif use_cookie_file:
-        pass
-        '''
-        print("Loading cookies from file")
-        with open(tmp_dir + "cookies.txt", "r", errors='ignore') as text_file:
-            cookies = text_file.read()
-            cookies = cookies.encode('utf-8', errors='ignore')
-            print(cookies)
-            reader.opener.load_cookies(cookies)
-        '''
-    elif username is None:
-        print("Cannot login, no username provided")
-        return (None, "No username provided")
-    else:
-        print("Logging in as ", username)
-        reader.init()
 
-        if not os.path.exists(tmp_dir):
-            os.mkdir(tmp_dir)
+def own_job(job_id):
+    """Fetch a job this browser started.
 
-        with open(tmp_dir + "cookies.txt", "wb") as text_file:
-            text_file.write(reader.opener.get_cookies())
-        
-        result = reader.login(username, password)
+    Job ids are unguessable, but binding them to the session as well keeps one
+    staffer's search off another's screen if an id is ever shared or logged.
+    """
+    if job_id not in session.get('job_ids', []):
+        return None
+    return jobs.get(job_id)
 
-        if isinstance(result, bytes):
-            result = result.decode('utf-8', errors='ignore')
 
-        if "Concurrent Login Error" in result:
-            # ESA allows one session per account and offers no way to force-clear
-            # another session (the error page literally says "wait 15 minutes").
-            # Retry once in case it was a brief overlap, then surface a clear
-            # message. (This path is rare in practice -- staff spread accounts.)
-            print("Concurrent login error, retrying login once")
-            time.sleep(2)
-            result = reader.login(username, password)
-            if isinstance(result, bytes):
-                result = result.decode('utf-8', errors='ignore')
+def remember_job(job):
+    session['job_ids'] = (session.get('job_ids', []) + [job.id])[-20:]
 
-        if "The userID or password could not be validated" in result:
-            print("Bad User ID or password")
-            return (None, "Bad User ID or password")
-
-        if "Concurrent Login Error" in result:
-            print("User already logged in")
-            return (None, "Iowa Courts Online reports this account as already logged in, likely from an earlier session that was not logged off. Please wait a minute and try again.")
-
-        print("Logged in")
-    return (reader, "")
-
-def sleep_reader(reader):
-    print("Saving cookies")
-    session['cookies'] = reader.opener.get_cookies()
-
-def close_reader(reader):
-    print("Logging off")
-    reader.logoff()
-    session.pop('cookies', None)
 
 @app.route('/')
 def index():
-	return render_template('start.html')
+    return render_template('start.html')
+
 
 @app.route('/logout')
 def logout():
-    reader, error = get_reader(None, None, True)
-    if reader is not None:
-        reader.logoff()
-    session.pop('cookies', None)
+    icos_sessions.close(session.pop('icos_token', None))
+    session.pop('job_ids', None)
     return redirect(url_for('index'))
+
 
 @app.route('/search', methods=['POST'])
 def search():
     username = request.form['username']
     password = request.form['password']
-    is_lite = 'isLite' in request.form
-    session['isLite'] = is_lite
+    session['isLite'] = 'isLite' in request.form
 
     if not username.startswith("ILA") and not username.startswith("drakelegalclinic"):
-        return "Invalid Username"
+        return render_template('start.html',
+                               error="That user ID is not an Iowa Legal Aid Iowa Courts account.")
 
-    reader, error = get_reader(username, password)
-    if reader is None:
-        return error
+    # A search left open from an earlier run would keep holding the ESA account.
+    icos_sessions.close(session.pop('icos_token', None))
 
-    firstname = request.form['firstname']
-    middlename = request.form['middlename']
-    lastname = request.form['lastname']
+    job = jobs.start('search', tasks.search_task, username, password,
+                     request.form['firstname'], request.form['middlename'],
+                     request.form['lastname'])
+    remember_job(job)
+    return redirect(url_for('progress', job_id=job.id))
 
-    print("Searching ", firstname, middlename, lastname)
-    result = reader.search(firstname, middlename, lastname)
-    sleep_reader(reader)
 
-    if not result or not result.strip():
-        print("Empty search response from ICOS")
-        return "Iowa Courts Online returned an empty response. Please try your search again."
+@app.route('/progress/<job_id>')
+def progress(job_id):
+    job = own_job(job_id)
+    if job is None:
+        return render_template('start.html', error=RESTARTED_MESSAGE)
+    return render_template('progress.html', job=job.to_dict())
 
-    #result = None
-    #with open("search_results.html", "r") as text_file:
-    #    result = text_file.read()
 
-    print("Parsing results")
-    cases, too_many_results = case_parser.parse_search(result)
+@app.route('/job/<job_id>')
+def job_status(job_id):
+    job = own_job(job_id)
+    if job is None:
+        return jsonify({"status": jobs.FAILED, "done": True,
+                        "error": RESTARTED_MESSAGE,
+                        "message": RESTARTED_MESSAGE, "progress": []}), 410
+    return jsonify(job.to_dict())
 
-    case_dict = {}
-    for case in cases:
-        key = 'DOB-UNKNOWN ' + case['name']
-        if (case['dob']) and (case['dob'].isspace() != True):
-            key = "{}-{}-{} {}".format(
-                case['dob'].split('/')[2].strip(),
-                case['dob'].split('/')[0].strip(),
-                case['dob'].split('/')[1].strip(),
-                case['name'].strip()
-            )
-        if key not in case_dict:
-            case_dict[key] = []
-        case_dict[key].append(case['id'])
-    keys = sorted([key for key in case_dict])
-    return render_template('search.html', cases=case_dict, keys=keys, too_many_results=too_many_results)
 
-@app.route('/case', methods=['POST'])
-def get_case_details():
-    if 'cookies' not in session:
-        return "Bad session"
+@app.route('/results/<job_id>')
+def results(job_id):
+    job = own_job(job_id)
+    if job is None or job.status != jobs.DONE or job.kind != 'search':
+        return render_template('start.html', error=RESTARTED_MESSAGE)
 
-    reader, error = get_reader()
-    if reader is None:
-        return error
+    result = job.result
+    session['icos_token'] = result['session_token']
+    return render_template('search.html', cases=result['cases'], keys=result['keys'],
+                           too_many_results=result['too_many_results'],
+                           search_job_id=job.id)
 
-    case = {'id': request.form['caseId']}
-    print(case)
 
-    result = reader.case_summary(case['id'])
-    case_parser.parse_case_summary(result, case)
-       
-    result = reader.case_charges()  
-    case_parser.parse_case_charges(result, case)
-    #print case['charge']
+@app.route('/crs-job', methods=['POST'])
+def crs_job():
+    data = request.get_json(silent=True) or {}
+    search_job = own_job(data.get('search_job_id', ''))
+    token = session.get('icos_token')
+    if search_job is None or search_job.status != jobs.DONE or not token:
+        return jsonify({"error": RESTARTED_MESSAGE}), 410
 
-    result = reader.case_financials()
-    case_parser.parse_case_financials(result, case)
+    keys = data.get('keys') or []
+    if not keys:
+        return jsonify({"error": "Select a name to build a CRS for."}), 400
 
-   
+    # def_name/def_dob come from the selected defendant key ("YYYY-MM-DD NAME"),
+    # so the client cannot name a defendant it did not pick.
+    primary = keys[0]
+    def_dob, _, def_name = primary.partition(" ")
 
-    #with open("cases/" + case['id'] + "_summary.html", "r") as text_file:
-    #    case_parser.parse_case_summary(text_file.read(), case)
+    job = jobs.start('crs', tasks.crs_task, token, keys, search_job.result['cases'],
+                     def_name, def_dob, session.get('isLite', False))
+    remember_job(job)
+    session.pop('icos_token', None)  # the CRS job owns it now and logs it off
+    return jsonify({"job_id": job.id, "progress_url": url_for('progress', job_id=job.id)})
 
-    #with open("cases/" + case['id'] + "_charges.html", "r") as text_file:
-    #    case_parser.parse_case_charges(text_file.read(), case)
 
-    #with open("cases/" + case['id'] + "_financials.html", "r") as text_file:
-    #    case_parser.parse_case_financials(text_file.read(), case)
-    
-    return jsonify(case)
+@app.route('/job/<job_id>/download')
+def download(job_id):
+    job = own_job(job_id)
+    if job is None or job.status != jobs.DONE or job.kind != 'crs':
+        return render_template('start.html', error=RESTARTED_MESSAGE)
 
-@app.route('/crs', methods=['GET', 'POST'])
-def generate_crs():
-    if request.method == 'GET':
-        if 'file' not in session or 'def_name' not in session or 'is_lite_download' not in session: # Check for all needed session variables
-            return "Bad session - missing required data"
-        
-        # only serve xlsx files that live directly inside tmp_dir, so a
-        # tampered cookie can't point this at an arbitrary file
-        path = os.path.realpath(session['file'])
-        if os.path.dirname(path) != os.path.realpath(tmp_dir).rstrip(os.sep) or not path.endswith('.xlsx'):
-            return "Bad session - invalid file"
-        def_name = session['def_name']
-        is_lite = session['is_lite_download']
-        
-        session.pop('file', None)
-        session.pop('def_name', None)
-        session.pop('is_lite_download', None)
+    # only serve xlsx files that live directly inside tmp_dir, so a tampered
+    # session can't point this at an arbitrary file
+    path = os.path.realpath(job.result['file'])
+    if os.path.dirname(path) != os.path.realpath(tmp_dir).rstrip(os.sep) \
+            or not path.endswith('.xlsx'):
+        return "Bad session - invalid file"
 
-        now = datetime.datetime.now()
-        timestamp = now.strftime("%Y%m%d_%H%M%S")
-        
-        filename_parts = [def_name.replace(" ", "_")]
-        if is_lite:
-            filename_parts.append("Lite")
-        filename_parts.append(timestamp)
-        attachment_filename = f"{'_'.join(filename_parts)}.xlsx"
-        
-        return send_file(path, as_attachment=True, download_name=attachment_filename) # Use download_name
+    return send_file(path, as_attachment=True,
+                     download_name=tasks.download_name(job.result['def_name'],
+                                                       job.result['is_lite']))
 
-    if 'cookies' not in session:
-        return "Bad session"
 
-    reader, error = get_reader()
-    if reader is None:
-        return error
-    close_reader(reader)
-    session.pop('cookies', None)
+@app.errorhandler(Exception)
+def unhandled(e):
+    """Anything that got past a route without being handled.
 
-    data = json.loads(request.data)
-    is_lite = session.get('isLite', False) # Get isLite from session, default to False
-    def_name = data['def_name'].strip()
+    Background jobs report their own failures, so what lands here is a bug in a
+    request path, which is the case nobody would otherwise find out about: the
+    user sees a 500 and closes the tab. Re-raised afterwards so Flask still
+    produces its normal error response and the traceback still reaches the log.
+    """
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        # 404s and the like are routing, not breakage.
+        return e
+    # The request path is included and the query string is not, since a search
+    # is submitted as a POST body and a path is only ever a route plus a job id.
+    alerts.record(request.path, 'web', alerts.UNHANDLED,
+                  **{'traceback': alerts.safe_traceback(e)})
+    raise e
 
-    # Store data for GET request
-    session['def_name'] = def_name
-    session['is_lite_download'] = is_lite
-
-    if is_lite:
-        wb = load_workbook('CRS Lite 3.5.5.xlsx') # Corrected filename
-    else:
-        wb = load_workbook('CRS 3.5.5.xlsx')
-    ws = wb['CASE DATA']
-    row = 4
-   
-    #print(data['def_name'])
-    #print(data['def_dob'])
-
-    for case in data['cases']:
-        print("Adding " + case['id'])
-        crs.process_case(case, ws, row)
-        row += 1
-   
-    ws = wb['BASIC INFO']
-    ws['B5'] = data['def_name'].strip() 
-    ws['B6'] = data['def_dob']
- 
-
-    # def_name is user-supplied; sanitize it before using it in a filesystem path
-    safe_name = secure_filename(def_name.replace(' ', '_')) or "case"
-    if is_lite:
-        fp = tmp_dir + f"{safe_name}_Lite_CRS_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx" # Temp filename can also be more descriptive
-    else:
-        fp = tmp_dir + f"{safe_name}_CRS_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx" # Temp filename can also be more descriptive
-    wb.save(fp)
-    session['file'] = fp
-    return jsonify({'result': "success"})
 
 @app.template_filter('pluralize')
 def pluralize(number, singular = '', plural = 's'):
@@ -330,7 +284,3 @@ def pluralize(number, singular = '', plural = 's'):
 
 if __name__ == "__main__":
 	app.run(host="0.0.0.0")
-
-
-
-

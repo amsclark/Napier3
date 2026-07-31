@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h3 id="headline">Working...</h3>
+
+    <div id="spinner" class="my-3">
+        <div class="progress">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+        </div>
+    </div>
+
+    <p id="status" class="lead">{{ job.message }}</p>
+
+    <div id="failed" class="alert alert-warning" style="display: none"></div>
+
+    <details class="mt-3">
+        <summary>Details</summary>
+        <ul id="log" class="mt-2 text-muted"></ul>
+    </details>
+
+    <p class="mt-3">
+        <a href="/logout" class="btn btn-outline-secondary">Cancel and start over</a>
+    </p>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script>
+        var jobId = {{ job.id|tojson }};
+
+        function render(state) {
+            $("#status").text(state.message || "");
+            var log = $("#log").empty();
+            $.each(state.progress || [], function (_, line) {
+                log.append($("<li>").text(line));
+            });
+        }
+
+        function poll() {
+            $.getJSON("/job/" + jobId)
+                .done(function (state) {
+                    render(state);
+                    if (state.status === "done") {
+                        $("#headline").text("Finished");
+                        window.location = state.next_url;
+                        return;
+                    }
+                    if (state.status === "failed") {
+                        $("#headline").text("Search stopped");
+                        $("#spinner").hide();
+                        $("#failed").text(state.error).show();
+                        return;
+                    }
+                    setTimeout(poll, 2000);
+                })
+                .fail(function (xhr) {
+                    // A restarted dyno loses in-flight searches; say so plainly
+                    // instead of spinning forever.
+                    var state = xhr.responseJSON;
+                    $("#headline").text("Search stopped");
+                    $("#spinner").hide();
+                    $("#failed").text(state && state.error
+                        ? state.error
+                        : "Lost contact with Napier. Please run the search again.").show();
+                });
+        }
+
+        $(document).ready(poll);
+    </script>
+{% endblock %}
