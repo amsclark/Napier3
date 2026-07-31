@@ -230,13 +230,17 @@ def reconcile_financials(case):
         return None, None
 
     # Partition the itemization, carrying the last detail across continuation
-    # rows the way itemized_financials does.
+    # rows the way itemized_financials does. A continuation row has no detail
+    # and no amount, only a payment against the line above it, so its payment
+    # is credited to that line rather than dropped.
     buckets = {name: [] for name in ICOS_BUCKETS}
     last_detail = None
+    current = None
     for row in rows:
         detail = row.get('detail') or ''
         if is_excluded_fee(detail):
             last_detail = None
+            current = None
             continue
         if not detail.strip():
             if last_detail is None:
@@ -245,16 +249,21 @@ def reconcile_financials(case):
         else:
             last_detail = detail
         amount = row.get('amount')
+        paid = row.get('paid')
         if amount is None:
+            # Continuation row: a further payment against the line above.
+            if current is not None and paid is not None:
+                current[2] += Decimal(str(paid))
             continue
-        buckets[get_summary_bucket(detail)].append(
-            (detail, Decimal(str(amount))))
+        current = [detail, Decimal(str(amount)),
+                   Decimal(str(paid)) if paid is not None else Decimal(0)]
+        buckets[get_summary_bucket(detail)].append(current)
 
     # Every bucket must add up to what the summary says was assessed. If it
     # does not, the partition is wrong and any payment we attributed off it
     # would be wrong too.
     for name in ICOS_BUCKETS:
-        assessed = sum((amt for _, amt in buckets[name]), Decimal(0))
+        assessed = sum((entry[1] for entry in buckets[name]), Decimal(0))
         if abs(assessed - summary[name]['original']) > Decimal('0.01'):
             return None, None
 
@@ -265,18 +274,40 @@ def reconcile_financials(case):
         if not entries:
             continue
         paid = summary[name].get('paid') or Decimal(0)
-        amounts = [amt for _, amt in entries]
+
+        # The itemization's own Paid column is blank on most fees, but not on
+        # all of them: restitution in particular is paid down in instalments
+        # that ICOS lists line by line. Where those line payments account for
+        # everything the summary says was paid in this bucket, there is nothing
+        # to infer and no ambiguity to flag.
+        by_line = sum((entry[2] for entry in entries), Decimal(0))
+        if abs(by_line - paid) <= Decimal('0.01'):
+            for detail, amount, line_paid in entries:
+                owed = amount - line_paid
+                if owed <= 0:
+                    continue
+                column = get_finance_column(detail)
+                columns[column] = columns.get(column, Decimal(0)) + owed
+            continue
+
+        amounts = [entry[1] for entry in entries]
         settled = _unique_paid_subset(amounts, paid)
         if settled is None:
-            # Cannot say which line was paid. Report the bucket's balance in
-            # MISC rather than guessing a fee it might not belong to.
+            # Cannot say which line was paid. The balance still belongs to this
+            # bucket, though, so it goes to the column the bucket's lines share
+            # and only falls back to MISC when they disagree. Sending a
+            # restitution balance to MISC because a partial payment could not be
+            # split across instalments was losing the one distinction the
+            # spreadsheet most needs to keep.
             unresolved.append(name)
             due = summary[name].get('due')
             if due is None:
                 due = sum(amounts, Decimal(0)) - paid
-            columns['O'] = columns.get('O', Decimal(0)) + due
+            shared = {get_finance_column(entry[0]) for entry in entries}
+            column = shared.pop() if len(shared) == 1 else 'O'
+            columns[column] = columns.get(column, Decimal(0)) + due
             continue
-        for index, (detail, amount) in enumerate(entries):
+        for index, (detail, amount, _line_paid) in enumerate(entries):
             owed = Decimal(0) if index in settled else amount
             if owed == 0:
                 continue
@@ -287,7 +318,7 @@ def reconcile_financials(case):
     if unresolved:
         note = ("ICOS records payments per category, not per fee. The payment "
                 "in %s could not be tied to a specific line, so that balance "
-                "is reported under MISC."
+                "is reported as a category total rather than per fee."
                 % ", ".join(unresolved))
     return columns, note
 
