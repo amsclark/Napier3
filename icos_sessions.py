@@ -11,6 +11,8 @@ logs off anything nobody came back to. The browser holds only an opaque token
 cookie jar inside the client is what carries the session.
 """
 
+import atexit
+import signal
 import threading
 import time
 import uuid
@@ -78,12 +80,45 @@ def close_all():
     with _lock:
         clients = [entry["client"] for entry in _sessions.values()]
         _sessions.clear()
+    if clients:
+        # Says so in the dyno log because the alternative is a locked account
+        # with nothing anywhere explaining why. The reaper announces itself for
+        # the same reason.
+        print("Shutting down: logging off %d Iowa Courts session(s)"
+              % len(clients), flush=True)
     for client in clients:
         try:
             client.logoff()
         except Exception:
             pass
     return len(clients)
+
+
+def install_shutdown_hooks():
+    """Release held sessions when the platform says the process is going away.
+
+    It has to be SIGTERM rather than atexit. Gunicorn takes its full thirty
+    second graceful timeout on the way down and Heroku SIGKILLs at that mark,
+    so an atexit handler runs in the same instant the process dies: it gets to
+    print and nothing more, and the logoff request never leaves the dyno. That
+    is measured, not assumed -- an R12 exit timeout with no EPALogout to show
+    for it, and the account still locked afterwards. SIGTERM lands thirty
+    seconds earlier, which is the entire budget for doing this properly.
+
+    Gunicorn's own handler is left in place behind ours so its shutdown still
+    runs. atexit stays as a backstop for the exits that never see a SIGTERM.
+    """
+    atexit.register(close_all)
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def release_then_continue(signum, frame):
+        try:
+            close_all()
+        finally:
+            if callable(previous):
+                previous(signum, frame)
+
+    signal.signal(signal.SIGTERM, release_then_continue)
 
 
 def _reap(now=None):
