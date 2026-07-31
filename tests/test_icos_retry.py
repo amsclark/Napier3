@@ -28,6 +28,16 @@ PROBLEM_REPORT_PAGE = (
     b"communication problem. Possible Cause: The Web server may be too busy. "
     b"No Disposition records were found.</html>")
 
+# What ICOS actually served for charges and financials on 45 of 45 cases in the
+# July capture when it was degrading. It carries no problem report wording at
+# all, so the marker check waves it through. It wears the heading of whatever
+# case was selected last, it never echoes the case that was asked for, and it
+# lists nothing. Accepting it writes the case down with no charges, which
+# reports a conviction as a non-conviction.
+STUB_CASE_PAGE = (
+    b"<html>Trial Court Case Summary Title:&nbsp;STATE VS TESTER, SAM "
+    b"Case: 01311  FECR111111 (SYNTHETIC) Charges Financial Summary</html>")
+
 
 class FakeReader:
     """Replays a scripted sequence of outcomes and records what was asked for."""
@@ -250,6 +260,38 @@ def test_the_page_for_a_different_case_is_rejected():
     client, _, _ = build([FetchResult(OK, other)] * 200, case_budget_seconds=120)
     with pytest.raises(IcosUnavailable):
         client.case_bundle(CASE_ID)
+
+
+def test_an_empty_stub_is_not_a_case_with_no_charges():
+    """The summary can arrive healthy and ICOS degrade before the charges
+    fetch. The stub that comes back carries no problem report wording, so only
+    the case number tells it apart from a real case that genuinely has no
+    charges, and those two mean opposite things on a criminal record."""
+    client, _, _ = build([FetchResult(OK, CASE_PAGE)] +
+                         [FetchResult(OK, STUB_CASE_PAGE)] * 200,
+                         case_budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.case_bundle(CASE_ID)
+
+
+def test_financials_must_also_prove_which_case_they_belong_to():
+    """Court debt decides whether a record can be expunged at all, so money
+    from the wrong case is as bad as charges from the wrong case."""
+    client, _, _ = build([FetchResult(OK, CASE_PAGE),
+                          FetchResult(OK, CASE_PAGE)] +
+                         [FetchResult(OK, STUB_CASE_PAGE)] * 200,
+                         case_budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.case_bundle(CASE_ID)
+
+
+def test_a_stub_that_clears_is_just_a_retry():
+    client, _, _ = build([FetchResult(OK, CASE_PAGE),
+                          FetchResult(OK, STUB_CASE_PAGE),
+                          FetchResult(OK, CASE_PAGE),
+                          FetchResult(OK, CASE_PAGE)])
+    summary, charges, financials = client.case_bundle(CASE_ID)
+    assert charges == CASE_PAGE and financials == CASE_PAGE
 
 
 def test_a_stuck_case_gives_up_long_before_a_stuck_search():
