@@ -66,6 +66,26 @@ def close(token):
         entry["client"].logoff()
 
 
+def close_all():
+    """Log off everything on the way down.
+
+    The store is in memory, so a dyno restart forgets it. ICOS does not: it
+    goes on holding the session, and the shared account stays locked for about
+    fifteen minutes while staff who never deployed anything are told someone
+    else is signed in. One session that will not close must not strand the
+    others, so each is tried on its own.
+    """
+    with _lock:
+        clients = [entry["client"] for entry in _sessions.values()]
+        _sessions.clear()
+    for client in clients:
+        try:
+            client.logoff()
+        except Exception:
+            pass
+    return len(clients)
+
+
 def _reap(now=None):
     now = now if now is not None else time.time()
     with _lock:

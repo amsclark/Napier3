@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, render_template, request, send_file, session, url_for, redirect
+import atexit
 import os
 import platform
 import time
@@ -123,6 +124,11 @@ def _start_background_threads():
     print("KEEPALIVE started (every %ss)" % KEEPALIVE_SECS, flush=True)
     icos_sessions.start_reaper()
     jobs.start_janitor()
+    # Heroku deploys and its daily dyno cycle both kill this process. Whatever
+    # the store is holding has to be handed back to ICOS on the way out, or the
+    # shared account stays locked for staff who did nothing but show up. On
+    # SIGTERM gunicorn exits its workers cleanly, so atexit still runs.
+    atexit.register(icos_sessions.close_all)
 
 # Guarded so tests (and anything importing the app for inspection) don't start
 # pinging the live court site.
