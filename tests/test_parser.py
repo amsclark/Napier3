@@ -163,3 +163,80 @@ def test_a_case_id_cannot_write_outside_the_dump_directory(tmp_path,
     case_parser._dump('../../etc/passwd_summary.html', '<html></html>')
     assert not (tmp_path.parent.parent / 'etc').exists()
     assert [p.name for p in tmp_path.iterdir()] == ['etc_passwd_summary.html']
+
+
+# -- the 200 record notice -------------------------------------------------
+
+# No capture of the real notice exists. ICOS only shows it for a name that
+# matches more cases than it will list, and the one real search page we have
+# came back with 120 rows. So these cover the shapes ICOS is known to produce
+# rather than one recorded page, and the shapes are not guesses: every cell on
+# the real fixture is a font tag padded with CRLFs and tabs, and the detection
+# this replaced matched one exact unpadded text node and would have missed all
+# of them.
+
+def page_carrying(notice):
+    return ("""<html><body>
+      <table border="0" cellpadding="7">
+      <tr><td><font size="2">Case ID</font></td><td><font size="2">Initiated
+      Date</font></td><td><font size="2">Title</font></td><td><font size="2">
+      Name</font></td><td><font size="2">DOB</font></td><td><font size="2">
+      Role</font></td></tr>
+      </table>
+      %s
+      </body></html>""" % notice).encode('utf-8')
+
+
+NOTICES = [
+    'Your query returned more than 200 records.',
+    '<font size="2">\r\n\t\tYour query returned more than 200 records.\r\n\t\t</font>',
+    '<font size="2">&nbsp;Your query returned more than 200 records.</font>',
+    '<p>Your query returned more than 200 records</p>',
+    '<p>Your query returned more than <b>200</b> records.</p>',
+    '<td>  YOUR QUERY RETURNED MORE THAN 200 RECORDS.  </td>',
+]
+
+
+@pytest.mark.parametrize('notice', NOTICES)
+def test_a_search_that_came_back_short_says_so(notice):
+    """A list that is quietly missing cases is worse than one that admits it.
+
+    Staff pick a client off this page and the workbook is built from what they
+    picked, so a search truncated at 200 produces a criminal record summary
+    that looks complete and is not.
+    """
+    cases, too_many = case_parser.parse_search(page_carrying(notice))
+    assert too_many is True
+
+
+@pytest.mark.parametrize('notice', NOTICES)
+def test_the_number_is_read_off_the_page_rather_than_assumed(notice):
+    soup = case_parser.BeautifulSoup(page_carrying(notice), 'html.parser')
+    assert case_parser.truncation_limit(soup) == 200
+
+
+def test_a_different_limit_would_still_be_read():
+    """Nothing here should have to change if Iowa Courts moves the number."""
+    soup = case_parser.BeautifulSoup(
+        page_carrying('<font>Your query returned more than 500 records.</font>'),
+        'html.parser')
+    assert case_parser.truncation_limit(soup) == 500
+
+
+def test_a_complete_search_is_not_called_short(search_page):
+    """The real fixture is 120 rows, under the limit, and carries no notice.
+
+    Paired with the tests above on purpose. A detection that never fires also
+    passes this one on its own, which is how the broken version survived.
+    """
+    cases, too_many = case_parser.parse_search(search_page)
+    assert too_many is False
+    assert len(cases) > 0
+
+
+def test_the_sentence_inside_a_script_is_not_a_notice():
+    """ICOS ships its own JavaScript on these pages, alert text and all."""
+    page = page_carrying(
+        '<script>var msg = "Your query returned more than 200 records.";</script>')
+    cases, too_many = case_parser.parse_search(page)
+    assert too_many is False
