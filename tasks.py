@@ -43,6 +43,27 @@ def group_cases(cases):
     return case_dict, sorted(case_dict)
 
 
+def report_novel_roles(job, cases):
+    """Say when a search included a role nobody has classified yet.
+
+    Napier decides who is a party by listing the roles that are not one, so a
+    role it has never seen is included by default. That has gone wrong four
+    times, and every time the tell was a person reading the workbook and asking
+    why a stranger's convictions were in it. There is nothing to see server side
+    because nothing fails: the case is fetched, parsed and written normally.
+
+    This does not change what goes in the workbook. It reports the role and
+    nothing else, so the same PII rule the rest of alerting keeps holds here:
+    the client's name and date of birth are the privileged part and never leave
+    the machine, and a role string on its own identifies nobody.
+    """
+    novel = sorted({case['role'] for case in cases
+                    if case['role'] not in case_parser.KNOWN_PARTY_ROLES})
+    for role in novel:
+        alerts.record(job.id[:8], job.kind, alerts.NOVEL_ROLE, role=role)
+    return novel
+
+
 def search_task(job, username, password, firstname, middlename, lastname):
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     keep_session = False
@@ -52,6 +73,7 @@ def search_task(job, username, password, firstname, middlename, lastname):
 
         job.log("Reading results...")
         cases, too_many_results = case_parser.parse_search(body)
+        report_novel_roles(job, cases)
         case_dict, keys = group_cases(cases)
 
         token = icos_sessions.put(client)
@@ -182,6 +204,16 @@ def build_workbook(cases, def_name, def_dob, is_lite):
         row += 1
 
     sheet = workbook['BASIC INFO']
+    # Every date test in the workbook compares against B3, the clinic date: the
+    # twenty year cut on the SOL sheet, the two year and eight year expungement
+    # waits, whether the client has turned 18. Left blank it reads as zero, so
+    # nothing is ever old enough and the SOL sheet reports every case as having
+    # no argument, which looks exactly like a client with no stale debt. Today
+    # is the right default for a workbook built today, and it is a date value
+    # rather than text so the arithmetic works. Staff can overwrite it for a
+    # clinic on another day.
+    sheet['B3'] = datetime.date.today()
+    sheet['B3'].number_format = 'MM/DD/YYYY'
     sheet['B5'] = def_name.strip()
     sheet['B6'] = def_dob
 
