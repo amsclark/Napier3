@@ -41,12 +41,49 @@ def get(token):
         return entry["client"]
 
 
+def claim(token):
+    """Take a session out of the store for a job that will hold it a while.
+
+    The reaper works off last_used, which a CRS run never refreshes: it fetches
+    the client once and then spends minutes talking to ICOS. Left in the store,
+    a run longer than IDLE_TIMEOUT has its own live session logged off
+    underneath it from the reaper thread, and a staffer hitting logout mid-run
+    does the same. A claimed session is nobody else's to close, so the job owns
+    it and logs it off itself.
+    """
+    if not token:
+        return None
+    with _lock:
+        entry = _sessions.pop(token, None)
+    return entry["client"] if entry is not None else None
+
+
 def close(token):
     """Log off and forget a session. Safe to call with an unknown token."""
     with _lock:
         entry = _sessions.pop(token, None)
     if entry is not None:
         entry["client"].logoff()
+
+
+def close_all():
+    """Log off everything on the way down.
+
+    The store is in memory, so a dyno restart forgets it. ICOS does not: it
+    goes on holding the session, and the shared account stays locked for about
+    fifteen minutes while staff who never deployed anything are told someone
+    else is signed in. One session that will not close must not strand the
+    others, so each is tried on its own.
+    """
+    with _lock:
+        clients = [entry["client"] for entry in _sessions.values()]
+        _sessions.clear()
+    for client in clients:
+        try:
+            client.logoff()
+        except Exception:
+            pass
+    return len(clients)
 
 
 def _reap(now=None):

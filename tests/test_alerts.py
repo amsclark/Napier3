@@ -120,6 +120,17 @@ def test_an_alert_actually_leaves_the_process(mailbox):
     assert 'job1234' in mailbox[0]['text']
 
 
+def test_a_field_the_formatter_has_not_been_taught_still_reaches_the_email(mailbox):
+    """The body rendered a fixed list of labels and dropped everything else, so
+    a caller could add a detail, watch it appear in the end-of-job digest, and
+    never notice it was missing from the alert itself."""
+    send(alerts.record('job1234', 'search', alerts.RETRY_EXHAUSTED,
+                       endpoint='TrialCaseSearchResultServlet',
+                       county='DUBUQUE'))
+    assert 'county' in mailbox[0]['text']
+    assert 'DUBUQUE' in mailbox[0]['text']
+
+
 def test_it_authenticates_the_way_mailgun_expects(mailbox):
     send(alerts.record('job1234', 'search', alerts.JOB_FAILED))
     scheme, _, token = mailbox[0]['auth'].partition(' ')
@@ -445,6 +456,48 @@ def test_a_bug_in_a_request_path_emails_somebody(mailbox):
 # -- a case that will not parse -------------------------------------------
 
 
+def test_a_case_icos_will_not_return_alerts_with_the_case_and_not_the_person(
+        mailbox, monkeypatch):
+    """Same privacy rule as a parse failure: the case number goes in because it
+    is public record and nobody can chase the problem without it, the client
+    does not because they are privileged."""
+    import icos_sessions
+    from icos import IcosUnavailable
+
+    class Stub:
+        logged_in = True
+
+        def set_alert(self, alert):
+            self.alert = alert
+
+        def case_bundle(self, case_id):
+            raise IcosUnavailable("Iowa Courts Online did not return this case "
+                                  "after 4 minutes of retrying "
+                                  "(last result: timeout).")
+
+        def logoff(self):
+            pass
+
+    monkeypatch.setattr(icos_sessions, 'claim', lambda token: Stub())
+
+    job = FakeJob('crs')
+    with pytest.raises(ValueError):        # nothing came back, so no workbook
+        tasks.crs_task(job, 'tok', ['1900-01-01 TESTER, PAT Q'],
+                       {'1900-01-01 TESTER, PAT Q': ['01311 FECR000000']},
+                       'TESTER, PAT Q', '01/01/1900', False)
+    settle()
+
+    by_subject = {m['subject']: m for m in mailbox}
+    failure = [m for s, m in by_subject.items() if alerts.CASE_UNAVAILABLE in s]
+    assert len(failure) == 1
+    assert '01311 FECR000000' in failure[0]['text']
+    assert '4 minutes of retrying' in failure[0]['text']
+    assert 'carried on without it' in failure[0]['text']
+    for message in mailbox:
+        assert 'TESTER' not in message['text']
+        assert '01/01/1900' not in message['text']
+
+
 def test_a_case_that_will_not_parse_alerts_with_the_case_and_not_the_person(
         mailbox, monkeypatch):
     import case_parser
@@ -467,8 +520,7 @@ def test_a_case_that_will_not_parse_alerts_with_the_case_and_not_the_person(
         row = 'TESTER, PAT Q 01/01/1900'
         raise ValueError('unreadable charge row: %s' % row)
 
-    monkeypatch.setattr(icos_sessions, 'get', lambda token: Stub())
-    monkeypatch.setattr(icos_sessions, 'close', lambda token: None)
+    monkeypatch.setattr(icos_sessions, 'claim', lambda token: Stub())
     monkeypatch.setattr(case_parser, 'parse_case_summary', explode)
 
     job = FakeJob('crs')

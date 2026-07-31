@@ -111,3 +111,5 @@ search_results.html
 CRS 2.3.2_test.xlsx
 
 /example_data/
+# Local Claude Code tooling config, not part of the app.
+.claude/

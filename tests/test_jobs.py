@@ -116,6 +116,33 @@ def test_reaper_logs_off_abandoned_sessions():
     icos_sessions.close(active_token)
 
 
+def test_a_claimed_session_is_out_of_the_reapers_reach():
+    """A CRS run fetches its client once and then talks to ICOS for minutes.
+    Nothing refreshes last_used while it does, so a run longer than the idle
+    timeout would have the reaper log off the session it is still using."""
+    client = FakeClient()
+    token = icos_sessions.put(client)
+    # Make it look long abandoned, which is the state a slow run reaches.
+    icos_sessions._sessions[token]["last_used"] = \
+        time.time() - icos_sessions.IDLE_TIMEOUT - 1
+
+    assert icos_sessions.claim(token) is client
+    icos_sessions._reap()
+
+    assert client.logged_off is False
+
+
+def test_claiming_twice_gives_the_second_caller_nothing():
+    client = FakeClient()
+    token = icos_sessions.put(client)
+    assert icos_sessions.claim(token) is client
+    assert icos_sessions.claim(token) is None
+    assert icos_sessions.claim(None) is None
+    # Whoever claimed it owns logging off, so close() must not double up.
+    icos_sessions.close(token)
+    assert client.logged_off is False
+
+
 def test_activity_defers_the_reaper():
     client = FakeClient()
     token = icos_sessions.put(client)

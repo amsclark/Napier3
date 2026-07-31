@@ -28,6 +28,16 @@ PROBLEM_REPORT_PAGE = (
     b"communication problem. Possible Cause: The Web server may be too busy. "
     b"No Disposition records were found.</html>")
 
+# What ICOS actually served for charges and financials on 45 of 45 cases in the
+# July capture when it was degrading. It carries no problem report wording at
+# all, so the marker check waves it through. It wears the heading of whatever
+# case was selected last, it never echoes the case that was asked for, and it
+# lists nothing. Accepting it writes the case down with no charges, which
+# reports a conviction as a non-conviction.
+STUB_CASE_PAGE = (
+    b"<html>Trial Court Case Summary Title:&nbsp;STATE VS TESTER, SAM "
+    b"Case: 01311  FECR111111 (SYNTHETIC) Charges Financial Summary</html>")
+
 
 class FakeReader:
     """Replays a scripted sequence of outcomes and records what was asked for."""
@@ -87,7 +97,8 @@ def build(script, **kwargs):
                         sleep=clock.sleep, monotonic=clock.monotonic,
                         budget_seconds=kwargs.pop('budget_seconds', 45 * 60),
                         concurrent_budget_seconds=kwargs.pop('concurrent_budget_seconds',
-                                                             16 * 60))
+                                                             16 * 60),
+                        case_budget_seconds=kwargs.pop('case_budget_seconds', 4 * 60))
     return client, clock, messages
 
 
@@ -200,9 +211,36 @@ def test_a_problem_report_page_is_never_taken_for_a_case():
     response and eventually surfaces as an outage.
     """
     client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
-                         budget_seconds=120)
+                         case_budget_seconds=120)
     with pytest.raises(IcosUnavailable):
         client.case_bundle(CASE_ID)
+
+
+def test_a_problem_report_at_login_is_not_a_bad_password():
+    """It is 3404 bytes, well under MIN_SIGNED_IN_BYTES, so without a check of
+    its own it lands on the size fallback and staff are told to check
+    credentials that were never wrong."""
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
+                         budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.login("ILA00", "password")
+
+
+def test_a_problem_report_on_a_search_is_not_an_empty_record():
+    """The same page can come back for a search, where it has no rows and so
+    parses as a search that matched nobody. "No Iowa record" is the answer a
+    CRS is built to give, and staff have no way to tell a real one from this,
+    so it must fail loudly instead of quietly clearing somebody."""
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
+                         budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.search("PAT", "", "TESTER")
+
+
+def test_a_search_problem_report_that_clears_is_just_a_retry():
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE),
+                          FetchResult(OK, RESULTS_PAGE)])
+    assert client.search("PAT", "", "TESTER") == RESULTS_PAGE
 
 
 def test_a_problem_report_that_clears_is_just_a_retry():
@@ -219,9 +257,65 @@ def test_the_page_for_a_different_case_is_rejected():
     come back looking entirely healthy. Reporting one case's charges under
     another case's number is the quietest way to get a CRS wrong."""
     other = CASE_PAGE.replace(b"FECR000000", b"FECR999999")
-    client, _, _ = build([FetchResult(OK, other)] * 200, budget_seconds=120)
+    client, _, _ = build([FetchResult(OK, other)] * 200, case_budget_seconds=120)
     with pytest.raises(IcosUnavailable):
         client.case_bundle(CASE_ID)
+
+
+def test_an_empty_stub_is_not_a_case_with_no_charges():
+    """The summary can arrive healthy and ICOS degrade before the charges
+    fetch. The stub that comes back carries no problem report wording, so only
+    the case number tells it apart from a real case that genuinely has no
+    charges, and those two mean opposite things on a criminal record."""
+    client, _, _ = build([FetchResult(OK, CASE_PAGE)] +
+                         [FetchResult(OK, STUB_CASE_PAGE)] * 200,
+                         case_budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.case_bundle(CASE_ID)
+
+
+def test_financials_must_also_prove_which_case_they_belong_to():
+    """Court debt decides whether a record can be expunged at all, so money
+    from the wrong case is as bad as charges from the wrong case."""
+    client, _, _ = build([FetchResult(OK, CASE_PAGE),
+                          FetchResult(OK, CASE_PAGE)] +
+                         [FetchResult(OK, STUB_CASE_PAGE)] * 200,
+                         case_budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.case_bundle(CASE_ID)
+
+
+def test_a_stub_that_clears_is_just_a_retry():
+    client, _, _ = build([FetchResult(OK, CASE_PAGE),
+                          FetchResult(OK, STUB_CASE_PAGE),
+                          FetchResult(OK, CASE_PAGE),
+                          FetchResult(OK, CASE_PAGE)])
+    summary, charges, financials = client.case_bundle(CASE_ID)
+    assert charges == CASE_PAGE and financials == CASE_PAGE
+
+
+def test_a_stuck_case_gives_up_long_before_a_stuck_search():
+    """A search is the whole job and worth waiting out. A case is one row of
+    many, with staff watching a progress bar and the rest of the list still to
+    pull, so the same dead script must cost far less time."""
+    case_client, case_clock, _ = build([FetchResult(TIMEOUT)] * 500)
+    with pytest.raises(IcosUnavailable):
+        case_client.case_bundle(CASE_ID)
+
+    search_client, search_clock, _ = build([FetchResult(TIMEOUT)] * 500)
+    with pytest.raises(IcosUnavailable):
+        search_client.search("PAT", "", "TESTER")
+
+    assert case_clock.now < search_clock.now / 5
+    assert case_clock.now <= 4 * 60
+
+
+def test_a_search_keeps_its_own_budget():
+    """The case budget must not have quietly shortened the search too."""
+    client, clock, _ = build([FetchResult(TIMEOUT)] * 500, budget_seconds=30 * 60)
+    with pytest.raises(IcosUnavailable):
+        client.search("PAT", "", "TESTER")
+    assert clock.now > 20 * 60
 
 
 def test_icos_spacing_of_a_case_number_does_not_matter():

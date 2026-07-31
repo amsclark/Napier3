@@ -62,7 +62,7 @@ def _squashed(text):
     return "".join(text.split()).upper()
 
 
-def _is_live_case_page(body):
+def _is_not_a_problem_report(body):
     return PROBLEM_REPORT_MARKER not in _text(body)
 
 
@@ -120,7 +120,7 @@ class IcosUnavailable(IcosError):
 class IcosClient:
     def __init__(self, log=None, reader=None, budget_seconds=None,
                  concurrent_budget_seconds=None, sleep=time.sleep,
-                 monotonic=time.monotonic, alert=None):
+                 monotonic=time.monotonic, alert=None, case_budget_seconds=None):
         self.reader = reader if reader is not None else Reader(Opener())
         self._log = log or (lambda message: None)
         # Alerting is a callback rather than an import so this module stays
@@ -131,6 +131,13 @@ class IcosClient:
         self._monotonic = monotonic
         self.budget = budget_seconds if budget_seconds is not None \
             else _env_seconds("RETRY_BUDGET_MIN", 45)
+        # A stalled search is the whole job, so it is worth waiting out. A
+        # stalled case is one row among twenty with staff watching a progress
+        # bar, and the run can finish without it. Waiting the full search
+        # budget on one case holds the other nineteen hostage for no gain, so
+        # a case gets a much shorter one and is dropped if it does not clear.
+        self.case_budget = case_budget_seconds if case_budget_seconds is not None \
+            else _env_seconds("CASE_RETRY_BUDGET_MIN", 4)
         self.concurrent_budget = concurrent_budget_seconds \
             if concurrent_budget_seconds is not None \
             else _env_seconds("CONCURRENT_WAIT_MIN", 16)
@@ -166,6 +173,7 @@ class IcosClient:
         treat the response as a retryable failure.
         """
         started = self._monotonic()
+        budget = self.budget if what == "search" else self.case_budget
         attempt = 0
         last = "no response"
         waits = []
@@ -201,16 +209,22 @@ class IcosClient:
 
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)
-            if elapsed + wait > self.budget:
+            if elapsed + wait > budget:
                 self._alert(alerts.RETRY_EXHAUSTED, endpoint=endpoint,
                             attempts=attempt + 1, elapsed=_describe(elapsed),
                             backoff=_timeline(waits),
                             note="Last result: %s. Staff were told to try again "
                                  "later." % last)
+                if what == "search":
+                    raise IcosUnavailable(
+                        "Iowa Courts Online did not respond after %d minutes of "
+                        "retrying (last result: %s). The court site is likely down. "
+                        "Please try again later." % (round(budget / 60), last))
+                # The caller drops this one case and carries on, so this text
+                # is not staff-facing advice about the whole run.
                 raise IcosUnavailable(
-                    "Iowa Courts Online did not respond after %d minutes of retrying "
-                    "(last result: %s). The court site is likely down. Please try "
-                    "again later." % (round(self.budget / 60), last))
+                    "Iowa Courts Online did not return this case after %d minutes of "
+                    "retrying (last result: %s)." % (round(budget / 60), last))
             self._log(self._attempt_message(what, attempt, elapsed))
             waits.append(wait)
             self._sleep(wait)
@@ -230,8 +244,13 @@ class IcosClient:
         started = self._monotonic()
         waited_for_lock = False
         while True:
+            # Without the validator a problem report lands on the size check
+            # below, because it is well under MIN_SIGNED_IN_BYTES, and staff
+            # are told their user ID or password is wrong while the court site
+            # is down. They then retype credentials that were always correct.
             body = self._retry("search",
-                               lambda: self.reader.login_request(username, password))
+                               lambda: self.reader.login_request(username, password),
+                               validate=_is_not_a_problem_report)
             text = body.decode("utf-8", errors="ignore")
 
             if BAD_CREDS_MARKER in text:
@@ -279,9 +298,14 @@ class IcosClient:
 
     def search(self, firstname, middlename, lastname):
         self._log("Searching Iowa Courts Online...")
+        # A problem report here parses as a search that matched nobody, and
+        # "this person has no Iowa record" is the answer a CRS exists to give.
+        # Getting that wrong is worse than getting a case wrong, so the search
+        # has to prove it is a real result page before anyone believes it.
         return self._retry(
             "search",
-            lambda: self.reader.search_request(firstname, middlename, lastname))
+            lambda: self.reader.search_request(firstname, middlename, lastname),
+            validate=_is_not_a_problem_report)
 
     def case_bundle(self, case_id):
         """Summary, charges and financials for one case.
@@ -292,10 +316,18 @@ class IcosClient:
         summary = self._retry(
             "case", lambda: self.reader.case_summary_request(case_id),
             validate=lambda body: _is_page_for_case(body, case_id))
-        charges = self._retry("case", self.reader.case_charges_request,
-                              validate=_is_live_case_page)
-        financials = self._retry("case", self.reader.case_financials_request,
-                                 validate=_is_live_case_page)
+        # These two get the same proof of identity as the summary rather than
+        # just the problem report check. When ICOS degrades partway through a
+        # case it answers with a stub that carries no problem report wording,
+        # wears the heading of some other case, and lists nothing. It looks
+        # exactly like a case that genuinely has no charges and no court debt,
+        # and on a criminal record those two mean opposite things.
+        charges = self._retry(
+            "case", self.reader.case_charges_request,
+            validate=lambda body: _is_page_for_case(body, case_id))
+        financials = self._retry(
+            "case", self.reader.case_financials_request,
+            validate=lambda body: _is_page_for_case(body, case_id))
         return summary, charges, financials
 
     def logoff(self):
