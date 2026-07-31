@@ -120,7 +120,7 @@ class IcosUnavailable(IcosError):
 class IcosClient:
     def __init__(self, log=None, reader=None, budget_seconds=None,
                  concurrent_budget_seconds=None, sleep=time.sleep,
-                 monotonic=time.monotonic, alert=None):
+                 monotonic=time.monotonic, alert=None, case_budget_seconds=None):
         self.reader = reader if reader is not None else Reader(Opener())
         self._log = log or (lambda message: None)
         # Alerting is a callback rather than an import so this module stays
@@ -131,6 +131,13 @@ class IcosClient:
         self._monotonic = monotonic
         self.budget = budget_seconds if budget_seconds is not None \
             else _env_seconds("RETRY_BUDGET_MIN", 45)
+        # A stalled search is the whole job, so it is worth waiting out. A
+        # stalled case is one row among twenty with staff watching a progress
+        # bar, and the run can finish without it. Waiting the full search
+        # budget on one case holds the other nineteen hostage for no gain, so
+        # a case gets a much shorter one and is dropped if it does not clear.
+        self.case_budget = case_budget_seconds if case_budget_seconds is not None \
+            else _env_seconds("CASE_RETRY_BUDGET_MIN", 4)
         self.concurrent_budget = concurrent_budget_seconds \
             if concurrent_budget_seconds is not None \
             else _env_seconds("CONCURRENT_WAIT_MIN", 16)
@@ -166,6 +173,7 @@ class IcosClient:
         treat the response as a retryable failure.
         """
         started = self._monotonic()
+        budget = self.budget if what == "search" else self.case_budget
         attempt = 0
         last = "no response"
         waits = []
@@ -201,16 +209,22 @@ class IcosClient:
 
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)
-            if elapsed + wait > self.budget:
+            if elapsed + wait > budget:
                 self._alert(alerts.RETRY_EXHAUSTED, endpoint=endpoint,
                             attempts=attempt + 1, elapsed=_describe(elapsed),
                             backoff=_timeline(waits),
                             note="Last result: %s. Staff were told to try again "
                                  "later." % last)
+                if what == "search":
+                    raise IcosUnavailable(
+                        "Iowa Courts Online did not respond after %d minutes of "
+                        "retrying (last result: %s). The court site is likely down. "
+                        "Please try again later." % (round(budget / 60), last))
+                # The caller drops this one case and carries on, so this text
+                # is not staff-facing advice about the whole run.
                 raise IcosUnavailable(
-                    "Iowa Courts Online did not respond after %d minutes of retrying "
-                    "(last result: %s). The court site is likely down. Please try "
-                    "again later." % (round(self.budget / 60), last))
+                    "Iowa Courts Online did not return this case after %d minutes of "
+                    "retrying (last result: %s)." % (round(budget / 60), last))
             self._log(self._attempt_message(what, attempt, elapsed))
             waits.append(wait)
             self._sleep(wait)
