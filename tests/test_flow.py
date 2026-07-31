@@ -312,3 +312,47 @@ def test_download_rejects_a_path_outside_tmp(client):
 
     jobs.get(crs_job_id).result['file'] = '/etc/passwd'
     assert 'invalid file' in client.get('/job/%s/download' % crs_job_id).get_data(as_text=True)
+
+
+def build_a_workbook(client):
+    search_job_id, _ = run_search(client)
+    client.get('/results/' + search_job_id)
+    response = client.post('/crs-job', json={
+        'search_job_id': search_job_id,
+        'keys': ['1900-01-01 TESTER, PAT Q'],
+    })
+    crs_job_id = response.get_json()['job_id']
+    await_job(client, crs_job_id)
+    return crs_job_id
+
+
+def test_a_workbook_survives_the_page_that_was_watching_it(client):
+    """A phone that loses signal ends the run on screen while it finishes on the
+    server. Without a way back to the file, the only option was to sign in and
+    pull every case a second time."""
+    crs_job_id = build_a_workbook(client)
+
+    page = client.get('/').get_data(as_text=True)
+    assert 'workbook waiting' in page
+    assert '/done/%s' % crs_job_id in page
+
+
+def test_the_offer_goes_away_once_the_file_has_been_collected(client):
+    crs_job_id = build_a_workbook(client)
+    client.get('/job/%s/download' % crs_job_id)
+    assert 'workbook waiting' not in client.get('/').get_data(as_text=True)
+
+
+def test_the_offer_is_made_on_the_page_that_says_the_search_is_gone(client):
+    """The dyno-restart page is where a staffer lands after the thing they were
+    watching died, which is exactly when the workbook is worth mentioning."""
+    crs_job_id = build_a_workbook(client)
+    page = client.get('/progress/nosuchjob').get_data(as_text=True)
+    assert 'workbook waiting' in page
+    assert '/done/%s' % crs_job_id in page
+
+
+def test_one_browser_is_never_offered_another_s_workbook(client):
+    build_a_workbook(client)
+    other = app_module.app.test_client()
+    assert 'workbook waiting' not in other.get('/').get_data(as_text=True)

@@ -108,7 +108,12 @@ summary::marker { color: var(--ink-faint); }
   <p id="status" class="status" role="status" aria-live="polite">{{ job.message }}</p>
   <p id="elapsed" class="elapsed"></p>
 
+  <div id="warn" class="notice" role="status" hidden></div>
   <div id="failed" class="notice notice-stop" role="alert" hidden></div>
+
+  <div id="recheck" class="actions" hidden>
+    <button type="button" class="btn" id="recheck-btn">Check again</button>
+  </div>
 
   <details>
     <summary>Show what it has done so far</summary>
@@ -124,6 +129,20 @@ summary::marker { color: var(--ink-faint); }
 var jobId = {{ job.id|tojson }};
 var started = Date.now();
 var timer = null;
+
+// The run happens on the server and this page only watches it. A phone that
+// drops off the network for ten seconds, or locks its screen mid-poll, used to
+// end the run on screen while it carried on and finished out of sight, and the
+// only button left logged the browser out and took the finished workbook with
+// it. So a poll that does not come back is a connection problem until proven
+// otherwise, and the page keeps asking.
+var misses = 0;
+// About a minute and a half of asking before it stops on its own, which is
+// longer than most runs take to finish in the first place.
+var GIVE_UP_AFTER = 12;
+var waiting = false;
+var next = null;
+var lostSince = null;
 
 function tick() {
   var s = Math.round((Date.now() - started) / 1000);
@@ -177,21 +196,87 @@ function stop(headline, message) {
   }
 }
 
+function warn(message) {
+  var box = document.getElementById("warn");
+  box.textContent = message || "";
+  box.hidden = !message;
+}
+
+function later(seconds) {
+  if (next) { clearTimeout(next); }
+  next = setTimeout(poll, seconds * 1000);
+}
+
+function report() {
+  // Sent on the way back, since a page with no connection cannot report having
+  // no connection. Nobody would otherwise hear that a working run looked broken
+  // to the person watching it.
+  if (!lostSince) { return; }
+  var seconds = Math.round((Date.now() - lostSince) / 1000);
+  lostSince = null;
+  fetch("/job/" + encodeURIComponent(jobId) + "/lost", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ seconds: seconds })
+  }).catch(function () { /* diagnostics never get in the way of the run */ });
+}
+
+function missed() {
+  misses += 1;
+  if (!lostSince) { lostSince = Date.now(); }
+  if (misses >= GIVE_UP_AFTER) {
+    stop("Still waiting on Napier",
+         "This page cannot reach Napier. The run itself is on the server and " +
+         "is very likely finished, so check again once you have a signal " +
+         "rather than starting over.");
+    document.getElementById("recheck").hidden = false;
+    return;
+  }
+  warn("Lost the connection to this page. Napier is still working on the " +
+       "server, and this page is trying again.");
+  // Backs off so a phone in a lift is not asking every two seconds, and caps
+  // low enough that the page catches up quickly once the signal returns.
+  later(Math.min(10, 2 * misses));
+}
+
+function resume() {
+  document.getElementById("recheck").hidden = true;
+  document.getElementById("failed").hidden = true;
+  document.getElementById("track").hidden = false;
+  document.getElementById("elapsed").hidden = false;
+  document.getElementById("headline").textContent = "Working on it";
+  misses = 0;
+  if (!timer) { timer = setInterval(tick, 1000); }
+  poll();
+}
+
 function poll() {
+  if (waiting) { return; }
+  waiting = true;
   fetch("/job/" + encodeURIComponent(jobId), {
     headers: { "Accept": "application/json" }
   }).then(function (response) {
     return response.json().catch(function () { return null; })
-      .then(function (state) { return { ok: response.ok, state: state }; });
+      .then(function (state) { return { status: response.status, state: state }; });
   }).then(function (result) {
+    waiting = false;
     var state = result.state;
-    // A restarted dyno loses in-flight searches, and the server says so in the
-    // body of a 410. Say the same thing rather than spinning forever.
-    if (!result.ok || !state) {
-      stop("Search stopped", (state && state.error) ||
-           "Lost contact with Napier. Please run the search again.");
+    // 410 is the server itself saying this job is gone: a restarted dyno lost
+    // it, or it belongs to another browser. That is the one answer worth
+    // believing, because asking again will never produce a different one.
+    if (result.status === 410 && state && state.error) {
+      stop("Search stopped", state.error);
       return;
     }
+    // Anything else that is not a job is the network or Heroku in the way, not
+    // an answer about the job.
+    if (!state || !state.status) {
+      missed();
+      return;
+    }
+    misses = 0;
+    warn(null);
+    report();
     render(state);
     if (state.status === "done") {
       stop("Finished", null);
@@ -202,12 +287,22 @@ function poll() {
       stop("Search stopped", state.error);
       return;
     }
-    setTimeout(poll, 2000);
+    later(2);
   }).catch(function () {
-    stop("Search stopped",
-         "Lost contact with Napier. Please run the search again.");
+    waiting = false;
+    missed();
   });
 }
+
+document.getElementById("recheck-btn").addEventListener("click", resume);
+
+// A locked screen or a backgrounded tab suspends the timer above, and the
+// network coming back is the moment worth asking again rather than waiting out
+// whatever backoff was running when it went away.
+window.addEventListener("online", function () { if (misses) { resume(); } });
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && misses) { resume(); }
+});
 
 tick();
 timer = setInterval(tick, 1000);

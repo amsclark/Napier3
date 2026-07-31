@@ -15,6 +15,7 @@ import base64
 import os
 import sys
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -566,3 +567,119 @@ def test_the_web_error_path_cannot_grow_without_bound(mailbox):
     # The survivors are the recent ones.
     assert '/job/0/download' not in alerts._pending
     assert '/job/%d/download' % (alerts.MAX_TRACKED_JOBS * 2 - 1) in alerts._pending
+
+
+# -- a run that succeeded here and failed on the staffer's screen ----------
+
+
+def finished_crs_job(age_seconds, collected=False):
+    """A CRS job that finished and has been sitting there since.
+
+    The real Job class rather than a stub, because the whole point of these two
+    tests is that a run where nothing raised still reaches somebody, and a stub
+    would let a change to how success is recorded pass unnoticed.
+    """
+    import jobs
+    job = jobs.Job('crs')
+    job.status = jobs.DONE
+    job.collected = collected
+    job.result = {'file': '/tmp/x.xlsx', 'def_name': 'TESTER, PAT Q',
+                  'is_lite': False, 'written_cases': 70, 'requested_cases': 70,
+                  'failed_cases': []}
+    job.log("Pulling case 70 of 70 (01311 FECR000000)...")
+    job.log("Done. 70 cases written.")
+    job.updated_at = time.time() - age_seconds
+    with jobs._jobs_lock:
+        jobs._jobs[job.id] = job
+    return job
+
+
+@pytest.fixture(autouse=True)
+def empty_job_store():
+    import jobs
+    with jobs._jobs_lock:
+        jobs._jobs.clear()
+    yield
+    with jobs._jobs_lock:
+        jobs._jobs.clear()
+
+
+def test_a_workbook_nobody_collected_reaches_somebody(mailbox):
+    """The failure this app had no signal for at all.
+
+    Every other alert here fires from something raising. This run raised
+    nothing: the cases came back, the file was written, and the staffer saw a
+    dead page because their phone dropped the connection. Silence looked like
+    success.
+    """
+    import jobs
+    job = finished_crs_job(jobs.UNCOLLECTED_AFTER + 60)
+    assert jobs._uncollected_pass() == 1
+    settle()
+
+    assert len(mailbox) == 1
+    assert alerts.UNCOLLECTED in mailbox[0]['subject']
+    text = mailbox[0]['text']
+    assert '70' in text
+    assert 'pull the same cases a second time' in text
+    # A case number is court public record. The person is not.
+    assert '01311 FECR000000' in text
+    assert 'TESTER' not in text
+    assert job.reported_uncollected is True
+
+
+def test_the_same_workbook_is_only_reported_once(mailbox):
+    import jobs
+    finished_crs_job(jobs.UNCOLLECTED_AFTER + 60)
+    assert jobs._uncollected_pass() == 1
+    assert jobs._uncollected_pass() == 0
+    settle()
+    assert len(mailbox) == 1
+
+
+def test_a_collected_workbook_is_nobody_s_problem(mailbox):
+    import jobs
+    finished_crs_job(jobs.UNCOLLECTED_AFTER + 60, collected=True)
+    assert jobs._uncollected_pass() == 0
+    settle()
+    assert mailbox == []
+
+
+def test_a_workbook_built_a_moment_ago_is_left_alone(mailbox):
+    """Staff take a few seconds to hit download. That is not a failure."""
+    import jobs
+    finished_crs_job(5)
+    assert jobs._uncollected_pass() == 0
+    settle()
+    assert mailbox == []
+
+
+def test_a_page_that_lost_contact_says_so_once_it_can(mailbox):
+    import app as app_module
+    import jobs
+
+    job = finished_crs_job(1)
+    client = app_module.app.test_client()
+    app_module.app.secret_key = 'test'
+    with client.session_transaction() as s:
+        s['job_ids'] = [job.id]
+
+    response = client.post('/job/%s/lost' % job.id, json={'seconds': 47})
+    assert response.status_code == 204
+    settle()
+    assert alerts.CLIENT_LOST in mailbox[0]['subject']
+    assert '47 seconds' in mailbox[0]['text']
+    assert 'The run was not affected' in mailbox[0]['text']
+
+
+def test_another_browser_cannot_make_napier_send_mail(mailbox):
+    """Unauthenticated and free to call, so it is a way to send us email from
+    the outside unless it is gated on owning the job the same as every other
+    job route."""
+    import app as app_module
+    job = finished_crs_job(1)
+    response = app_module.app.test_client().post('/job/%s/lost' % job.id,
+                                                 json={'seconds': 47})
+    assert response.status_code == 204
+    settle()
+    assert mailbox == []

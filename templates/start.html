@@ -13,6 +13,21 @@
     <div class="notice notice-stop" role="alert">{{ error }}</div>
   {% endif %}
 
+  {# A run whose progress page died still built its workbook. Offering it here
+     is the difference between one wasted minute and signing back in to pull
+     every case a second time. #}
+  {% if waiting_job %}
+    <div class="notice" role="status">
+      <p class="notice-title">You have a workbook waiting</p>
+      <p>
+        Napier finished a criminal record summary for
+        {{ waiting_job.result.def_name }} and nothing has downloaded it yet.
+        It keeps for two hours.
+      </p>
+      <p><a href="/done/{{ waiting_job.id }}">Open that workbook</a></p>
+    </div>
+  {% endif %}
+
   <form action="/search" method="post">
     <fieldset>
       <legend>Who are you searching for</legend>

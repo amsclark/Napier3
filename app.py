@@ -150,6 +150,24 @@ def remember_job(job):
     session['job_ids'] = (session.get('job_ids', []) + [job.id])[-20:]
 
 
+@app.context_processor
+def waiting_workbook():
+    """The most recent finished workbook this browser has not picked up yet.
+
+    A phone that loses signal for ten seconds ends the run on screen while it
+    carries on and finishes on the server. Until this, the file was built, sat
+    in the job store for two hours and was thrown away unread, and the only way
+    forward was to sign in and pull every case again. So every page that can be
+    landed on offers the way back.
+    """
+    for job_id in reversed(session.get('job_ids', [])):
+        job = jobs.get(job_id)
+        if (job is not None and job.kind == 'crs' and job.status == jobs.DONE
+                and not job.collected):
+            return {"waiting_job": job}
+    return {"waiting_job": None}
+
+
 @app.route('/')
 def index():
     return render_template('start.html')
@@ -202,6 +220,33 @@ def job_status(job_id):
                         "error": RESTARTED_MESSAGE,
                         "message": RESTARTED_MESSAGE, "progress": []}), 410
     return jsonify(job.to_dict())
+
+
+@app.route('/job/<job_id>/lost', methods=['POST'])
+def lost_contact(job_id):
+    """The progress page reporting that it could not reach us for a while.
+
+    Sent once the browser is talking again, because a page with no connection
+    cannot report that it has no connection. Nothing here is a server failure,
+    which is the point: a staffer watching a working run appear to die is
+    exactly the kind of thing that never reaches a log we read.
+    """
+    job = own_job(job_id)
+    if job is None:
+        return ('', 204)
+    seconds = (request.get_json(silent=True) or {}).get('seconds')
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        seconds = 0
+    alerts.record(job.id[:8], job.kind, alerts.CLIENT_LOST,
+                  progress=alerts.recent_progress(job),
+                  **{'out of contact': '%d seconds' % seconds,
+                     'job status': job.status,
+                     'note': ("The run was not affected. This is the staffer's "
+                              "connection to Napier, and it recovered on its "
+                              "own. Worth watching only if it keeps happening.")})
+    return ('', 204)
 
 
 @app.route('/results/<job_id>')
@@ -271,6 +316,9 @@ def download(job_id):
             or not path.endswith('.xlsx'):
         return "Bad session - invalid file"
 
+    # The run is only over once the file has reached someone. This is what stops
+    # the uncollected-workbook alert and takes the offer off the start page.
+    job.collected = True
     return send_file(path, as_attachment=True,
                      download_name=tasks.download_name(job.result['def_name'],
                                                        job.result['is_lite']))

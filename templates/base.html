@@ -205,6 +205,11 @@ input[type=text]:focus, input[type=password]:focus {
 
 /* --- buttons ----------------------------------------------------------- */
 
+/* A class that sets display beats the browser's own rule for the hidden
+   attribute, so anything laid out with flex ignores being hidden until this
+   says otherwise. */
+[hidden] { display: none !important; }
+
 .actions {
   display: flex;
   gap: .65rem;
