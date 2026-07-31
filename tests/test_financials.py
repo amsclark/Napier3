@@ -251,3 +251,87 @@ def test_summary_bucket_classification(detail, bucket):
 ])
 def test_parse_money(text, expected):
     assert case_parser.parse_money(text) == expected
+
+
+def _five_buckets(**due):
+    """The five-bucket summary ICOS prints, with everything zero by default."""
+    rows = []
+    for label in ('COSTS', 'FINE', 'SURCHARGE', 'RESTITUTION', 'OTHER'):
+        original, paid = due.get(label, (Decimal('0'), Decimal('0')))
+        rows.append({'label': label, 'original': original, 'paid': paid,
+                     'due': original - paid})
+    return rows
+
+
+def test_instalment_payments_are_credited_to_the_line_they_paid():
+    """Restitution is paid down in instalments and ICOS lists each one.
+
+    The instalments arrive as continuation rows: no detail, no amount, just a
+    payment against the line above. Those rows were being skipped, so a bucket
+    whose payments were sitting right there on the page looked unattributable,
+    and a restitution balance went to MISC. Found by running seventy real
+    captured cases through this function; it moved $3,227.97 of restitution
+    into MISC across thirty-six of them.
+    """
+    case = {
+        'total_due': '$1108.20',
+        'summary_categories': _five_buckets(
+            RESTITUTION=(Decimal('1200.00'), Decimal('91.80'))),
+        'financials': [
+            {'detail': 'RESTITUTIONS', 'amount': '1200.00', 'paid': '28.17'},
+            {'detail': None, 'amount': None, 'paid': '4.36'},
+            {'detail': None, 'amount': None, 'paid': '9.60'},
+            {'detail': None, 'amount': None, 'paid': '15.37'},
+            {'detail': None, 'amount': None, 'paid': '10.18'},
+            {'detail': None, 'amount': None, 'paid': '10.83'},
+            {'detail': None, 'amount': None, 'paid': '0.10'},
+            {'detail': None, 'amount': None, 'paid': '13.19'},
+        ],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert note is None, 'the payments are on the page; nothing to flag'
+    assert columns == {'S': Decimal('1108.20')}
+
+
+def test_an_unattributable_payment_keeps_its_category():
+    """A bucket we cannot split by line is still a bucket we can name.
+
+    Two restitution lines and a payment that could have been either. Which fee
+    was paid is unknowable, but that the balance is restitution is not, and
+    restitution is the one distinction the spreadsheet cannot afford to lose:
+    it drives expungement and 910.7 eligibility, not just the debt total.
+    """
+    case = {
+        'total_due': '$75.00',
+        'summary_categories': _five_buckets(
+            RESTITUTION=(Decimal('100.00'), Decimal('25.00'))),
+        'financials': [
+            {'detail': 'RESTITUTIONS', 'amount': '50.00', 'paid': None},
+            {'detail': 'RESTITUTIONS', 'amount': '50.00', 'paid': None},
+        ],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert columns == {'S': Decimal('75.00')}, 'not MISC'
+    assert note is not None and 'RESTITUTION' in note
+
+
+def test_an_unattributable_payment_across_different_fees_still_falls_to_misc():
+    """The old behaviour, kept for the case that actually warrants it.
+
+    When the lines in an unsplittable bucket map to different columns there is
+    no honest column to put the balance in, so MISC it is.
+    """
+    case = {
+        'total_due': '$25.00',
+        'summary_categories': _five_buckets(
+            OTHER=(Decimal('50.00'), Decimal('25.00'))),
+        'financials': [
+            {'detail': 'DELINQUENT REVOLVING FUND OBLIGATION',
+             'amount': '25.00', 'paid': None},
+            {'detail': 'IOWA DEPT OF REVENUE COLLECTIONS FEE',
+             'amount': '25.00', 'paid': None},
+        ],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert columns == {'O': Decimal('25.00')}
+    assert note is not None
