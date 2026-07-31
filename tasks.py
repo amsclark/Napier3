@@ -64,6 +64,33 @@ def report_novel_roles(job, cases):
     return novel
 
 
+def report_unknown_dispositions(job, unknown):
+    """Say when a case was coded on a guess, on the page and by email.
+
+    charge_code_map has a word for every outcome anyone has seen ICOS use.
+    Anything else codes the case OTH, and OTH is what the expungement,
+    bankruptcy, exemption and licence sheets read as no conviction, so a client
+    with a real conviction can come out of four sheets looking clean. The row
+    itself says so in column V, but the workbook goes to whoever runs the
+    clinic and the map only gets the missing word added if it reaches Alex.
+
+    The wording and the case number go out. Both are court public record and
+    neither is any use without the other: the word is what the map is missing
+    and the case is the page to read it off. The client is not in it.
+    """
+    for disposition, case_ids in sorted(unknown.items()):
+        job.log("Iowa Courts recorded \"%s\" on %d case%s, which Napier does not "
+                "recognise. Those rows are coded OTH and say so in the notes "
+                "column: %s."
+                % (disposition, len(case_ids), "" if len(case_ids) == 1 else "s",
+                   ", ".join(case_ids)))
+        alerts.record(job.id[:8], job.kind, alerts.UNKNOWN_DISPOSITION,
+                      progress=alerts.recent_progress(job),
+                      disposition=disposition,
+                      cases=", ".join(case_ids))
+    return sorted(unknown)
+
+
 def search_task(job, username, password, firstname, middlename, lastname):
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     keep_session = False
@@ -167,7 +194,8 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
             raise ValueError("no cases could be read")
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
-        path = build_workbook(cases, def_name, def_dob, is_lite)
+        path, unknown_dispositions = build_workbook(cases, def_name, def_dob, is_lite)
+        report_unknown_dispositions(job, unknown_dispositions)
         job.result = {
             "file": path,
             "def_name": def_name,
@@ -196,11 +224,20 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
 
 
 def build_workbook(cases, def_name, def_dob, is_lite):
+    """Returns the path written, and the dispositions Napier could not read.
+
+    The second value is a map of the ICOS wording to the case numbers it turned
+    up on. Empty on almost every run. When it is not, those cases are on the
+    sheet under a guessed code and somebody needs to know before the workbook is
+    used, so the caller reports it rather than the file quietly carrying it.
+    """
     workbook = load_workbook('CRS Lite 3.5.5.xlsx' if is_lite else 'CRS 3.5.5.xlsx')
     sheet = workbook['CASE DATA']
     row = 4
+    unknown = {}
     for case in cases:
-        crs.process_case(case, sheet, row)
+        for disposition in crs.process_case(case, sheet, row) or []:
+            unknown.setdefault(disposition, []).append(case['id'])
         row += 1
 
     sheet = workbook['BASIC INFO']
@@ -226,7 +263,7 @@ def build_workbook(cases, def_name, def_dob, is_lite):
     suffix = "_Lite_CRS_" if is_lite else "_CRS_"
     path = tmp_dir + safe_name + suffix + stamp + ".xlsx"
     workbook.save(path)
-    return path
+    return path, unknown
 
 
 def download_name(def_name, is_lite):

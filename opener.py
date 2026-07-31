@@ -1,7 +1,6 @@
 #import cookielib 
 import http.cookiejar
 import os
-import pickle
 import urllib, urllib.request, urllib.parse
 
 user_agent = u"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -38,13 +37,6 @@ class Opener:
         cookie_processor = urllib.request.HTTPCookieProcessor(self.cookieJar)
         self.opener = urllib.request.build_opener(cookie_processor)
         self.opener.addheaders = list(browser_headers)
-
-    def get_cookies(self):
-        return pickle.dumps(list(self.cookieJar))
-    
-    def load_cookies(self, encoded_cookies):
-        for cookie in pickle.loads(encoded_cookies):
-            self.cookieJar.set_cookie(cookie)
 
     def open(self, url, data=None, timeout=None):
         kw = {} if timeout is None else {"timeout": timeout}

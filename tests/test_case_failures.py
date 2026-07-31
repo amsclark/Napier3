@@ -82,7 +82,7 @@ def run(monkeypatch, case_ids, unavailable=()):
 
     def fake_build(cases, name, dob, lite):
         written.extend(case['id'] for case in cases)
-        return os.path.join(tasks.tmp_dir, 'stub.xlsx')
+        return os.path.join(tasks.tmp_dir, 'stub.xlsx'), {}
 
     monkeypatch.setattr(tasks, 'build_workbook', fake_build)
 
