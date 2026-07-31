@@ -43,6 +43,27 @@ def group_cases(cases):
     return case_dict, sorted(case_dict)
 
 
+def report_novel_roles(job, cases):
+    """Say when a search included a role nobody has classified yet.
+
+    Napier decides who is a party by listing the roles that are not one, so a
+    role it has never seen is included by default. That has gone wrong four
+    times, and every time the tell was a person reading the workbook and asking
+    why a stranger's convictions were in it. There is nothing to see server side
+    because nothing fails: the case is fetched, parsed and written normally.
+
+    This does not change what goes in the workbook. It reports the role and
+    nothing else, so the same PII rule the rest of alerting keeps holds here:
+    the client's name and date of birth are the privileged part and never leave
+    the machine, and a role string on its own identifies nobody.
+    """
+    novel = sorted({case['role'] for case in cases
+                    if case['role'] not in case_parser.KNOWN_PARTY_ROLES})
+    for role in novel:
+        alerts.record(job.id[:8], job.kind, alerts.NOVEL_ROLE, role=role)
+    return novel
+
+
 def search_task(job, username, password, firstname, middlename, lastname):
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     keep_session = False
@@ -52,6 +73,7 @@ def search_task(job, username, password, firstname, middlename, lastname):
 
         job.log("Reading results...")
         cases, too_many_results = case_parser.parse_search(body)
+        report_novel_roles(job, cases)
         case_dict, keys = group_cases(cases)
 
         token = icos_sessions.put(client)

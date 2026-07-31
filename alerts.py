@@ -56,6 +56,12 @@ UNHANDLED = 'unhandled exception'
 # because nothing server-side went wrong.
 UNCOLLECTED = 'workbook was built but never collected'
 CLIENT_LOST = 'progress page lost contact with Napier'
+# Napier decides who is a party by listing the roles that are not, so a role
+# nobody has seen before is included by default. That default has been wrong
+# four times, most recently a nonparty filer, and each time it took someone
+# noticing a stranger's convictions in a client's summary. This does not change
+# what is included: it says the list has a gap in it while the run is happening.
+NOVEL_ROLE = 'unrecognised party role on an ICOS search'
 
 # A run that eventually worked but took this many attempts is the early warning
 # that ICOS is degrading, which is worth one email before staff start noticing.

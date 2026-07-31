@@ -139,6 +139,21 @@ def test_a_padded_defendant_is_still_read_as_a_defendant():
     assert cases[0]['role'] == 'DEFENDANT'
 
 
+def test_the_two_role_lists_do_not_overlap():
+    """A role in both would be suppressed and vouched for at the same time."""
+    assert not (case_parser.NON_PARTY_ROLES & case_parser.KNOWN_PARTY_ROLES)
+
+
+def test_the_roles_on_the_real_search_page_are_all_classified(search_page):
+    """The suppression list decides what is excluded and this one decides what
+    gets reported as unrecognised, so a role on a page we have should be in
+    exactly one of them or the alert cries wolf on every search."""
+    cases, _ = case_parser.parse_search(search_page)
+    unclassified = {case['role'] for case in cases
+                    if case['role'] not in case_parser.KNOWN_PARTY_ROLES}
+    assert unclassified == set()
+
+
 # -- what gets written to disk --------------------------------------------
 
 def test_parsing_writes_nothing_to_disk_by_default(search_page, tmp_path,
