@@ -25,40 +25,32 @@ charge_code_map = {
 
 
 def get_dominant_charge(charges):
+    """Pick the one disposition code that represents the whole case.
+
+    ICOS lists a disposition per count, so a plea deal shows up as a guilty
+    alongside several dismissals. The CRS has one column for it, and the
+    ranking in charge_code_map decides which count speaks for the case.
+
+    Returns a copy. The caller's charge keeps its list of dispositions, so
+    calling this twice on the same case gives the same answer both times.
+    """
     if len(charges) == 0:
         return None
-    iterator = 0
-    delisted = charges[0]
+    delisted = dict(charges[0])
     raw_charge = delisted['disposition']
-    print("raw_charge: "+str(raw_charge))
     charge_dict = {}
-    while iterator <= len(raw_charge)-1:
-        disposition = raw_charge[iterator].replace("DNU-", "")
+    for disposition in raw_charge:
+        disposition = disposition.replace("DNU-", "")
         if not disposition:
             charge_dict["NOTF"] = 0
-            #try a get function instead that defaults to 'OTH'
         elif disposition not in charge_code_map:
             charge_dict["OTH"] = 3
         else:
-            charge_pair = charge_code_map.get(disposition)
-            print("charge_code_map.get(disposition):"+str(charge_code_map.get(disposition)))
-            charge_key = str(charge_pair.keys())
-            charge_key = charge_key.replace("dict_keys(['","")
-            charge_key = charge_key.replace("'])","")
-            print(str(iterator)+": " + str(charge_key))
-            charge_dict[charge_key] = charge_pair.get(charge_key) 
-        print("charge_dict: "+str(charge_dict))
-        iterator += 1
-    #sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1])
-    sorted_tuples = sorted(charge_dict.items(), reverse=True, key=lambda item: item[1] if item[1] is not None else float('inf'))
-    print("sorted_tuples: " + str(sorted_tuples))
-    sorted_charge = sorted_tuples[0]
-    #sorted_charge = {k: v for k, v in sorted_tuples}
-    print("sorted_charge: " + str(sorted_charge))
-    #(dominant_charge, score) = sorted_charge.popitem()
-    dominant_charge = sorted_charge[0]
-    delisted['disposition'] = dominant_charge
-    print("dominant_charge:" + str(dominant_charge))
+            charge_key, rank = next(iter(charge_code_map[disposition].items()))
+            charge_dict[charge_key] = rank
+    sorted_tuples = sorted(charge_dict.items(), reverse=True,
+                           key=lambda item: item[1] if item[1] is not None else float('inf'))
+    delisted['disposition'] = sorted_tuples[0][0]
     return delisted
 
 
