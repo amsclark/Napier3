@@ -46,6 +46,13 @@
                  autocomplete="current-password" required>
         </label>
       </div>
+      <label class="check" style="margin-top:.8rem">
+        <input type="checkbox" id="remember">
+        <span class="check-text">
+          Remember my user ID on this computer
+          <span class="check-note">The user ID only. The password is never stored.</span>
+        </span>
+      </label>
     </fieldset>
 
     <fieldset>
@@ -63,4 +70,34 @@
     </div>
   </form>
 </div>
+
+<script>
+// The shared ICOS user IDs get retyped a dozen times a day. Only the ID is
+// kept, only when asked for, and nothing about the client ever is: the names
+// staff search for are privileged and have no business sitting in a browser
+// store on a machine other people use.
+(function () {
+  var KEY = "napier.userid";
+  var user = document.querySelector("input[name='username']");
+  var remember = document.getElementById("remember");
+  var saved = null;
+
+  try { saved = window.localStorage.getItem(KEY); } catch (e) { return; }
+
+  if (saved) {
+    user.value = saved;
+    remember.checked = true;
+  }
+
+  document.querySelector("form").addEventListener("submit", function () {
+    try {
+      if (remember.checked && user.value) {
+        window.localStorage.setItem(KEY, user.value);
+      } else {
+        window.localStorage.removeItem(KEY);
+      }
+    } catch (e) { /* private window, or storage is full. Not worth a message. */ }
+  });
+})();
+</script>
 {% endblock %}

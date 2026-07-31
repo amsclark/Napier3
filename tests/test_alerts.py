@@ -102,7 +102,7 @@ class FakeJob:
         self.progress = [{'message': 'Connecting to Iowa Courts Online...'},
                          {'message': 'Iowa Courts is slow, retrying (attempt 4)...'}]
 
-    def log(self, message):
+    def log(self, message, count=None, total=None):
         self.progress.append({'message': message})
 
 

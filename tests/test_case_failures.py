@@ -37,7 +37,7 @@ class FakeJob:
         self.progress = []
         self.result = None
 
-    def log(self, message):
+    def log(self, message, count=None, total=None):
         self.progress.append({'message': message})
 
 

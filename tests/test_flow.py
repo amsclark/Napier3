@@ -18,7 +18,7 @@ import app as app_module
 import icos_sessions
 import jobs
 import tasks
-from icos import IcosBadCredentials
+from icos import IcosBadCredentials, IcosError
 
 SEARCH_RESULTS = b"""
 <html><table>
@@ -43,6 +43,7 @@ class FakeClient:
         self.logged_in = False
         self.logged_off = False
         self.cases = []
+        self.fail_cases = []
         FakeClient.instances.append(self)
 
     def set_alert(self, alert):
@@ -63,6 +64,8 @@ class FakeClient:
 
     def case_bundle(self, case_id):
         self.cases.append(case_id)
+        if case_id in self.fail_cases:
+            raise IcosError("Iowa Courts did not answer for this case.")
         return b"<summary>", b"<charges>", b"<financials>"
 
     def logoff(self):
@@ -192,17 +195,57 @@ def test_crs_job_pulls_cases_and_offers_a_download(client):
     crs_job_id = response.get_json()['job_id']
     state = await_job(client, crs_job_id)
     assert state['status'] == 'done'
-    assert state['next_url'] == '/job/%s/download' % crs_job_id
+    assert state['next_url'] == '/done/%s' % crs_job_id
 
     search_client = FakeClient.instances[0]
     assert search_client.cases == ['01311 FECR000000', '01311 SRCR012345']
     # The workbook is built server-side, so closing the laptop no longer costs
     # staff the run.
     assert any('Pulling case 1 of 2' in line for line in state['progress'])
+    assert state['total'] == 2
 
-    download = client.get(state['next_url'])
+    finished = client.get(state['next_url'])
+    assert finished.status_code == 200
+    page = finished.get_data(as_text=True)
+    assert '/job/%s/download' % crs_job_id in page
+
+    download = client.get('/job/%s/download' % crs_job_id)
     assert download.status_code == 200
     assert 'TESTER' in download.headers['Content-Disposition']
+
+
+def test_the_finish_page_names_the_cases_missing_from_the_workbook(client):
+    """A case Iowa Courts would not give up is left out of the file. Staff have
+    to be told which one, or they will read a short summary as a complete one."""
+    search_job_id, _ = run_search(client)
+    client.get('/results/' + search_job_id)
+    FakeClient.instances[0].fail_cases = ['01311 SRCR012345']
+
+    response = client.post('/crs-job', json={
+        'search_job_id': search_job_id,
+        'keys': ['1900-01-01 TESTER, PAT Q'],
+    })
+    state = await_job(client, response.get_json()['job_id'])
+    assert state['status'] == 'done'
+
+    page = client.get(state['next_url']).get_data(as_text=True)
+    assert '01311 SRCR012345' in page
+    assert 'missing from this workbook' in page
+
+
+def test_the_finish_page_needs_the_session_that_made_the_job(client):
+    search_job_id, _ = run_search(client)
+    client.get('/results/' + search_job_id)
+    response = client.post('/crs-job', json={
+        'search_job_id': search_job_id,
+        'keys': ['1900-01-01 TESTER, PAT Q'],
+    })
+    job_id = response.get_json()['job_id']
+    await_job(client, job_id)
+
+    client.get('/logout')
+    page = client.get('/done/' + job_id).get_data(as_text=True)
+    assert 'workbook is ready' not in page
 
 
 def test_crs_job_always_releases_the_session(client):

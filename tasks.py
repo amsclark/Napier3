@@ -94,7 +94,8 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
         failures_in_a_row = 0
         not_attempted = []
         for index, case_id in enumerate(case_ids, start=1):
-            job.log("Pulling case %d of %d (%s)..." % (index, len(case_ids), case_id))
+            job.log("Pulling case %d of %d (%s)..." % (index, len(case_ids), case_id),
+                    count=index - 1, total=len(case_ids))
             case = {'id': case_id}
             try:
                 summary, charges, financials = client.case_bundle(case_id)
@@ -143,12 +144,14 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
         if not cases:
             raise ValueError("no cases could be read")
 
-        job.log("Building the CRS workbook...")
+        job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
         path = build_workbook(cases, def_name, def_dob, is_lite)
         job.result = {
             "file": path,
             "def_name": def_name,
             "is_lite": is_lite,
+            "written_cases": len(cases),
+            "requested_cases": len(case_ids),
             "failed_cases": failed,
         }
 
@@ -158,7 +161,12 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
         else:
             job.log("Done. %d case%s written."
                     % (len(cases), "" if len(cases) == 1 else "s"))
-        return "/job/%s/download" % job.id
+        # The finish page, not the file. Sending the browser straight at the
+        # download meant the line above -- the one naming the cases that are
+        # missing from the workbook -- flashed past and was gone, and a staffer
+        # who lost the file to a full disk or a stray click had to burn another
+        # ICOS session to get it back.
+        return "/done/%s" % job.id
     finally:
         # The session was claimed, so nothing else will release it.
         client.logoff()

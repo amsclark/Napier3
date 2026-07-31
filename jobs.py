@@ -36,13 +36,21 @@ class Job:
         self.result = None
         self.error = None
         self.next_url = None
+        # How far along the job is, when it knows. A CRS job pulls a case at a
+        # time and can count them; a search cannot, and leaves these None so
+        # the page shows an unmeasured bar instead of inventing a number.
+        self.count = None
+        self.total = None
         self.created_at = time.time()
         self.updated_at = self.created_at
         self._lock = threading.Lock()
 
-    def log(self, message):
+    def log(self, message, count=None, total=None):
         with self._lock:
             self.progress.append({"t": time.time(), "message": message})
+            if total is not None:
+                self.count = count
+                self.total = total
             self.updated_at = time.time()
         print("JOB %s %s: %s" % (self.kind, self.id[:8], message), flush=True)
 
@@ -55,6 +63,8 @@ class Job:
                 "progress": [p["message"] for p in self.progress],
                 "message": self.progress[-1]["message"] if self.progress else "Starting...",
                 "error": self.error,
+                "count": self.count,
+                "total": self.total,
                 "next_url": self.next_url,
                 "done": self.status in (DONE, FAILED),
             }

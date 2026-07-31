@@ -237,6 +237,23 @@ def crs_job():
     return jsonify({"job_id": job.id, "progress_url": url_for('progress', job_id=job.id)})
 
 
+@app.route('/done/<job_id>')
+def done(job_id):
+    job = own_job(job_id)
+    if job is None or job.status != jobs.DONE or job.kind != 'crs':
+        return render_template('start.html', error=RESTARTED_MESSAGE)
+
+    result = job.result
+    return render_template('done.html', job=job.to_dict(),
+                           def_name=result['def_name'],
+                           is_lite=result['is_lite'],
+                           written=result['written_cases'],
+                           requested=result['requested_cases'],
+                           failed=result['failed_cases'],
+                           filename=tasks.download_name(result['def_name'],
+                                                        result['is_lite']))
+
+
 @app.route('/job/<job_id>/download')
 def download(job_id):
     job = own_job(job_id)
