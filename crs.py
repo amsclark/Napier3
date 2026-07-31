@@ -180,27 +180,6 @@ def get_dominant_charge(charges):
     return delisted
 
 
-def get_primary_charge(charges):
-    if len(charges) == 0:
-        return None
-
-    charge = charges[0]
-    #creates list for [?]
-    charge['code'] = None
-    date = None
-    for c in charges:
-        disposition = c['disposition'].replace("DNU-", "")
-        charge = c
-        #print c
-        if not disposition:
-            charge['code'] = "NOTF"
-        elif disposition not in charge_code_map:
-            charge['code'] = "OTH"
-        else:
-            charge['code'] = charge_code_map[disposition]
-        
-    return charge
-
 def get_finance_column(detail):
     if "COLLECTION BY CO ATTY" in detail:
         return "P" # UNKNOWN
