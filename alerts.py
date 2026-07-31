@@ -50,6 +50,12 @@ PARSE_FAILURE = 'case could not be read'
 CASE_UNAVAILABLE = 'case could not be retrieved from ICOS'
 JOB_FAILED = 'job failed'
 UNHANDLED = 'unhandled exception'
+# Both of these are runs the server thinks went fine. A staffer whose phone drops
+# the progress page sees a finished run as a broken one, gives up, and signs in
+# to pull the same cases again, and every server-side signal here stays quiet
+# because nothing server-side went wrong.
+UNCOLLECTED = 'workbook was built but never collected'
+CLIENT_LOST = 'progress page lost contact with Napier'
 
 # A run that eventually worked but took this many attempts is the early warning
 # that ICOS is degrading, which is worth one email before staff start noticing.

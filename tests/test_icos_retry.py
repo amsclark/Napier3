@@ -45,6 +45,7 @@ class FakeReader:
     def __init__(self, script):
         self.script = list(script)
         self.calls = []
+        self.credentials = []
 
     def fetch_once(self, url, data=None, timeout=8):
         name = url.rsplit("/", 1)[-1].split("?")[0]
@@ -57,6 +58,7 @@ class FakeReader:
 
     def login_request(self, username, password):
         assert password, "login must actually carry the password"
+        self.credentials.append((username, password))
         return "https://icos/ESAWebApp/EUACustomLoginServlet", "userid=" + username
 
     def logoff_request(self):
@@ -154,8 +156,62 @@ def test_unmarked_rejection_is_not_mistaken_for_success():
     ])
     with pytest.raises(IcosBadCredentials) as excinfo:
         client.login("ILA99", "dummy")
-    assert "check them and try again" in excinfo.value.message.lower()
+    said = excinfo.value.message.lower()
+    # ESA did not say why, so neither should we. Naming the password sends
+    # staff off to reset one that was never wrong.
+    assert "check the user id and password" in said
+    assert "still be signed in" in said
     assert client.logged_in is False
+
+
+def test_a_password_with_a_stray_space_gets_one_more_try():
+    """Phone keyboards and autofill add a trailing space, and ESA answers that
+    with the same unmarked page it uses for a wrong password. Staff were being
+    sent to reset a password that worked."""
+    client, _, _ = build([
+        FetchResult(OK, LOGIN_OK),                # ESALogin.jsp
+        FetchResult(OK, b"<html>ESA Login</html>"),  # rejected as typed
+        FetchResult(OK, LOGIN_OK),                # accepted once trimmed
+    ])
+    client.login("ILA99", "correcthorse ")
+    assert client.logged_in is True
+    assert client.reader.credentials == [("ILA99", "correcthorse "),
+                                         ("ILA99", "correcthorse")]
+
+
+def test_the_trimmed_retry_happens_only_once():
+    client, _, _ = build([
+        FetchResult(OK, LOGIN_OK),
+        FetchResult(OK, b"<html>ESA Login</html>"),
+        FetchResult(OK, b"<html>ESA Login</html>"),
+    ])
+    with pytest.raises(IcosBadCredentials):
+        client.login("ILA99", "wrong ")
+    assert len(client.reader.credentials) == 2
+
+
+def test_a_clean_password_is_not_retried():
+    client, _, _ = build([
+        FetchResult(OK, LOGIN_OK),
+        FetchResult(OK, b"<html>ESA Login</html>"),
+    ])
+    with pytest.raises(IcosBadCredentials):
+        client.login("ILA99", "wrong")
+    assert len(client.reader.credentials) == 1
+
+
+def test_the_login_page_text_is_logged_without_the_user_id(capsys):
+    """Only the length of this page was ever recorded, which is why a wrong
+    user ID and an account still signed in elsewhere look identical."""
+    client, _, _ = build([
+        FetchResult(OK, LOGIN_OK),
+        FetchResult(OK, b"<html><body>Sign on failed for ILA99</body></html>"),
+    ])
+    with pytest.raises(IcosBadCredentials):
+        client.login("ILA99", "dummy")
+    logged = capsys.readouterr().out
+    assert "Sign on failed for" in logged
+    assert "ILA99" not in logged
 
 
 def test_full_size_login_page_is_accepted():

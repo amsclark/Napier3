@@ -15,6 +15,7 @@ Timing is injectable so the retry behaviour can be tested without real waits.
 """
 
 import os
+import re
 import time
 
 import alerts
@@ -64,6 +65,22 @@ def _squashed(text):
 
 def _is_not_a_problem_report(body):
     return PROBLEM_REPORT_MARKER not in _text(body)
+
+
+def _page_text(body, username=""):
+    """The visible words of a short ESA page, for the log.
+
+    ESA answers some refusals with a page carrying none of the markers below,
+    and until now all we recorded was its length, which is not enough to tell a
+    wrong user ID from an account that is still signed in somewhere else. The
+    user ID is taken back out because it identifies the office, and a failure
+    page has no reason to reach a log line naming it.
+    """
+    text = re.sub(r"<[^>]+>", " ", _text(body))
+    text = re.sub(r"\s+", " ", text).strip()
+    if username:
+        text = text.replace(username, "<user id>")
+    return text[:400]
 
 
 def _is_page_for_case(body, case_id):
@@ -243,6 +260,7 @@ class IcosClient:
 
         started = self._monotonic()
         waited_for_lock = False
+        retried_trimmed = False
         while True:
             # Without the validator a problem report lands on the size check
             # below, because it is well under MIN_SIGNED_IN_BYTES, and staff
@@ -287,9 +305,27 @@ class IcosClient:
             if len(body) < MIN_SIGNED_IN_BYTES:
                 print("ICOS login rejected: %db response, no marker" % len(body),
                       flush=True)
+                print("ICOS login page said: %s" % _page_text(body, username),
+                      flush=True)
+
+                # Typed on a phone, a password picks up a trailing space from
+                # the keyboard or from whatever autofilled it, and ESA answers
+                # an unmarked short page that is indistinguishable from a wrong
+                # password. Spend one more request before telling someone their
+                # working credentials are wrong.
+                if password != password.strip() and not retried_trimmed:
+                    retried_trimmed = True
+                    password = password.strip()
+                    print("ICOS login retrying without surrounding whitespace",
+                          flush=True)
+                    continue
+
                 raise IcosBadCredentials(
-                    "Iowa Courts Online did not sign in with that user ID and "
-                    "password. Please check them and try again.")
+                    "Iowa Courts Online turned down the sign in without saying "
+                    "why. Check the user ID and password. If they are right, "
+                    "this account may still be signed in from an earlier "
+                    "search, which Iowa Courts clears on its own within about "
+                    "15 minutes.")
 
             self.logged_in = True
             self.username = username
