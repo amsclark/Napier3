@@ -36,11 +36,41 @@ CONCURRENT_MARKER = "Concurrent Login Error"
 
 # ESA does not always put the rejection message on a failed login -- a bad user
 # ID has come back as a bare ~700 byte page with no marker at all. Signed in,
-# ESA hands back the whole search screen (~28 KB); the concurrent-login error is
-# ~3.7 KB. So a small unmarked page means we are not signed in, and treating it
-# as success would leave the search retrying against a session that will never
-# work.
+# ESA hands back the whole search screen (~28 KB). Size is only a backstop for
+# unmarked pages: measured against live ESA in July 2026 the concurrent-login
+# error is about 685 bytes, the same band as a bad credential, so nothing can be
+# told apart by length alone. A small unmarked page means we are not signed in,
+# and treating it as success would leave the search retrying against a session
+# that will never work.
 MIN_SIGNED_IN_BYTES = 8000
+
+# ICOS answers a case request with HTTP 200 and a "Problem Report" page when it
+# cannot reach its own data source. The page keeps the heading of whichever case
+# was selected last, and lists no charges and no money, so it parses perfectly
+# well as a civil case with nothing owed. A criminal case quietly reported that
+# way is worse than one that fails outright, so a case page has to prove it is
+# the case that was asked for before it is accepted.
+PROBLEM_REPORT_MARKER = "There was a communication problem"
+
+
+def _text(body):
+    return body.decode("utf-8", "ignore") if isinstance(body, bytes) else body
+
+
+def _squashed(text):
+    """ICOS pads case numbers with runs of spaces that vary between pages."""
+    return "".join(text.split()).upper()
+
+
+def _is_live_case_page(body):
+    return PROBLEM_REPORT_MARKER not in _text(body)
+
+
+def _is_page_for_case(body, case_id):
+    page = _text(body)
+    if PROBLEM_REPORT_MARKER in page:
+        return False
+    return _squashed(case_id) in _squashed(page)
 
 
 def _env_seconds(name, default_minutes):
@@ -259,9 +289,13 @@ class IcosClient:
         The three pages must be fetched in this order: ICOS keys the charges and
         financials views off the case selected by the summary request.
         """
-        summary = self._retry("case", lambda: self.reader.case_summary_request(case_id))
-        charges = self._retry("case", self.reader.case_charges_request)
-        financials = self._retry("case", self.reader.case_financials_request)
+        summary = self._retry(
+            "case", lambda: self.reader.case_summary_request(case_id),
+            validate=lambda body: _is_page_for_case(body, case_id))
+        charges = self._retry("case", self.reader.case_charges_request,
+                              validate=_is_live_case_page)
+        financials = self._retry("case", self.reader.case_financials_request,
+                                 validate=_is_live_case_page)
         return summary, charges, financials
 
     def logoff(self):
