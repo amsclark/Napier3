@@ -1,13 +1,293 @@
-﻿<!DOCTYPE html>
-<html>
-    <head>
-        <meta charset="UTF-8">
-        <title>NAPIER</title>
-        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
-    </head>
-    <body>
-        <div class="container">
-            {% block content %}{% endblock %}
-        </div>
-    </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Napier{% endblock %}</title>
+<style>
+/* Everything the page needs is in this file. Nothing is fetched from a CDN.
+   Legal aid offices sit behind filtered networks, and the previous version
+   pulled its stylesheet and jQuery from two outside hosts, so a blocked domain
+   meant an unstyled page or a search button that did nothing. */
+
+:root {
+  --ink: #151a21;
+  --ink-soft: #5a6472;
+  --ink-faint: #8b95a3;
+  --page: #eef1f5;
+  --surface: #ffffff;
+  --line: #dde3ea;
+  --line-soft: #eaeef3;
+  --brand: #17314f;
+  --brand-bright: #24507f;
+  --accent: #b98900;
+  --focus: #2f6fbf;
+  --warn-ink: #7a4b00;
+  --warn-bg: #fdf4e2;
+  --warn-line: #ecd9ab;
+  --stop-ink: #8a2b2b;
+  --stop-bg: #fceeee;
+  --stop-line: #eec9c9;
+  --shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px -12px rgba(16,24,40,.18);
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8ecf2;
+    --ink-soft: #a3adbb;
+    --ink-faint: #78828f;
+    --page: #10141a;
+    --surface: #171d25;
+    --line: #2a323d;
+    --line-soft: #222932;
+    --brand: #0f1c2c;
+    --brand-bright: #3d78bd;
+    --accent: #d9a520;
+    --focus: #5f9de0;
+    --warn-ink: #e5c072;
+    --warn-bg: #2a2318;
+    --warn-line: #4a3d22;
+    --stop-ink: #e79a9a;
+    --stop-bg: #2c1c1c;
+    --stop-line: #4d2f2f;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- masthead ---------------------------------------------------------- */
+
+.masthead {
+  background: var(--brand);
+  border-bottom: 3px solid var(--accent);
+}
+
+.masthead-inner {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: baseline;
+  gap: .85rem;
+  flex-wrap: wrap;
+}
+
+.wordmark {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #fff;
+  margin: 0;
+}
+
+.wordmark-sub {
+  font-size: .82rem;
+  color: #b9c6d6;
+  letter-spacing: .01em;
+}
+
+/* --- layout ------------------------------------------------------------ */
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 4rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.6rem;
+}
+
+.card + .card { margin-top: 1.1rem; }
+
+h1 {
+  font-size: 1.4rem;
+  line-height: 1.3;
+  margin: 0 0 .3rem;
+  letter-spacing: -.01em;
+}
+
+.lede {
+  color: var(--ink-soft);
+  margin: 0 0 1.4rem;
+  font-size: .95rem;
+}
+
+/* --- forms ------------------------------------------------------------- */
+
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.35rem;
+}
+
+legend {
+  padding: 0;
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: .7rem;
+}
+
+.row {
+  display: grid;
+  gap: .85rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 40rem) {
+  .row-name { grid-template-columns: 1fr .55fr 1fr; }
+  .row-two  { grid-template-columns: 1fr 1fr; }
+}
+
+label { display: block; }
+
+.field-label {
+  display: block;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: .3rem;
+}
+
+input[type=text], input[type=password] {
+  width: 100%;
+  padding: .6rem .7rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  transition: border-color .12s, box-shadow .12s;
+}
+
+input[type=text]:focus, input[type=password]:focus {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: .6rem;
+  padding: .75rem .85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line-soft);
+  cursor: pointer;
+}
+
+.check input { margin: .25rem 0 0; flex: none; }
+.check-text { font-size: .92rem; }
+.check-note { display: block; color: var(--ink-soft); font-size: .84rem; }
+
+/* --- buttons ----------------------------------------------------------- */
+
+.actions {
+  display: flex;
+  gap: .65rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 600;
+  padding: .58rem 1.15rem;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: background .12s, border-color .12s, color .12s;
+}
+
+.btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.btn-primary { background: var(--brand-bright); color: #fff; }
+.btn-primary:hover { background: var(--brand); }
+
+@media (prefers-color-scheme: dark) {
+  .btn-primary:hover { background: #4a87cc; }
+}
+
+.btn-primary[disabled] {
+  background: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--ink-soft);
+  border-color: var(--line);
+}
+
+.btn-quiet:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+/* --- notices ----------------------------------------------------------- */
+
+.notice {
+  border: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  border-radius: 8px;
+  padding: .85rem 1rem;
+  margin-bottom: 1.2rem;
+  font-size: .93rem;
+}
+
+.notice p { margin: 0 0 .5rem; }
+.notice p:last-child { margin-bottom: 0; }
+.notice-title { font-weight: 700; }
+
+.notice-stop {
+  border-color: var(--stop-line);
+  background: var(--stop-bg);
+  color: var(--stop-ink);
+}
+
+footer {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 0 1.25rem 2.5rem;
+  color: var(--ink-faint);
+  font-size: .82rem;
+}
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="wordmark">Napier</p>
+    <span class="wordmark-sub">Iowa criminal record search for Iowa Legal Aid</span>
+  </div>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer>Case data comes from Iowa Courts Online. Check anything you rely on against the court record.</footer>
+</body>
 </html>

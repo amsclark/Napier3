@@ -1,39 +1,66 @@
 {% extends 'base.html' %}
+{% block title %}Search: Napier{% endblock %}
 
 {% block content %}
-    <h3>Welcome to Napier</h3>
-    {% if error %}
-        <div class="alert alert-warning">{{ error }}</div>
-    {% endif %}
-    <form action="/search" method="post">
-        <div class="form-row">
-            <div class="form-group col">
-                <label>First</label>
-                <input class="form-control" type="text" name="firstname">
-            </div>
-            <div class="form-group col-2">
-                <label>Middle</label>
-                <input class="form-control" type="text" name="middlename">
-            </div>
-            <div class="form-group col">
-                <label>Last</label>
-                <input class="form-control" type="text" name="lastname">
-            </div>
-        </div>
-        <div class="form-row">
-            <div class="form-group col">
-                <label>Username</label>
-                <input class="form-control" type="username" name="username">
-            </div>
-            <div class="form-group col">
-                <label>Password</label>
-                <input class="form-control" type="password" name="password">
-            </div>
-        </div>
-        <div class="form-group form-check">
-            <input type="checkbox" class="form-check-input" name="isLite" id="isLiteCheckbox">
-            <label class="form-check-label" for="isLiteCheckbox">Use Lite Version</label>
-        </div>
-        <button type="submit" class="btn btn-primary">Search</button>
-    </form>
+<div class="card">
+  <h1>Search for a client's Iowa cases</h1>
+  <p class="lede">
+    Napier signs in to Iowa Courts Online, collects every case it can find for
+    the name, and builds the criminal record summary workbook.
+  </p>
+
+  {% if error %}
+    <div class="notice notice-stop" role="alert">{{ error }}</div>
+  {% endif %}
+
+  <form action="/search" method="post">
+    <fieldset>
+      <legend>Who are you searching for</legend>
+      <div class="row row-name">
+        <label>
+          <span class="field-label">First name</span>
+          <input type="text" name="firstname" autocomplete="off" autofocus>
+        </label>
+        <label>
+          <span class="field-label">Middle</span>
+          <input type="text" name="middlename" autocomplete="off">
+        </label>
+        <label>
+          <span class="field-label">Last name</span>
+          <input type="text" name="lastname" autocomplete="off" required>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Your Iowa Courts sign in</legend>
+      <div class="row row-two">
+        <label>
+          <span class="field-label">User ID</span>
+          <input type="text" name="username" autocomplete="username"
+                 autocapitalize="none" spellcheck="false" required>
+        </label>
+        <label>
+          <span class="field-label">Password</span>
+          <input type="password" name="password"
+                 autocomplete="current-password" required>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <label class="check">
+        <input type="checkbox" name="isLite" id="isLiteCheckbox">
+        <span class="check-text">
+          Build the Lite workbook
+          <span class="check-note">Fewer sheets. Use it when you only need the case list and the money owed.</span>
+        </span>
+      </label>
+    </fieldset>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Search Iowa Courts</button>
+    </div>
+  </form>
+</div>
 {% endblock %}
