@@ -214,6 +214,17 @@ def test_crs_job_pulls_cases_and_offers_a_download(client):
     assert 'TESTER' in download.headers['Content-Disposition']
 
 
+def test_a_user_id_typed_on_a_phone_still_signs_in(client):
+    """Autofill and phone keyboards put a space around the user ID. It used to
+    ride through to ICOS, which answered like a wrong password."""
+    response = client.post('/search', data={
+        'username': '  ILA01  ', 'password': 'secret',
+        'firstname': 'PAT', 'middlename': '', 'lastname': 'TESTER',
+    })
+    assert response.status_code == 302
+    assert '/progress/' in response.headers['Location']
+
+
 def test_the_finish_page_names_the_cases_missing_from_the_workbook(client):
     """A case Iowa Courts would not give up is left out of the file. Staff have
     to be told which one, or they will read a short summary as a complete one."""

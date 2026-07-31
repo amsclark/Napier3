@@ -164,7 +164,11 @@ def logout():
 
 @app.route('/search', methods=['POST'])
 def search():
-    username = request.form['username']
+    # An ESA user ID is ILA## or drakelegalclinic and never has a space in it,
+    # so anything around it came from the keyboard or from autofill rather than
+    # from the person. Left alone it passes the check below, reaches ICOS as an
+    # unknown user, and comes back looking exactly like a wrong password.
+    username = request.form['username'].strip()
     password = request.form['password']
     session['isLite'] = 'isLite' in request.form
 
