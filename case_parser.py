@@ -31,6 +31,17 @@ def _dump(name, html):
     with open(os.path.join(tmp_dir, secure_filename(name)), 'w') as text_file:
         text_file.write(html)
 
+def _cell_words(cell):
+    """A table cell's words with ICOS's padding taken out.
+
+    The date of birth two columns to the left of the role arrives wrapped in
+    CRLFs and tabs on the one real search page we have, and the role cell on
+    that same row happens to arrive clean. Matching a role against a list of
+    exact strings works only for as long as that stays true, and the day it
+    stops, every non-party role passes the check at once and nothing says so.
+    """
+    return ' '.join(cell.get_text().split())
+
 def parse_search(html):
     html = html.decode('utf-8', errors='ignore')
     _dump("search_results.html", html)
@@ -50,7 +61,7 @@ def parse_search(html):
             # stripped like 'name' above; ICOS pads every cell with
             # CRLFs and tabs, and a caller comparing to a real date loses.
             'dob': cols[4].string.replace(u'\xa0', u'').strip(),
-            'role': cols[5].string
+            'role': _cell_words(cols[5])
         }
         if case['id'] == 'Case ID':
             continue
@@ -96,8 +107,19 @@ def parse_search(html):
             'INTERVENOR', 
             'JUDGE', 
             'LIEN FILER', 
-            'NAME OF TRUST', 
-            'OBLIGOR', 
+            'NAME OF TRUST',
+            # Someone who filed a document into a case they are not party to,
+            # which is why the charges and the money on that page belong to
+            # somebody else. The charge parser takes every row on the page,
+            # since in the ordinary case the person searched for is the
+            # defendant and there is nothing to separate out, so a case
+            # reaching it under this role puts a stranger's convictions in the
+            # client's record summary. The 'NO ACCESS' half is the filer's
+            # access level to the case file rather than part of the role, so
+            # both spellings are listed.
+            'NO ACCESS NONPARTY FILER',
+            'NONPARTY FILER',
+            'OBLIGOR',
             'OBLIGEE',
             'PAYOR',
             'PAYEE',
