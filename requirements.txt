@@ -11,6 +11,13 @@ MarkupSafe==3.0.3
 openpyxl==3.1.5
 selenium==4.46.0
 six==1.17.0
+# Pulled in by beautifulsoup4, which asks only for >=1.6.1 and so would take
+# whatever the build happened to resolve. That is how 2.6 ended up deployed and
+# flagged (CVE-2026-49476 and CVE-2026-49477, ReDoS in the CSS selector parser,
+# fixed in 2.8.4). Napier never calls .select() or soupsieve.compile(), so the
+# vulnerable parser is imported and never reached, but every other indirect
+# dependency here is pinned and this one was simply missed.
+soupsieve==2.9.1
 urllib3==2.7.0
 webencodings==0.5.1
 Werkzeug==3.1.8
