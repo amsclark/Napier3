@@ -316,10 +316,18 @@ class IcosClient:
         summary = self._retry(
             "case", lambda: self.reader.case_summary_request(case_id),
             validate=lambda body: _is_page_for_case(body, case_id))
-        charges = self._retry("case", self.reader.case_charges_request,
-                              validate=_is_not_a_problem_report)
-        financials = self._retry("case", self.reader.case_financials_request,
-                                 validate=_is_not_a_problem_report)
+        # These two get the same proof of identity as the summary rather than
+        # just the problem report check. When ICOS degrades partway through a
+        # case it answers with a stub that carries no problem report wording,
+        # wears the heading of some other case, and lists nothing. It looks
+        # exactly like a case that genuinely has no charges and no court debt,
+        # and on a criminal record those two mean opposite things.
+        charges = self._retry(
+            "case", self.reader.case_charges_request,
+            validate=lambda body: _is_page_for_case(body, case_id))
+        financials = self._retry(
+            "case", self.reader.case_financials_request,
+            validate=lambda body: _is_page_for_case(body, case_id))
         return summary, charges, financials
 
     def logoff(self):
