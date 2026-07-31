@@ -44,6 +44,101 @@ def _cell_words(cell):
     return ' '.join(cell.get_text().split())
 
 
+# Roles ICOS gives someone who is on a case without the case being theirs. Every
+# other role is treated as the person searched for, so this list decides whose
+# convictions and whose court debt end up in a client's record summary, and it
+# has been wrong by omission four separate times.
+NON_PARTY_ROLES = frozenset({
+    'NOT ATTORNEY',
+    'NOT JUDGE',
+    'ADMINISTRATOR',
+    'APPLICANT',
+    'ATTORNEY AND GUARDIAN-AD-LITEM',
+    'ATTORNEY FOR APPELLANT',
+    'ATTORNEY FOR APPELLEE',
+    'ATTORNEY FOR CHILD',
+    'ATTORNEY FOR CSRU',
+    'ATTORNEY FOR DEFENDANT',
+    'ATTORNEY FOR FATHER',
+    'ATTORNEY FOR MOTHER',
+    'ATTORNEY FOR PARENT',
+    'ATTORNEY FOR PETITIONER',
+    'ATTORNEY FOR PLAINTIFF',
+    'ATTORNEY FOR PROBATE',
+    'ATTORNEY FOR RESPONDENT',
+    'ATTORNEY - LIMITED APPEARANCE',
+    'ATTORNEY OTHER',
+    'CONSERVATOR',
+    'COUNTER DEFENDANT',
+    'COUNTER PLAINTIFF',
+    'COUNTY ATTORNEY',
+    'CROSS DEFENDANT',
+    'CROSS PLAINTIFF',
+    'CUSTODIAN - LEGAL',
+    'DECEASED INDIVIDUAL',
+    'EXECUTOR',
+    'FILING AGENT FOR PLAINTIFF',
+    'FILING AGENT FOR DEFENDANT',
+    'GUARDIAN',
+    'GUARDIAN-AD-LITEM',
+    'GUARDIAN/CONSERVATOR',
+    'INTERPRETER',
+    'INTERPRETOR',
+    'INTERVENOR',
+    'JUDGE',
+    'LIEN FILER',
+    'NAME OF TRUST',
+    # Someone who filed a document into a case they are not party to,
+    # which is why the charges and the money on that page belong to
+    # somebody else. The charge parser takes every row on the page,
+    # since in the ordinary case the person searched for is the
+    # defendant and there is nothing to separate out, so a case
+    # reaching it under this role puts a stranger's convictions in the
+    # client's record summary. The 'NO ACCESS' half is the filer's
+    # access level to the case file rather than part of the role, so
+    # both spellings are listed.
+    'NO ACCESS NONPARTY FILER',
+    'NONPARTY FILER',
+    'OBLIGOR',
+    'OBLIGEE',
+    'PAYOR',
+    'PAYEE',
+    'TRUSTEE',
+    'WARD',
+    'WITNESS',
+    'WITNESS – PLAINTIFF',
+    'WITNESS - PLAINTIFF',
+    'WITNESS - PLAINTIFF',
+    'WITNESS – DEFENSE',
+    'WITNESS - DEFENSE',
+    'JUVENILE - MOTHER OF',
+    'JUVENILE - FATHER OF',
+    'ATTORNEY',
+    'INTERESTED PARTY'
+})
+
+
+# Roles we have actually seen on the person the search is about. Nothing branches
+# on this: it is only how a run notices that NON_PARTY_ROLES has a gap, by way of
+# the alert in tasks.search_task. Kept deliberately narrow, because a role missing
+# from here costs one email and a role missing from NON_PARTY_ROLES costs a
+# stranger's record in a client's file.
+KNOWN_PARTY_ROLES = frozenset({
+    'DEFENDANT',
+    'PRO SE DEFENDANT',
+    'DEFENDANT - PRO SE',
+    'PLAINTIFF',
+    'PRO SE PLAINTIFF',
+    'PETITIONER',
+    'PRO SE PETITIONER',
+    'RESPONDENT',
+    'PRO SE RESPONDENT',
+    'APPELLANT',
+    'PRO SE APPELLANT',
+    'APPELLEE',
+    'PRO SE APPELLEE',
+})
+
 # The notice ICOS shows when a name matches more cases than it will list. The
 # number is captured rather than assumed, because the only thing worse than not
 # knowing the list is short is telling someone the wrong count.
@@ -114,75 +209,7 @@ def parse_search(html):
         if any([case['id'] == c['id'] for c in cases]):
             print("Supressing duplicate case id", case['id'])
             continue
-        non_party_designations = [
-            'NOT ATTORNEY', 
-            'NOT JUDGE', 
-            'ADMINISTRATOR', 
-            'APPLICANT', 
-            'ATTORNEY AND GUARDIAN-AD-LITEM', 
-            'ATTORNEY FOR APPELLANT', 
-            'ATTORNEY FOR APPELLEE', 
-            'ATTORNEY FOR CHILD', 
-            'ATTORNEY FOR CSRU', 
-            'ATTORNEY FOR DEFENDANT', 
-            'ATTORNEY FOR FATHER', 
-            'ATTORNEY FOR MOTHER', 
-            'ATTORNEY FOR PARENT', 
-            'ATTORNEY FOR PETITIONER', 
-            'ATTORNEY FOR PLAINTIFF', 
-            'ATTORNEY FOR PROBATE', 
-            'ATTORNEY FOR RESPONDENT', 
-            'ATTORNEY - LIMITED APPEARANCE', 
-            'ATTORNEY OTHER', 
-            'CONSERVATOR', 
-            'COUNTER DEFENDANT', 
-            'COUNTER PLAINTIFF', 
-            'COUNTY ATTORNEY', 
-            'CROSS DEFENDANT', 
-            'CROSS PLAINTIFF', 
-            'CUSTODIAN - LEGAL', 
-            'DECEASED INDIVIDUAL', 
-            'EXECUTOR', 
-            'FILING AGENT FOR PLAINTIFF', 
-            'FILING AGENT FOR DEFENDANT', 
-            'GUARDIAN', 
-            'GUARDIAN-AD-LITEM', 
-            'GUARDIAN/CONSERVATOR', 
-            'INTERPRETER', 
-            'INTERPRETOR',
-            'INTERVENOR', 
-            'JUDGE', 
-            'LIEN FILER', 
-            'NAME OF TRUST',
-            # Someone who filed a document into a case they are not party to,
-            # which is why the charges and the money on that page belong to
-            # somebody else. The charge parser takes every row on the page,
-            # since in the ordinary case the person searched for is the
-            # defendant and there is nothing to separate out, so a case
-            # reaching it under this role puts a stranger's convictions in the
-            # client's record summary. The 'NO ACCESS' half is the filer's
-            # access level to the case file rather than part of the role, so
-            # both spellings are listed.
-            'NO ACCESS NONPARTY FILER',
-            'NONPARTY FILER',
-            'OBLIGOR',
-            'OBLIGEE',
-            'PAYOR',
-            'PAYEE',
-            'TRUSTEE',
-            'WARD',
-            'WITNESS', 
-            'WITNESS – PLAINTIFF',
-            'WITNESS - PLAINTIFF',
-            'WITNESS - PLAINTIFF',
-            'WITNESS – DEFENSE',
-            'WITNESS - DEFENSE',
-            'JUVENILE - MOTHER OF', 
-            'JUVENILE - FATHER OF',
-            'ATTORNEY',
-            'INTERESTED PARTY'
-            ]
-        if (case['role'] in non_party_designations):
+        if (case['role'] in NON_PARTY_ROLES):
             print("Supressing non-party case")
             continue
         cases.append(case)

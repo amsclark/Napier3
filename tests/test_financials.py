@@ -109,19 +109,27 @@ def test_the_written_row_keeps_the_fee_detail(felony_case):
     assert sheet.value_of('U4') == Decimal('1219.00')
 
 
-def test_the_summary_path_is_still_there_when_reconciling_fails(felony_case):
-    """A partition that does not add up must fall back, not guess.
+def test_one_broken_category_does_not_cost_the_others(felony_case):
+    """A partition that does not add up must fall back, and no further.
 
     Moving a fee off its assessed amount breaks the bucket check inside
-    `reconcile_financials`, which is the whole safety net: the reconciliation is
-    given up rather than a wrong split being written.
+    `reconcile_financials`, which is the safety net: that bucket's split is
+    given up rather than written wrong. It used to cost the whole row, and the
+    line item moved here is a revolving fund fee, so the sheriff and indigent
+    defense fees in a different bucket were being emptied into MISCELLANEOUS
+    over a discrepancy that had nothing to do with them. J, K and L going empty
+    is what the statute of limitations and Polk sheets read as no debt to chase.
     """
-    felony_case['financials'][0]['amount'] = '31.00'
+    felony_case['financials'][0]['amount'] = '31.00'   # an OTHER line
     sheet = FakeSheet()
     crs.process_financials(felony_case, sheet, 4)
-    assert sheet.value_of('O4') == Decimal('719.00')   # COSTS 629 + OTHER 90
-    assert sheet.value_of('M4') is None                # detail is gone, as before
-    assert 'not a per-fee breakdown' in sheet.value_of('V4')
+    assert sheet.value_of('O4') == Decimal('90.00')    # OTHER, as a total
+    assert sheet.value_of('M4') == Decimal('579.00')   # sheriff fees survive
+    assert sheet.value_of('J4') == Decimal('50.00')    # indigent defense too
+    assert sheet.value_of('S4') == Decimal('500.00')
+    assert sheet.value_of('U4') == Decimal('1219.00')
+    assert 'OTHER' in sheet.value_of('V4')
+    assert 'category total' in sheet.value_of('V4')
 
 
 def test_a_collapsed_row_says_it_is_collapsed(felony_case):
@@ -216,10 +224,30 @@ def test_reconciliation_needs_both_halves(felony_case):
 
 def test_reconciliation_refuses_a_partition_that_does_not_add_up(felony_case):
     # If a fee lands in the wrong bucket the bucket stops matching its summary
-    # original. That must cost us the reconciliation, not produce a wrong split.
+    # original. That must cost us that bucket's split, not produce a wrong one.
     felony_case['financials'][0]['amount'] = '31.00'
     columns, note = crs.reconcile_financials(felony_case)
-    assert columns is None and note is None
+    assert columns == {
+        'M': Decimal('579.00'),
+        'J': Decimal('50.00'),
+        'O': Decimal('90.00'),    # OTHER, off the summary rather than by fee
+        'S': Decimal('500.00'),
+    }
+    assert 'P' not in columns     # no guessed split of the broken bucket
+    assert 'OTHER' in note
+
+
+def test_a_row_where_nothing_reconciles_falls_back_whole(felony_case):
+    # Every bucket broken is a summary row with extra steps, and it reads better
+    # as one sentence than as five.
+    for row in felony_case['financials']:
+        if row['amount'] is not None:
+            row['amount'] = str(Decimal(row['amount']) + 1)
+    assert crs.reconcile_financials(felony_case) == (None, None)
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    assert sheet.value_of('O4') == Decimal('719.00')   # COSTS 629 + OTHER 90
+    assert 'not a per-fee breakdown' in sheet.value_of('V4')
 
 
 def test_ambiguous_payment_is_flagged_not_guessed():
@@ -350,6 +378,36 @@ def test_an_unattributable_payment_keeps_its_category():
     columns, note = crs.reconcile_financials(case)
     assert columns == {'S': Decimal('75.00')}, 'not MISC'
     assert note is not None and 'RESTITUTION' in note
+
+
+def test_old_fee_debt_survives_a_broken_category_elsewhere():
+    """The twenty year old debt Iowa Legal Aid is actually litigating.
+
+    Attorney fees land in J and K and jail and room and board lands in L, and
+    the SOL and Polk sheets read those three columns and nothing else. A stray
+    revolving fund fee in a different summary category used to empty all three
+    into MISCELLANEOUS, and a case sitting in MISCELLANEOUS reads on those
+    sheets as a case with nothing to chase.
+    """
+    case = {
+        'total_due': '$425.00',
+        'summary_categories': _five_buckets(
+            COSTS=(Decimal('400.00'), Decimal('0')),
+            OTHER=(Decimal('50.00'), Decimal('25.00'))),
+        'financials': [
+            {'detail': 'INDIGENT DEFENSE-FELONY-REIMBURSE STATE',
+             'amount': '150.00', 'paid': None},
+            {'detail': 'JAIL FEES-ROOM/BOARD', 'amount': '250.00',
+             'paid': None},
+            {'detail': 'DELINQUENT REVOLVING FUND OBLIGATION',
+             'amount': '30.00', 'paid': None},
+        ],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert columns['J'] == Decimal('150.00')
+    assert columns['L'] == Decimal('250.00')
+    assert columns['O'] == Decimal('25.00')
+    assert 'OTHER' in note
 
 
 def test_an_unattributable_payment_across_different_fees_still_falls_to_misc():

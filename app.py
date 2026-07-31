@@ -4,6 +4,7 @@ import platform
 import time
 
 import alerts
+import crs
 import icos_sessions
 import jobs
 import tasks
@@ -299,6 +300,8 @@ def done(job_id):
                            written=result['written_cases'],
                            requested=result['requested_cases'],
                            failed=result['failed_cases'],
+                           limits=crs.workbook_limits(result['written_cases'],
+                                                      result['is_lite']),
                            filename=tasks.download_name(result['def_name'],
                                                         result['is_lite']))
 

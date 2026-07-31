@@ -545,6 +545,73 @@ def test_a_case_that_will_not_parse_alerts_with_the_case_and_not_the_person(
         assert '01/01/1900' not in message['text']
 
 
+# -- a role nobody has classified -----------------------------------------
+
+
+def _hit(role, case_id='00000 FECR000000', name='TESTER, PAT Q'):
+    return {'id': case_id, 'title': 'STATE VS TESTER', 'name': name,
+            'dob': '01/01/1900', 'role': role}
+
+
+def test_a_role_nobody_has_seen_before_reports_itself(mailbox):
+    """The four times this list has been short, a person found it in a workbook.
+
+    Nothing fails when an unclassified role turns up. The case is fetched,
+    parsed and written like any other, so the run is clean by every measure the
+    server has, and the only signal is somebody eventually asking why a stranger
+    is in their client's summary.
+    """
+    job = FakeJob('search')
+    novel = tasks.report_novel_roles(job, [_hit('DEFENDANT'),
+                                           _hit('SUBROGEE', '00000 SCSC000000')])
+    settle()
+    assert novel == ['SUBROGEE']
+    assert len(mailbox) == 1
+    assert alerts.NOVEL_ROLE in mailbox[0]['subject']
+    assert 'SUBROGEE' in mailbox[0]['text']
+
+
+def test_the_role_alert_carries_the_role_and_nothing_else(mailbox):
+    """A role string identifies nobody. A name and a date of birth do.
+
+    This alert exists to say the classification list has a gap in it, which the
+    role alone says completely, so there is no reason for the rest of the row to
+    be anywhere near it.
+    """
+    job = FakeJob('search')
+    tasks.report_novel_roles(job, [_hit('SUBROGEE')])
+    settle()
+    assert 'TESTER' not in mailbox[0]['text']
+    assert '01/01/1900' not in mailbox[0]['text']
+    assert '00000 FECR000000' not in mailbox[0]['text']
+
+
+def test_an_ordinary_search_says_nothing(mailbox):
+    job = FakeJob('search')
+    assert tasks.report_novel_roles(job, [_hit('DEFENDANT'),
+                                          _hit('PRO SE DEFENDANT'),
+                                          _hit('PETITIONER')]) == []
+    settle()
+    assert mailbox == []
+
+
+def test_every_novel_role_reaches_the_digest_even_though_one_email_goes_out(
+        mailbox):
+    """The class floor is per failure kind, so a search that turns up three new
+    roles emails about the first. Losing the other two would leave the list half
+    fixed, which is why record() keeps every call for the digest."""
+    job = FakeJob('search')
+    tasks.report_novel_roles(job, [_hit('SUBROGEE'), _hit('GARNISHEE'),
+                                   _hit('DEFENDANT')])
+    send(alerts.digest(job.id[:8], job.kind))
+    settle()
+    digest = [m for m in mailbox if 'ended with' in m['subject']]
+    assert len(digest) == 1
+    assert 'SUBROGEE' in digest[0]['text']
+    assert 'GARNISHEE' in digest[0]['text']
+    assert 'DEFENDANT' not in digest[0]['text']
+
+
 # -- bookkeeping does not grow forever ------------------------------------
 
 
