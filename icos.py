@@ -62,7 +62,7 @@ def _squashed(text):
     return "".join(text.split()).upper()
 
 
-def _is_live_case_page(body):
+def _is_not_a_problem_report(body):
     return PROBLEM_REPORT_MARKER not in _text(body)
 
 
@@ -293,9 +293,14 @@ class IcosClient:
 
     def search(self, firstname, middlename, lastname):
         self._log("Searching Iowa Courts Online...")
+        # A problem report here parses as a search that matched nobody, and
+        # "this person has no Iowa record" is the answer a CRS exists to give.
+        # Getting that wrong is worse than getting a case wrong, so the search
+        # has to prove it is a real result page before anyone believes it.
         return self._retry(
             "search",
-            lambda: self.reader.search_request(firstname, middlename, lastname))
+            lambda: self.reader.search_request(firstname, middlename, lastname),
+            validate=_is_not_a_problem_report)
 
     def case_bundle(self, case_id):
         """Summary, charges and financials for one case.
@@ -307,9 +312,9 @@ class IcosClient:
             "case", lambda: self.reader.case_summary_request(case_id),
             validate=lambda body: _is_page_for_case(body, case_id))
         charges = self._retry("case", self.reader.case_charges_request,
-                              validate=_is_live_case_page)
+                              validate=_is_not_a_problem_report)
         financials = self._retry("case", self.reader.case_financials_request,
-                                 validate=_is_live_case_page)
+                                 validate=_is_not_a_problem_report)
         return summary, charges, financials
 
     def logoff(self):

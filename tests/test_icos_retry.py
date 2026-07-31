@@ -206,6 +206,23 @@ def test_a_problem_report_page_is_never_taken_for_a_case():
         client.case_bundle(CASE_ID)
 
 
+def test_a_problem_report_on_a_search_is_not_an_empty_record():
+    """The same page can come back for a search, where it has no rows and so
+    parses as a search that matched nobody. "No Iowa record" is the answer a
+    CRS is built to give, and staff have no way to tell a real one from this,
+    so it must fail loudly instead of quietly clearing somebody."""
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
+                         budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.search("PAT", "", "TESTER")
+
+
+def test_a_search_problem_report_that_clears_is_just_a_retry():
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE),
+                          FetchResult(OK, RESULTS_PAGE)])
+    assert client.search("PAT", "", "TESTER") == RESULTS_PAGE
+
+
 def test_a_problem_report_that_clears_is_just_a_retry():
     client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE),
                           FetchResult(OK, CASE_PAGE),       # summary, second go
