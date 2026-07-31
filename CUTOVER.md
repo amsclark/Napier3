@@ -32,6 +32,18 @@ it is failing is worse than the one before it:
 heroku config -a crs-napier | grep -E 'MAILGUN|ALERT'
 ```
 
+`MAILGUN_DOMAIN`, `MAILGUN_API_KEY` and `ALERT_EMAIL_TO` are the three that are
+read. `ALERT_EMAIL` is also set and nothing reads it, so unset it while you are
+here rather than leaving a variable that looks load-bearing and is not:
+
+```
+heroku config:unset ALERT_EMAIL -a crs-napier
+```
+
+Nothing else needs setting. The retry budgets (`RETRY_BUDGET_MIN`,
+`CASE_RETRY_BUDGET_MIN`, `CONCURRENT_WAIT_MIN`) all have defaults and are meant
+to be absent.
+
 Pick a quiet hour. A deploy restarts the dyno, which ends any search that is
 running at that moment.
 
@@ -63,10 +75,42 @@ instead sits for thirty seconds and ends in `Error R12` and a `SIGKILL`, then
 whatever the app was holding was not handed back, and the shared ICOS account
 will stay locked for about fifteen minutes.
 
-Alert mail has never been exercised on production, because the release before
-this one had no alerting in it. It is worth deliberately provoking one failure
-after the deploy, by signing in with a wrong password, and confirming the mail
-arrives.
+### Checking that alert mail works
+
+Do not test this with a wrong password. Napier alerts on failures staff cannot
+act on, and it decides that by whether the exception carries a message meant for
+them (`jobs.py`, in the `except` around the job body). A bad password carries
+one, so it is shown on screen and deliberately never emailed. Provoking a login
+failure and waiting for mail proves nothing, and the mail that does not arrive
+reads exactly like alerting being broken.
+
+Two checks that do work, cheapest first.
+
+The mail path in the code that is now deployed:
+
+```
+heroku run --no-tty --exit-code -a crs-napier -- python -c "import alerts; alerts._deliver('Napier cutover check', 'Sent by hand after deploying to production.')"
+```
+
+The dyno prints `ALERT sent:` on success and `ALERT delivery failed` otherwise.
+`_deliver` swallows the exception either way, so that line is the only tell.
+
+Then one check that goes through the real trigger rather than the mail helper.
+Sign in, run a CRS for a name known to return cases, and when the finish page
+appears do not download the workbook. Five minutes later a `workbook was built
+but never collected` alert should arrive. That is the alert added because a
+staffer lost a finished run on a phone and nothing server-side noticed, so it is
+the one worth proving end to end.
+
+Run that one once. Each kind of failure is rate limited to one email every ten
+minutes across the whole app, so a second attempt inside that window sends
+nothing, which looks like the first one having been a fluke.
+
+The Mailgun configuration and the egress path out of `crs-napier` were already
+confirmed working on 2026-07-31, by sending a hand-built request from a
+production dyno using production's own config and checking the Mailgun events
+API for `delivered` rather than `accepted`. What has never run on production is
+the code, which is what these two checks are for.
 
 ## Going back
 
