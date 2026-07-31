@@ -182,6 +182,16 @@ def build_workbook(cases, def_name, def_dob, is_lite):
         row += 1
 
     sheet = workbook['BASIC INFO']
+    # Every date test in the workbook compares against B3, the clinic date: the
+    # twenty year cut on the SOL sheet, the two year and eight year expungement
+    # waits, whether the client has turned 18. Left blank it reads as zero, so
+    # nothing is ever old enough and the SOL sheet reports every case as having
+    # no argument, which looks exactly like a client with no stale debt. Today
+    # is the right default for a workbook built today, and it is a date value
+    # rather than text so the arithmetic works. Staff can overwrite it for a
+    # clinic on another day.
+    sheet['B3'] = datetime.date.today()
+    sheet['B3'].number_format = 'MM/DD/YYYY'
     sheet['B5'] = def_name.strip()
     sheet['B6'] = def_dob
 
