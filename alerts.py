@@ -62,6 +62,13 @@ CLIENT_LOST = 'progress page lost contact with Napier'
 # noticing a stranger's convictions in a client's summary. This does not change
 # what is included: it says the list has a gap in it while the run is happening.
 NOVEL_ROLE = 'unrecognised party role on an ICOS search'
+# The same shape of gap one column over. charge_code_map turns the words Iowa
+# Courts uses for an outcome into the code the CRS wants, and a word missing
+# from it codes the case OTH, which four analysis sheets read as no conviction.
+# Nothing fails and the workbook is delivered, so the only way this has ever
+# surfaced is somebody noticing a sheet was wrong about a client. The alert
+# carries the ICOS wording and the case number and no defendant.
+UNKNOWN_DISPOSITION = 'unrecognised disposition on an ICOS case'
 
 # A run that eventually worked but took this many attempts is the early warning
 # that ICOS is degrading, which is worth one email before staff start noticing.

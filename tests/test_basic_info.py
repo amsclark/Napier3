@@ -20,7 +20,7 @@ import tasks
 
 def _build(is_lite=False):
     """A workbook with no cases in it. BASIC INFO does not depend on them."""
-    path = tasks.build_workbook([], 'TEST CLIENT', '01/01/1980', is_lite)
+    path, _ = tasks.build_workbook([], 'TEST CLIENT', '01/01/1980', is_lite)
     return load_workbook(path)['BASIC INFO'], path
 
 
