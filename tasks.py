@@ -75,7 +75,13 @@ def search_task(job, username, password, firstname, middlename, lastname):
 def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
     client = icos_sessions.claim(session_token)
     if client is None:
-        raise LookupError("session expired")
+        # Two ordinary things land here. Staff left the results page open past
+        # the idle timeout and the reaper logged the session off, or a second
+        # submit arrived while the first was already running and claimed it.
+        # Neither is a bug, so neither should reach staff as "something went
+        # wrong inside Napier" or reach an inbox as an alert.
+        raise IcosError("That search is no longer signed in to Iowa Courts "
+                        "Online. Please run the search again.")
     client.set_alert(alerts.emitter(job))
 
     try:

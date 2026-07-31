@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import case_parser
 import icos_sessions
 import tasks
-from icos import IcosUnavailable
+from icos import IcosError, IcosUnavailable
 
 KEY = '1900-01-01 TESTER, PAT Q'
 
@@ -134,3 +134,16 @@ def test_a_run_where_no_case_comes_back_still_fails(monkeypatch):
     case_ids = ids(4)
     with pytest.raises(ValueError):
         run(monkeypatch, case_ids, unavailable=case_ids)
+
+
+def test_a_session_that_is_already_gone_is_not_reported_as_a_bug(monkeypatch):
+    """The reaper closing an idle session, or a second submit claiming it
+    first, is ordinary. jobs.py shows staff the generic apology and sends an
+    alert for anything without a .message, so this must carry one."""
+    monkeypatch.setattr(icos_sessions, 'claim', lambda token: None)
+
+    with pytest.raises(IcosError) as caught:
+        tasks.crs_task(FakeJob(), 'tok', [KEY], {KEY: ids(1)},
+                       'TESTER, PAT Q', '01/01/1900', False)
+
+    assert 'run the search again' in caught.value.message
