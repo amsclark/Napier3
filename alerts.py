@@ -47,6 +47,7 @@ CONCURRENT_EXHAUSTED = 'ESA account stayed locked'
 SLOW_RECOVERY = 'ICOS needed repeated retries'
 BAD_RESPONSE = 'unusable response from ICOS'
 PARSE_FAILURE = 'case could not be read'
+CASE_UNAVAILABLE = 'case could not be retrieved from ICOS'
 JOB_FAILED = 'job failed'
 UNHANDLED = 'unhandled exception'
 
@@ -116,12 +117,21 @@ def safe_traceback(exc):
 
 def _format(job_id, kind, failure, fields, progress):
     lines = ['%s job %s' % (kind, job_id), '']
-    for label in ('classification', 'endpoint', 'attempts', 'elapsed',
-                  'backoff', 'status', 'response size', 'account', 'case'):
+    ordered = ('classification', 'endpoint', 'attempts', 'elapsed',
+               'backoff', 'status', 'response size', 'account', 'case')
+    for label in ordered:
         value = fields.get(label)
         if value is not None:
             lines.append('%-14s %s' % (label + ':', value))
     lines.insert(2, '%-14s %s' % ('failure:', failure))
+
+    # A field this function has not been taught about still belongs in the
+    # email. Dropping it silently is how a caller ends up sending alerts that
+    # are quietly missing the one detail they added them for.
+    for label in sorted(fields):
+        if label in ordered or label in ('note', 'traceback'):
+            continue
+        lines.append('%-14s %s' % (label + ':', fields[label]))
 
     note = fields.get('note')
     if note:

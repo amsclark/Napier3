@@ -16,7 +16,12 @@ import alerts
 import case_parser
 import crs
 import icos_sessions
-from icos import IcosClient
+from icos import IcosClient, IcosError
+
+# One case ICOS will not hand over is a bad case. Several in a row is the site
+# being down, and there is no point walking the rest of the list to find that
+# out one four-minute budget at a time.
+CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 3
 
 tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
@@ -68,9 +73,15 @@ def search_task(job, username, password, firstname, middlename, lastname):
 
 
 def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
-    client = icos_sessions.get(session_token)
+    client = icos_sessions.claim(session_token)
     if client is None:
-        raise LookupError("session expired")
+        # Two ordinary things land here. Staff left the results page open past
+        # the idle timeout and the reaper logged the session off, or a second
+        # submit arrived while the first was already running and claimed it.
+        # Neither is a bug, so neither should reach staff as "something went
+        # wrong inside Napier" or reach an inbox as an alert.
+        raise IcosError("That search is no longer signed in to Iowa Courts "
+                        "Online. Please run the search again.")
     client.set_alert(alerts.emitter(job))
 
     try:
@@ -80,10 +91,30 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
 
         cases = []
         failed = []
+        failures_in_a_row = 0
+        not_attempted = []
         for index, case_id in enumerate(case_ids, start=1):
             job.log("Pulling case %d of %d (%s)..." % (index, len(case_ids), case_id))
-            summary, charges, financials = client.case_bundle(case_id)
             case = {'id': case_id}
+            try:
+                summary, charges, financials = client.case_bundle(case_id)
+            except IcosError as e:
+                # ICOS never gave up this case inside its retry budget. That
+                # costs one row, not the run: the other cases are still worth
+                # pulling and the workbook still gets built without this one.
+                print("Case %s could not be retrieved: %r" % (case_id, e), flush=True)
+                alerts.record(job.id[:8], job.kind, alerts.CASE_UNAVAILABLE,
+                              progress=alerts.recent_progress(job),
+                              case=case_id,
+                              note="%s The run carried on without it."
+                                   % e.message)
+                failed.append(case_id)
+                failures_in_a_row += 1
+                if failures_in_a_row >= CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
+                    not_attempted = case_ids[index:]
+                    break
+                continue
+            failures_in_a_row = 0
             try:
                 case_parser.parse_case_summary(summary, case)
                 case_parser.parse_case_charges(charges, case)
@@ -102,6 +133,12 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
                 failed.append(case_id)
                 continue
             cases.append(case)
+
+        if not_attempted:
+            failed.extend(not_attempted)
+            job.log("Iowa Courts stopped responding, so the last %d case%s could not "
+                    "be pulled. The workbook has the rest."
+                    % (len(not_attempted), "" if len(not_attempted) == 1 else "s"))
 
         if not cases:
             raise ValueError("no cases could be read")
@@ -123,7 +160,8 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
                     % (len(cases), "" if len(cases) == 1 else "s"))
         return "/job/%s/download" % job.id
     finally:
-        icos_sessions.close(session_token)
+        # The session was claimed, so nothing else will release it.
+        client.logoff()
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
