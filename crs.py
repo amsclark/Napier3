@@ -378,14 +378,43 @@ def itemized_financials(case):
     return financials
 
 
+# What the fee columns on a row are worth, said plainly, for the rows where
+# they are not a straight per-fee breakdown. A reconciled row says nothing,
+# because a note on every row is a note nobody reads.
+SUMMARY_ONLY_NOTE = (
+    "Fee columns are ICOS's five summary categories, not a per-fee breakdown. "
+    "The itemization could not be reconciled against them, so sheriff, "
+    "indigent defense, jail and probation fees are inside MISCELLANEOUS "
+    "rather than in their own columns. The ICOS total is still right."
+)
+
+ITEMIZED_ONLY_NOTE = (
+    "ICOS gave no category summary for this case, so the fee columns come "
+    "from the itemization. ICOS leaves the itemization's paid column blank on "
+    "most fees, so anything already paid may still be counted here. Treat "
+    "these as assessed rather than owed."
+)
+
+
 def process_financials(case, worksheet, row):
-    # Prefer ICOS's own per-category balances; fall back to the itemization for
-    # cases where ICOS doesn't break the summary out by category.
-    financials = summary_financials(case)
-    source = 'summary'
-    if not financials:
-        financials = itemized_financials(case)
-        source = 'itemized'
+    # Reconciling the itemization against the summary is the only path that
+    # keeps the fee breakdown and lands on the balance ICOS reports, so it is
+    # tried first. The summary alone is right about the total and collapses
+    # every fee into five buckets. The itemization alone keeps the fees and
+    # overstates whatever has been paid. Both remain as fallbacks, and a row
+    # that used one says so, because a sheriff fee that is missing because it
+    # was folded into MISCELLANEOUS looks exactly like one that was never
+    # charged.
+    financials, note = reconcile_financials(case)
+    source = 'reconciled'
+    if financials is None:
+        financials = summary_financials(case)
+        source = 'summary'
+        note = SUMMARY_ONLY_NOTE
+        if not financials:
+            financials = itemized_financials(case)
+            source = 'itemized'
+            note = ITEMIZED_ONLY_NOTE
 
     total_due = None
     if 'total_due' in case:
@@ -396,22 +425,31 @@ def process_financials(case, worksheet, row):
     if total_due is not None:
         worksheet['U' + str(row)] = total_due
 
+    notes = [note] if note else []
+
     # If the per-category figures still don't add up to the balance ICOS
     # reports, the ICOS figure (column U) is the one to trust -- flag the row so
     # staff don't take the categories at face value.
+    flagged = False
     if total_due is not None:
         categorized = sum(financials.values(), Decimal(0))
         if abs(categorized - total_due) > Decimal('0.01'):
+            flagged = True
             cell_u = worksheet['U' + str(row)]
             cell_u.fill = MISMATCH_FILL
             cell_u.font = MISMATCH_FONT
-            worksheet['V' + str(row)] = (
+            notes.append(
                 "Category fees total $%s but ICOS shows $%s due (%s figures) - trust "
                 "the ICOS total; the difference is usually payments or third-party "
                 "collection fees ICOS no longer counts"
                 % (categorized, total_due, source)
             )
-            worksheet['V' + str(row)].font = MISMATCH_FONT
+
+    if notes:
+        cell_v = worksheet['V' + str(row)]
+        cell_v.value = " ".join(notes)
+        if flagged:
+            cell_v.font = MISMATCH_FONT
 
 def process_case(case, worksheet, row):
     i = str(row)
