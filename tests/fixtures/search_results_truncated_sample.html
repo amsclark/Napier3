@@ -1,0 +1,161 @@
+
+
+
+
+
+
+
+
+
+
+<HTML>
+<head>
+<title>Trial Search Results</title>
+<script language=javascript>
+function mySubmit(id, pin){
+	if (id.substring(7,9) == "JI") {
+		document.JiForm.caseId.value = id;
+		document.JiForm.peopleId.value = pin;
+		document.JiForm.submit();
+	} else {
+		document.TrialForm.caseid.value = id;
+		document.TrialForm.submit();
+	}
+}
+</script>
+<style type="text/css">
+	a:link {
+		COLOR: #0000FF;
+	}
+	a:visited {
+		COLOR: #800080 !important; 
+	}
+	a:hover {
+		COLOR: #FF0000;
+	}
+	a:active {
+		COLOR: #0000FF;
+	}
+</style>
+<script src="js\libs\jquery-3.3.1.min.js"></script>
+</head>
+<body>
+<table border="0" cellspacing="0" cellpadding="7" width="100%">
+
+		<tr>
+			<td bgcolor="#cccccc" colspan=8><font size=3><b>Your query returned more than 200 records.</b></font></td>
+		</tr>
+		<tr>
+			<td bgcolor="#cccccc" colspan=8><font size=3><b>A subset of the results (the first 200 records found) is shown below.</b></font></td>
+		</tr>
+		<tr>
+			<td bgcolor="#cccccc" colspan=8><font size=3><b>To get full results, go back to the search screen and narrow your search.</b></font></td>
+		</tr>
+
+
+		<tr>
+		<td bgcolor=#cccccc><font size=2><b><u>Case ID</u></b></font></td>
+		<td bgcolor=#cccccc><font size=2><b><u>Initiated Date</u></b></font></td>
+		<td bgcolor=#cccccc><font size=2><b><u>Title</u></b></font></td>
+		<td bgcolor="#cccccc"><font size=2><b><u>Name</u></b></font></td>
+
+		<td bgcolor=#cccccc><font size=2><b><u>DOB</u></b></font></td>
+		<td bgcolor=#cccccc><font size=2><b><u>Role</u></b></font></td>
+		</tr>
+
+				<tr>
+				<td bgcolor="#EDEDED" width="15%" valign="top" nowrap><font size="2" face="Courier New"> <a	href="javascript:mySubmit('00000++FECR000000','CR0000000')">00000&nbsp;&nbsp;FECR000000</a></font></td>
+				<td bgcolor="#EDEDED" width="10%" valign="top"><font size="2">01/01/1990</font></td>
+				<td bgcolor="#EDEDED" width="40%" valign="top"><font size="2">STATE OF IOWA VS TESTER, PAT Q</font></td>
+				<td bgcolor="#EDEDED" width="25%" valign="top"><font size="2">TESTER, PAT Q</font></td>
+
+				<td bgcolor="#EDEDED" width="10%" valign="top"><font size="2">
+				
+				01/01/1900
+				
+				</font></td>
+				<td bgcolor="#ededed" width="10%" valign="top"><font size="2">DEFENDANT</font></td>
+				</tr>
+
+				<tr>
+				<td bgcolor="#FFFFFF" width="15%" valign="top" nowrap><font size="2" face="Courier New"> <a	href="javascript:mySubmit('00000++SRCR000000','CR0000001')">00000&nbsp;&nbsp;SRCR000000</a></font></td>
+				<td bgcolor="#FFFFFF" width="10%" valign="top"><font size="2">02/02/1991</font></td>
+				<td bgcolor="#FFFFFF" width="40%" valign="top"><font size="2">STATE OF IOWA VS TESTER, SAM</font></td>
+				<td bgcolor="#FFFFFF" width="25%" valign="top"><font size="2">TESTER, SAM</font></td>
+
+				<td bgcolor="#FFFFFF" width="10%" valign="top"><font size="2">
+				
+				02/02/1901
+				
+				</font></td>
+				<td bgcolor="#ffffff" width="10%" valign="top"><font size="2">DEFENDANT</font></td>
+				</tr>
+
+</table>
+
+
+
+
+ 
+    <script language=javascript>
+        function login(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/ESALogin.jsp"
+        }
+        function registration(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/Registration"
+        }
+ 
+        function goToPassword() {
+            parent.location.href = "/ESAWebApp/ChangePasswordServlet";
+        }
+ 
+        function goToEditUser() {
+            parent.location.href = "/ESAWebApp/EditUserServlet?getEditPage=true";
+        }
+    </script>
+
+<table width="100%">
+    <tr>
+		<td align=right><font face=Arial size=1>CN=ILATEST,O=JUDICIAL</font></td>
+    </tr>
+</table>
+
+
+
+<div style="text-align: center;">
+	<form name="logoffForm" action="/ESAWebApp/EPALogout" target="_parent" method=POST>
+		<input type=submit name="logoffButton" value="Logoff" style="inline-block"> 
+		<input type=button name="changePassword" value="Change Password" onclick="javaScript:goToPassword()" style="inline-block">
+	</form>
+</div>
+
+
+
+<table width=100%>
+	<tr>
+		<td width=100%>
+
+			<p align=center><font size=2>Please Logoff when you are through accessing case detail information.</font></p>
+			<p align=center><font size=2>For exclusive use by the Iowa Courts<br> State of Iowa,&nbsp; All Rights Reserved</font></p>
+
+		</td>
+	</tr>
+</table>
+
+
+<form name="TrialForm" action="/ESAWebApp/TIndexFrm" method=post target="_parent">
+	<input type="hidden" name="caseid" value=" "> 
+	<input type="hidden" name="screen" value="T">
+</form>
+<form name="JiForm" action="/ESAWebApp/JIndexFrm" method=post target="_parent">
+	<input type="hidden" name="caseId" value=" "> 
+	<input type="hidden" name="peopleId" value=" "> 
+	<input type="hidden" name="screen" value="J">
+</form>
+<script type="text/javascript">
+	$(function()() {
+		$(document).tooltip();
+	});
+</script>
+</body>
+</html>

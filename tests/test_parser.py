@@ -22,10 +22,19 @@ import case_parser
 FIXTURE = os.path.join(os.path.dirname(__file__), 'fixtures',
                        'search_results_sample.html')
 
+TRUNCATED_FIXTURE = os.path.join(os.path.dirname(__file__), 'fixtures',
+                                 'search_results_truncated_sample.html')
+
 
 @pytest.fixture
 def search_page():
     with open(FIXTURE, 'rb') as handle:
+        return handle.read()
+
+
+@pytest.fixture
+def truncated_search_page():
+    with open(TRUNCATED_FIXTURE, 'rb') as handle:
         return handle.read()
 
 
@@ -167,13 +176,12 @@ def test_a_case_id_cannot_write_outside_the_dump_directory(tmp_path,
 
 # -- the 200 record notice -------------------------------------------------
 
-# No capture of the real notice exists. ICOS only shows it for a name that
-# matches more cases than it will list, and the one real search page we have
-# came back with 120 rows. So these cover the shapes ICOS is known to produce
-# rather than one recorded page, and the shapes are not guesses: every cell on
-# the real fixture is a font tag padded with CRLFs and tabs, and the detection
-# this replaced matched one exact unpadded text node and would have missed all
-# of them.
+# These shapes were written before anyone had seen the notice, because ICOS
+# only shows it for a name matching more cases than it will list and the first
+# real search page we had came back under the limit. They are kept now that a
+# truncated page has been captured, since they pin the wording loosely enough
+# to survive ICOS rewording or moving the number, which the captured page on
+# its own does not.
 
 def page_carrying(notice):
     return ("""<html><body>
@@ -232,6 +240,43 @@ def test_a_complete_search_is_not_called_short(search_page):
     cases, too_many = case_parser.parse_search(search_page)
     assert too_many is False
     assert len(cases) > 0
+
+
+def test_the_real_truncated_page_is_recognised(truncated_search_page):
+    """The captured notice, which nothing here had ever actually seen.
+
+    A surname search on a common Iowa name came back at the cap. ICOS words it
+    over three table rows rather than one, each a single cell spanning the
+    table, and the sentence the detection matches is only the first of them:
+
+        Your query returned more than 200 records.
+        A subset of the results (the first 200 records found) is shown below.
+        To get full results, go back to the search screen and narrow your
+        search.
+
+    The 200 result rows were 200 real people and are not in the fixture. Two
+    synthetic rows stand in for them. Everything else is the page as sent.
+    """
+    cases, too_many = case_parser.parse_search(truncated_search_page)
+    assert too_many is True
+    soup = case_parser.BeautifulSoup(truncated_search_page, 'html.parser')
+    assert case_parser.truncation_limit(soup) == 200
+    assert ids(cases) == ['00000  FECR000000', '00000  SRCR000000']
+
+
+def test_the_notices_second_sentence_would_not_carry_the_detection_alone():
+    """Where this is thin, written down rather than left to be discovered.
+
+    ICOS states the count twice and only the first sentence matches. So the
+    detection rests on one of the three lines ICOS sends, and a rewording that
+    kept the count but dropped that line would put us back to a search coming
+    back short in silence. Nothing to fix today: matching the second sentence
+    too would trade a known gap for a guess about wording nobody has seen.
+    """
+    soup = case_parser.BeautifulSoup(
+        page_carrying('<td>A subset of the results (the first 200 records '
+                      'found) is shown below.</td>'), 'html.parser')
+    assert case_parser.truncation_limit(soup) is None
 
 
 def test_the_sentence_inside_a_script_is_not_a_notice():

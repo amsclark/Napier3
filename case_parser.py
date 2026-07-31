@@ -66,11 +66,17 @@ def _flat_text(soup):
 def truncation_limit(soup):
     """The record limit ICOS stopped at, or None if it listed everything.
 
-    This used to be an exact match against one text node, which meant it only
-    fired on a bare unpadded sentence ending in a full stop and never on the
-    page ICOS actually sends. A search that silently comes back short is the
-    same failure as a workbook that is quietly missing two cases: the answer
-    looks complete and is not.
+    A search that silently comes back short is the same failure as a workbook
+    that is quietly missing two cases: the answer looks complete and is not.
+
+    This used to be an exact match against one text node. That was rewritten
+    on the reasoning that ICOS pads every cell with CRLFs and tabs, so an
+    exact match would never fire on the real page. A truncated page has since
+    been captured and that reasoning was wrong: ICOS puts the notice in its
+    own cell with no padding, and the old exact match would have caught it.
+    The rewrite stands on what is left, which is that it survives a change of
+    case, of padding, of the number, or of the markup around the words, and
+    the exact match survived none of those.
     """
     found = _TOO_MANY.search(_flat_text(soup))
     if not found:
