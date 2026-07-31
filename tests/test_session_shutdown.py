@@ -56,3 +56,27 @@ def test_one_refused_logoff_does_not_strand_the_rest():
 
 def test_shutdown_with_nothing_held_is_quiet():
     assert icos_sessions.close_all() == 0
+
+
+def test_sigterm_releases_sessions_before_the_server_starts_shutting_down():
+    """Measured on Heroku: registering this on atexit is too late. Gunicorn
+    takes its full thirty second graceful timeout, Heroku SIGKILLs at exactly
+    that mark, and the handler runs in the same instant the process dies. It
+    printed but never got the logoff request out, and the account stayed
+    locked. SIGTERM arrives thirty seconds earlier, which is the whole budget.
+    """
+    import signal
+
+    client = FakeClient()
+    icos_sessions.put(client)
+    served = []
+    previous = signal.signal(signal.SIGTERM, lambda *a: served.append('gunicorn'))
+    try:
+        icos_sessions.install_shutdown_hooks()
+        handler = signal.getsignal(signal.SIGTERM)
+        handler(signal.SIGTERM, None)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+    assert client.logged_off, "the session must be released on SIGTERM"
+    assert served == ['gunicorn'], "gunicorn's own shutdown must still happen"
