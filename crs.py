@@ -246,10 +246,15 @@ def reconcile_financials(case):
     checks each bucket against its summary original, and then subtracts the
     bucket's payment from the specific lines that account for it.
 
-    Returns (columns, note). columns is None when the itemization cannot be
-    reconciled against the summary, which means the caller should fall back.
-    note is None when every payment was resolved, or a string naming the buckets
-    whose payment could not be attributed to particular lines.
+    Reconciling is per category rather than per case: a category that does not
+    add up is reported as a summary total, and the categories that do add up
+    still get their fee breakdown.
+
+    Returns (columns, note). columns is None when nothing on the row could be
+    reconciled, which means the caller should fall back to the summary. note is
+    None when the whole row is fee by fee, and otherwise names the categories
+    that are not, either because they did not add up or because their payment
+    could not be attributed to particular lines.
     """
     categories = case.get('summary_categories')
     rows = case.get('financials')
@@ -294,21 +299,43 @@ def reconcile_financials(case):
                    Decimal(str(paid)) if paid is not None else Decimal(0)]
         buckets[get_summary_bucket(detail)].append(current)
 
-    # Every bucket must add up to what the summary says was assessed. If it
-    # does not, the partition is wrong and any payment we attributed off it
-    # would be wrong too.
-    for name in ICOS_BUCKETS:
-        assessed = sum((entry[1] for entry in buckets[name]), Decimal(0))
-        if abs(assessed - summary[name]['original']) > Decimal('0.01'):
-            return None, None
-
+    # A bucket has to add up to what the summary says was assessed before any
+    # payment is attributed off it. A fee read into the wrong bucket shows up as
+    # a shortfall in one and a matching excess in another, so both fail and
+    # neither is quietly wrong, which is why a bucket that does match to the cent
+    # is good evidence its partition is right.
+    #
+    # A bucket that does not match is reported the way summary_financials would
+    # report it and the rest of the row keeps its fee breakdown. Giving up on the
+    # whole row instead emptied columns J, K and L, and those are where the
+    # statute-of-limitations and Polk room-and-board sheets look for twenty year
+    # old attorney fee and jail debt. Old cases are both the ones that sheet is
+    # for and the ones most likely to have an itemization that will not
+    # reconcile, so the two lined up badly.
     columns = {}
     unresolved = []
+    unreconciled = []
+    carrying = []
     for name in ICOS_BUCKETS:
         entries = buckets[name]
+        category = summary[name]
+        if entries or category['original']:
+            carrying.append(name)
+
+        assessed = sum((entry[1] for entry in entries), Decimal(0))
+        if abs(assessed - category['original']) > Decimal('0.01'):
+            unreconciled.append(name)
+            due = category.get('due')
+            if due is None:
+                due = category['original'] - (category.get('paid') or Decimal(0))
+            if due:
+                column = get_finance_column(category['label'])
+                columns[column] = columns.get(column, Decimal(0)) + due
+            continue
+
         if not entries:
             continue
-        paid = summary[name].get('paid') or Decimal(0)
+        paid = category.get('paid') or Decimal(0)
 
         # The itemization's own Paid column is blank on most fees, but not on
         # all of them: restitution in particular is paid down in instalments
@@ -349,13 +376,37 @@ def reconcile_financials(case):
             column = get_finance_column(detail)
             columns[column] = columns.get(column, Decimal(0)) + owed
 
-    note = None
+    if carrying and not set(carrying) - set(unreconciled):
+        # Nothing on this row reconciled, so what came out is the summary with
+        # extra steps. Hand it back to the caller, which says so in one sentence
+        # rather than five.
+        return None, None
+
+    notes = []
+    if unreconciled:
+        text = ("%s did not add up against the itemization, so %s balance is "
+                "ICOS's category total rather than a per-fee breakdown"
+                % (_and_list(unreconciled),
+                   "those" if len(unreconciled) > 1 else "that"))
+        if any(get_finance_column(summary[name]['label']) == 'O'
+               for name in unreconciled):
+            text += (", and those fees are in MISCELLANEOUS rather than in "
+                     "their own columns")
+        notes.append(text + ". The rest of the row is fee by fee and the ICOS "
+                            "total is still right.")
     if unresolved:
-        note = ("ICOS records payments per category, not per fee. The payment "
-                "in %s could not be tied to a specific line, so that balance "
-                "is reported as a category total rather than per fee."
-                % ", ".join(unresolved))
-    return columns, note
+        notes.append(
+            "ICOS records payments per category, not per fee. The payment "
+            "in %s could not be tied to a specific line, so that balance "
+            "is reported as a category total rather than per fee."
+            % ", ".join(unresolved))
+    return columns, " ".join(notes) or None
+
+
+def _and_list(names):
+    if len(names) == 1:
+        return names[0]
+    return "%s and %s" % (", ".join(names[:-1]), names[-1])
 
 
 def is_excluded_fee(detail):
