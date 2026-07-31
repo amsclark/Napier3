@@ -1,3 +1,5 @@
+import re
+
 from decimal import Decimal
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
@@ -66,6 +68,80 @@ charge_code_map = {
     "CIVIL": {"CIV":0}
 }
 
+# The rank for a disposition string charge_code_map has never seen. It sits
+# between a dismissal and a conviction on purpose.
+#
+# It used to be 3, above everything else here. So one unrecognised word on one
+# count of a case demoted the whole case to OTH, and OTH is not GTR, GPL or DEF,
+# which is the test four analysis sheets run before they say anything:
+# LICENSE-REGIS in 897 formulas, BANKRUPTCY in 396, EXEMPTIONS in 394, SOL in
+# 294. A client with a conviction and one stray code came out of all four
+# looking like a client with no conviction at all, and the workbook gave no sign
+# of it.
+#
+# Below a conviction now, so an unknown code cannot talk over one Napier
+# understands. Still above a dismissal, so a case whose counts are all
+# unrecognised reads as OTH rather than passing itself off as dismissed. Both
+# are guesses, which is why an unrecognised code is also named on its own row
+# and mailed out while the run is happening instead of being absorbed quietly.
+OTH_RANK = 0.5
+
+# What column V says about that row. The workbook outlives the alert and gets
+# read by whoever has the client in front of them, so the guess has to be
+# visible in the file itself and not only in Alex's inbox.
+UNKNOWN_DISPOSITION_NOTE = (
+    "Iowa Courts recorded a disposition Napier does not recognise (%s), so this "
+    "case is coded OTH. The expungement, bankruptcy, exemption and licence "
+    "sheets treat OTH as no conviction. Check this case in ICOS before relying "
+    "on what they say about it."
+)
+
+
+# Column H of CASE DATA, headed "Vehicular?". LICENSE-REGIS reads it in 299
+# formulas and it is the whole of the difference between the two answers that
+# sheet can give: convicted with debt and H="YES" is "License & registration",
+# anything else is "Registration only". Napier never wrote the column, so the
+# sheet has never once said "License & registration" about anybody. Blank is not
+# neutral there, it is a quiet "no".
+#
+# Iowa suspends a driver's licence for unpaid debt on a chapter 321 conviction
+# and holds vehicle registration for delinquent court debt of any kind, which is
+# the distinction the sheet is drawing. So the test is the chapter the statute
+# sits in, which Napier already has: it is the adjudicated statutory code in
+# column F.
+VEHICULAR_CHAPTER = re.compile(r'^\s*321[A-Z]?\.', re.I)
+# Homicide and serious injury by vehicle live in chapter 707 rather than 321 and
+# revoke a licence on conviction, so they are vehicular for this purpose even
+# though the chapter does not say so.
+VEHICULAR_SECTIONS = ('707.6A',)
+
+
+def is_vehicular(statutes):
+    """"YES", "NO", or None when there is nothing to judge from.
+
+    None matters. A civil case writes "n/a" into column F and a case whose only
+    counts were dismissed writes nothing at all, and in neither is there a
+    conviction for a licence to hang off. Saying "NO" there would be asserting
+    something Napier does not know, and the sheet reads a blank and a "NO"
+    identically anyway, so the honest answer costs nothing.
+
+    Any vehicular count carries the case. A client who pleaded to OWI and a
+    drugs count has a licence problem regardless of which count the CRS picked
+    to speak for the case in column G.
+    """
+    if not statutes:
+        return None
+    codes = [code.strip() for code in str(statutes).split(';')]
+    codes = [code for code in codes if code and code.lower() != 'n/a']
+    if not codes:
+        return None
+    for code in codes:
+        if VEHICULAR_CHAPTER.match(code):
+            return "YES"
+        if any(code.upper().startswith(section) for section in VEHICULAR_SECTIONS):
+            return "YES"
+    return "NO"
+
 
 def get_dominant_charge(charges):
     """Pick the one disposition code that represents the whole case.
@@ -76,47 +152,33 @@ def get_dominant_charge(charges):
 
     Returns a copy. The caller's charge keeps its list of dispositions, so
     calling this twice on the same case gives the same answer both times.
+
+    The copy carries 'unknown_dispositions', the ICOS wordings that produced an
+    OTH. Empty on almost every case. When it is not, the case is coded on a
+    guess and the caller is the one that has to say so.
     """
     if len(charges) == 0:
         return None
     delisted = dict(charges[0])
     raw_charge = delisted['disposition']
     charge_dict = {}
+    unknown = set()
     for disposition in raw_charge:
         disposition = disposition.replace("DNU-", "")
         if not disposition:
             charge_dict["NOTF"] = 0
         elif disposition not in charge_code_map:
-            charge_dict["OTH"] = 3
+            charge_dict["OTH"] = OTH_RANK
+            unknown.add(disposition)
         else:
             charge_key, rank = next(iter(charge_code_map[disposition].items()))
             charge_dict[charge_key] = rank
     sorted_tuples = sorted(charge_dict.items(), reverse=True,
                            key=lambda item: item[1] if item[1] is not None else float('inf'))
     delisted['disposition'] = sorted_tuples[0][0]
+    delisted['unknown_dispositions'] = sorted(unknown)
     return delisted
 
-
-def get_primary_charge(charges):
-    if len(charges) == 0:
-        return None
-
-    charge = charges[0]
-    #creates list for [?]
-    charge['code'] = None
-    date = None
-    for c in charges:
-        disposition = c['disposition'].replace("DNU-", "")
-        charge = c
-        #print c
-        if not disposition:
-            charge['code'] = "NOTF"
-        elif disposition not in charge_code_map:
-            charge['code'] = "OTH"
-        else:
-            charge['code'] = charge_code_map[disposition]
-        
-    return charge
 
 def get_finance_column(detail):
     if "COLLECTION BY CO ATTY" in detail:
@@ -545,7 +607,23 @@ def process_financials(case, worksheet, row):
         if flagged:
             cell_v.font = MISMATCH_FONT
 
+def append_note(worksheet, row, text):
+    """Add to column V without displacing what process_financials put there.
+
+    A row can be both reconciled from the summary and coded on a guess, and the
+    two notes are about different things. Whichever is written second joins the
+    first rather than replacing it.
+    """
+    cell = worksheet['V' + str(row)]
+    cell.value = ("%s %s" % (cell.value, text)).strip() if cell.value else text
+
+
 def process_case(case, worksheet, row):
+    """Write one case into CASE DATA. Returns the dispositions it could not read.
+
+    Almost always empty. When it is not, the case is on the sheet under a code
+    Napier guessed at, and the return value is how the run gets to say so.
+    """
     i = str(row)
     worksheet['A' + i] = case['id']
     worksheet['B' + i] = case['county']
@@ -579,12 +657,25 @@ def process_case(case, worksheet, row):
         cell_E.value = charge['description']
         worksheet['F' + i] = charge['charge']
         worksheet['G' + i] = charge['disposition']
+        # Only when we can tell. is_vehicular returns None for a case with no
+        # adjudicated statute, and the cell is left alone rather than told "NO".
+        vehicular = is_vehicular(charge['charge'])
+        if vehicular is not None:
+            worksheet['H' + i] = vehicular
 
     cell_E.alignment = Alignment(wrap_text=True) # Apply text wrapping
 
     # If charge was None, we still need to process financials if it wasn't returned early
     if charge is None:
         # process_financials(case, worksheet, i) # Already called above if charge is None
-        return # Now we can return
+        return [] # Now we can return
 
     process_financials(case, worksheet, i)
+
+    # After process_financials, which owns column V, so the note joins whatever
+    # it wrote about the money rather than being overwritten by it.
+    unknown = charge.get('unknown_dispositions') or []
+    if unknown:
+        append_note(worksheet, i,
+                    UNKNOWN_DISPOSITION_NOTE % ", ".join(unknown))
+    return unknown

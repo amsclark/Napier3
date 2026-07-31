@@ -182,6 +182,40 @@ def truncation_limit(soup):
         return None
 
 
+# ICOS words a disposition; the CRS wants a code. Hoisted out of
+# parse_case_charges, which rebuilt this literal once per call, so that
+# NOT_ADJUDICATED below can be checked against it by a test.
+charge_code_dict = {
+    "GUILTY": "GTR",
+    "DNU-GUILTY": "GTR",
+    "GUILTY BY COURT": "GTR",
+    "GUILTY - NEGOTIATED/VOLUN PLEA": "GPL",
+    "CONVERT TO SIMPLE MISDEM": "GPL",
+    "ACQUITTED": "ACQ",
+    "DISMISSED": "DISM",
+    "DNU-DISMISSED": "DISM",
+    "DISMISSED BY COURT": "DISM",
+    "DISMISSED BY OTHER": "DISM",
+    "DEFERRED": "DEF",
+    "NOT GUILTY": "ACQ",
+    "WAIVED TO ADULT COURT": "JWV",
+    "ADJUDICATED": "JUV",
+    "WITHDRAWN": "WTHD",
+    "NOT FILED": "NOTF",
+    "CIVIL": "CIV"
+}
+
+# The outcomes that mean no adjudicated charge, so the statutory code is not
+# the client's to carry. Column F feeds the expungement sheet, and a charge
+# listed there is a charge the sheet treats as adjudicated.
+#
+# This was two hardcoded lists that both said WITHD where the map says WTHD,
+# so withdrawn counts were never filtered and their statute rode into column
+# F alongside real convictions. One name, checked against the map by a test,
+# is the reason that cannot drift apart again.
+NOT_ADJUDICATED = frozenset({"WTHD", "DISM", "ACQ", "NOTF"})
+
+
 def parse_search(html):
     html = html.decode('utf-8', errors='ignore')
     _dump("search_results.html", html)
@@ -243,25 +277,6 @@ def parse_case_charges(html, case):
     prior_charge = str()
     prior_description = str()
     #disposition = {}
-    charge_code_dict = {
-        "GUILTY": "GTR",
-        "DNU-GUILTY": "GTR",
-        "GUILTY BY COURT": "GTR",
-        "GUILTY - NEGOTIATED/VOLUN PLEA": "GPL",
-        "CONVERT TO SIMPLE MISDEM": "GPL",
-        "ACQUITTED": "ACQ",
-        "DISMISSED": "DISM",
-        "DNU-DISMISSED": "DISM",
-        "DISMISSED BY COURT": "DISM",
-        "DISMISSED BY OTHER": "DISM",
-        "DEFERRED": "DEF",
-        "NOT GUILTY": "ACQ",
-        "WAIVED TO ADULT COURT": "JWV",
-        "ADJUDICATED": "JUV",
-        "WITHDRAWN": "WTHD",
-        "NOT FILED": "NOTF",
-        "CIVIL": "CIV"
-    }
     rows = soup.find_all('tr')
     for row in rows:
         cols = row.find_all('font')
@@ -330,10 +345,10 @@ def parse_case_charges(html, case):
         
     if cur_charge is not None:
         if ";" not in cur_charge['description']:
-            cur_charge['description'] = cur_charge['description'][:cur_charge['description'].index("[")] 
+            cur_charge['description'] = cur_charge['description'][:cur_charge['description'].index("[")]
             #print("Disposition: " + charge_code_dict.get(cur_charge['disposition'][0], "OTH"))
             disp_code = charge_code_dict.get(cur_charge['disposition'][0], "OTH")
-            if disp_code in ["WITHD", "DISM", "ACQ", "NOTF"]:
+            if disp_code in NOT_ADJUDICATED:
                 cur_charge['charge'] = ""
         else:
             cleaned_list = [] 
@@ -343,7 +358,7 @@ def parse_case_charges(html, case):
             filter_description_list = filter_description_string.split(";")
             combined_list = list(zip(filter_charge_list, filter_description_list))
             for index, charge_tuple in enumerate(combined_list):
-                if any(x in charge_tuple[1] for x in ["WITHD", "DISM", "ACQ", "NOTF"]):
+                if any("[" + x + "]" in charge_tuple[1] for x in NOT_ADJUDICATED):
                     #print("Excluding: " + charge_tuple[0] + " " + charge_tuple[1])
                     pass
                 else: 
