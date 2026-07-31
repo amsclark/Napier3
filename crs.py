@@ -1,3 +1,5 @@
+import re
+
 from decimal import Decimal
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
@@ -65,6 +67,52 @@ charge_code_map = {
     "NOT FILED": {"NOTF":0},
     "CIVIL": {"CIV":0}
 }
+
+
+# Column H of CASE DATA, headed "Vehicular?". LICENSE-REGIS reads it in 299
+# formulas and it is the whole of the difference between the two answers that
+# sheet can give: convicted with debt and H="YES" is "License & registration",
+# anything else is "Registration only". Napier never wrote the column, so the
+# sheet has never once said "License & registration" about anybody. Blank is not
+# neutral there, it is a quiet "no".
+#
+# Iowa suspends a driver's licence for unpaid debt on a chapter 321 conviction
+# and holds vehicle registration for delinquent court debt of any kind, which is
+# the distinction the sheet is drawing. So the test is the chapter the statute
+# sits in, which Napier already has: it is the adjudicated statutory code in
+# column F.
+VEHICULAR_CHAPTER = re.compile(r'^\s*321[A-Z]?\.', re.I)
+# Homicide and serious injury by vehicle live in chapter 707 rather than 321 and
+# revoke a licence on conviction, so they are vehicular for this purpose even
+# though the chapter does not say so.
+VEHICULAR_SECTIONS = ('707.6A',)
+
+
+def is_vehicular(statutes):
+    """"YES", "NO", or None when there is nothing to judge from.
+
+    None matters. A civil case writes "n/a" into column F and a case whose only
+    counts were dismissed writes nothing at all, and in neither is there a
+    conviction for a licence to hang off. Saying "NO" there would be asserting
+    something Napier does not know, and the sheet reads a blank and a "NO"
+    identically anyway, so the honest answer costs nothing.
+
+    Any vehicular count carries the case. A client who pleaded to OWI and a
+    drugs count has a licence problem regardless of which count the CRS picked
+    to speak for the case in column G.
+    """
+    if not statutes:
+        return None
+    codes = [code.strip() for code in str(statutes).split(';')]
+    codes = [code for code in codes if code and code.lower() != 'n/a']
+    if not codes:
+        return None
+    for code in codes:
+        if VEHICULAR_CHAPTER.match(code):
+            return "YES"
+        if any(code.upper().startswith(section) for section in VEHICULAR_SECTIONS):
+            return "YES"
+    return "NO"
 
 
 def get_dominant_charge(charges):
@@ -579,6 +627,11 @@ def process_case(case, worksheet, row):
         cell_E.value = charge['description']
         worksheet['F' + i] = charge['charge']
         worksheet['G' + i] = charge['disposition']
+        # Only when we can tell. is_vehicular returns None for a case with no
+        # adjudicated statute, and the cell is left alone rather than told "NO".
+        vehicular = is_vehicular(charge['charge'])
+        if vehicular is not None:
+            worksheet['H' + i] = vehicular
 
     cell_E.alignment = Alignment(wrap_text=True) # Apply text wrapping
 
