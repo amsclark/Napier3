@@ -36,6 +36,7 @@ class FakeClient:
     instances = []
     login_error = None
     search_error = None
+    search_results = None
 
     def __init__(self, log=None, alert=None, **kwargs):
         self.log = log or (lambda m: None)
@@ -60,6 +61,8 @@ class FakeClient:
     def search(self, first, middle, last):
         if FakeClient.search_error:
             raise FakeClient.search_error
+        if FakeClient.search_results is not None:
+            return FakeClient.search_results
         return SEARCH_RESULTS
 
     def case_bundle(self, case_id):
@@ -78,6 +81,7 @@ def fake_icos(monkeypatch):
     FakeClient.instances = []
     FakeClient.login_error = None
     FakeClient.search_error = None
+    FakeClient.search_results = None
     monkeypatch.setattr(tasks, 'IcosClient', FakeClient)
     # Case parsing and workbook building have their own tests; here we care
     # about the flow around them.
@@ -356,3 +360,45 @@ def test_one_browser_is_never_offered_another_s_workbook(client):
     build_a_workbook(client)
     other = app_module.app.test_client()
     assert 'workbook waiting' not in other.get('/').get_data(as_text=True)
+
+
+def test_a_search_that_matched_nobody_says_so(client):
+    """An empty grid is what a half broken search looks like too.
+
+    Staff had no way to tell "Iowa Courts has nothing under that name" from
+    "Napier lost the results", so the safe reading was to doubt the tool.
+    """
+    FakeClient.search_results = b"<html><table></table></html>"
+    job_id, state = run_search(client)
+    assert state['status'] == 'done'
+
+    body = client.get('/results/' + job_id).get_data(as_text=True)
+    assert 'no cases under that name' in body
+    # The picking form has nothing to pick, so it is not offered.
+    assert 'Create the CRS' not in body
+    assert 'Start a new search' in body
+
+
+def test_a_truncated_search_warns_on_the_results_page(client):
+    """The whole point of detecting it is that this banner reaches staff.
+
+    Wired end to end because the parser flag, the job result, the route and
+    the template are four separate places it can be dropped.
+    """
+    FakeClient.search_results = SEARCH_RESULTS.replace(
+        b"</table>",
+        b"</table><font size=\"2\">\r\n\t\tYour query returned more than 200 "
+        b"records.\r\n\t\t</font>")
+    job_id, state = run_search(client)
+    assert state['status'] == 'done'
+
+    body = client.get('/results/' + job_id).get_data(as_text=True)
+    assert 'stopped counting at 200 records' in body
+    # It is a warning about the list, not a replacement for it.
+    assert 'TESTER, PAT Q' in body
+
+
+def test_an_ordinary_search_carries_no_truncation_warning(client):
+    job_id, state = run_search(client)
+    body = client.get('/results/' + job_id).get_data(as_text=True)
+    assert 'stopped counting' not in body

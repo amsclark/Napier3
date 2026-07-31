@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 from werkzeug.utils import secure_filename
 import os
 import platform
+import re
 #import datetime
 from datetime import *
 import time
@@ -42,13 +43,52 @@ def _cell_words(cell):
     """
     return ' '.join(cell.get_text().split())
 
+
+# The notice ICOS shows when a name matches more cases than it will list. The
+# number is captured rather than assumed, because the only thing worse than not
+# knowing the list is short is telling someone the wrong count.
+_TOO_MANY = re.compile(r"query\s+returned\s+more\s+than\s+(\d+)\s+records", re.I)
+
+
+def _flat_text(soup):
+    """The page's words with ICOS's padding taken out.
+
+    Every cell on an ICOS page is wrapped in a font tag and padded with CRLFs
+    and tabs, which is visible in the date of birth cells of the one real
+    search page we have. Anything that matches this page against an exact
+    string is matching the padding as well as the words.
+    """
+    words = [text for text in soup.strings
+             if text.parent.name not in ('script', 'style')]
+    return re.sub(r'\s+', ' ', ' '.join(words).replace(u'\xa0', u' '))
+
+
+def truncation_limit(soup):
+    """The record limit ICOS stopped at, or None if it listed everything.
+
+    This used to be an exact match against one text node, which meant it only
+    fired on a bare unpadded sentence ending in a full stop and never on the
+    page ICOS actually sends. A search that silently comes back short is the
+    same failure as a workbook that is quietly missing two cases: the answer
+    looks complete and is not.
+    """
+    found = _TOO_MANY.search(_flat_text(soup))
+    if not found:
+        return None
+    try:
+        return int(found.group(1))
+    except ValueError:
+        return None
+
+
 def parse_search(html):
     html = html.decode('utf-8', errors='ignore')
     _dump("search_results.html", html)
     soup = BeautifulSoup(html, 'html.parser')
-    too_many_results = len(soup.find_all(text="Your query returned more than 200 records.")) > 0
+    limit = truncation_limit(soup)
+    too_many_results = limit is not None
     if too_many_results:
-        print("Too Many Results")
+        print("Iowa Courts stopped listing at %d records" % limit)
     cases = []
     for row in soup.find_all('tr'):
         cols = row.find_all('td')

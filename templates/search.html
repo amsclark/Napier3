@@ -142,6 +142,26 @@
     </div>
   {% endif %}
 
+  {% if not keys %}
+    {# A search that matched nobody used to render the picking form with an
+       empty grid, which is the same page a search that half broke renders.
+       Staff had no way to tell "no such person in Iowa Courts" from "Napier
+       lost the results", and the only clue was a log line behind a collapsed
+       details element. #}
+    <div class="notice" role="status">
+      <p class="notice-title">Iowa Courts has no cases under that name.</p>
+      <p>
+        The search worked and came back with nobody. Iowa Courts matches on the
+        name exactly as it appears on the case, so a maiden name, a middle name
+        in the first name box, or a misspelling on the court record will all
+        come back empty.
+      </p>
+      <p>Try the surname on its own before concluding there is nothing there.</p>
+    </div>
+    <div class="actions">
+      <a href="/logout" class="btn btn-primary">Start a new search</a>
+    </div>
+  {% else %}
   <form id="crs">
     {% if keys | length > 8 %}
       <label>
@@ -181,8 +201,10 @@
   </form>
 
   <div id="status" class="notice notice-stop" role="alert" hidden></div>
+  {% endif %}
 </div>
 
+{% if keys %}
 <script>
 var searchJobId = {{ search_job_id|tojson }};
 var form = document.getElementById("crs");
@@ -298,4 +320,5 @@ form.addEventListener("submit", function (e) {
 
 refresh();
 </script>
+{% endif %}
 {% endblock %}
