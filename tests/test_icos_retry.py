@@ -87,7 +87,8 @@ def build(script, **kwargs):
                         sleep=clock.sleep, monotonic=clock.monotonic,
                         budget_seconds=kwargs.pop('budget_seconds', 45 * 60),
                         concurrent_budget_seconds=kwargs.pop('concurrent_budget_seconds',
-                                                             16 * 60))
+                                                             16 * 60),
+                        case_budget_seconds=kwargs.pop('case_budget_seconds', 4 * 60))
     return client, clock, messages
 
 
@@ -200,7 +201,7 @@ def test_a_problem_report_page_is_never_taken_for_a_case():
     response and eventually surfaces as an outage.
     """
     client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
-                         budget_seconds=120)
+                         case_budget_seconds=120)
     with pytest.raises(IcosUnavailable):
         client.case_bundle(CASE_ID)
 
@@ -219,9 +220,33 @@ def test_the_page_for_a_different_case_is_rejected():
     come back looking entirely healthy. Reporting one case's charges under
     another case's number is the quietest way to get a CRS wrong."""
     other = CASE_PAGE.replace(b"FECR000000", b"FECR999999")
-    client, _, _ = build([FetchResult(OK, other)] * 200, budget_seconds=120)
+    client, _, _ = build([FetchResult(OK, other)] * 200, case_budget_seconds=120)
     with pytest.raises(IcosUnavailable):
         client.case_bundle(CASE_ID)
+
+
+def test_a_stuck_case_gives_up_long_before_a_stuck_search():
+    """A search is the whole job and worth waiting out. A case is one row of
+    many, with staff watching a progress bar and the rest of the list still to
+    pull, so the same dead script must cost far less time."""
+    case_client, case_clock, _ = build([FetchResult(TIMEOUT)] * 500)
+    with pytest.raises(IcosUnavailable):
+        case_client.case_bundle(CASE_ID)
+
+    search_client, search_clock, _ = build([FetchResult(TIMEOUT)] * 500)
+    with pytest.raises(IcosUnavailable):
+        search_client.search("PAT", "", "TESTER")
+
+    assert case_clock.now < search_clock.now / 5
+    assert case_clock.now <= 4 * 60
+
+
+def test_a_search_keeps_its_own_budget():
+    """The case budget must not have quietly shortened the search too."""
+    client, clock, _ = build([FetchResult(TIMEOUT)] * 500, budget_seconds=30 * 60)
+    with pytest.raises(IcosUnavailable):
+        client.search("PAT", "", "TESTER")
+    assert clock.now > 20 * 60
 
 
 def test_icos_spacing_of_a_case_number_does_not_matter():
