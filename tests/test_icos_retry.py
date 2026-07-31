@@ -16,6 +16,18 @@ CONCURRENT_PAGE = b"<html>Concurrent Login Error: A user is already logged on</h
 BAD_CREDS_PAGE = b"<html>The userID or password could not be validated</html>"
 RESULTS_PAGE = b"<html><table>results</table></html>"
 
+CASE_ID = "01311  FECR000000"
+CASE_PAGE = (b"<html>Trial Court Case Summary Title:&nbsp;STATE VS TESTER, PAT Q "
+             b"Case: 01311  FECR000000 (SYNTHETIC) Disposition Status</html>")
+
+# The shape of the real thing, with the wording that identifies it. ICOS serves
+# this with HTTP 200, under the heading of whatever case was selected last.
+PROBLEM_REPORT_PAGE = (
+    b"<html>Trial Court Case Summary Title:&nbsp;STATE VS TESTER, SAM "
+    b"Case: 01311  FECR111111 (SYNTHETIC) Problem Report: There was a "
+    b"communication problem. Possible Cause: The Web server may be too busy. "
+    b"No Disposition records were found.</html>")
+
 
 class FakeReader:
     """Replays a scripted sequence of outcomes and records what was asked for."""
@@ -173,9 +185,52 @@ def test_concurrent_login_gives_up_after_the_lock_window():
 
 
 def test_case_pages_are_fetched_in_icos_order():
-    client, _, _ = build([])
-    client.case_bundle("01311 FECR000000")
+    client, _, _ = build([FetchResult(OK, CASE_PAGE)] * 3)
+    client.case_bundle(CASE_ID)
     assert client.reader.calls == ["TViewCaseCivil", "TViewCharges", "TViewFinancials"]
+
+
+def test_a_problem_report_page_is_never_taken_for_a_case():
+    """ICOS returns this with HTTP 200 when its data source is unreachable.
+
+    Seen live in July 2026. The page carries the heading of whichever case was
+    selected last and lists no charges and no money, so it parses cleanly as a
+    civil case with nothing owed. Accepting it puts a wrong row in the CRS,
+    which is worse than the case failing, so it is retried like any other bad
+    response and eventually surfaces as an outage.
+    """
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
+                         budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.case_bundle(CASE_ID)
+
+
+def test_a_problem_report_that_clears_is_just_a_retry():
+    client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE),
+                          FetchResult(OK, CASE_PAGE),       # summary, second go
+                          FetchResult(OK, CASE_PAGE),       # charges
+                          FetchResult(OK, CASE_PAGE)])      # financials
+    summary, charges, financials = client.case_bundle(CASE_ID)
+    assert summary == CASE_PAGE
+
+
+def test_the_page_for_a_different_case_is_rejected():
+    """ICOS keys the case views off the last selection, so the wrong case can
+    come back looking entirely healthy. Reporting one case's charges under
+    another case's number is the quietest way to get a CRS wrong."""
+    other = CASE_PAGE.replace(b"FECR000000", b"FECR999999")
+    client, _, _ = build([FetchResult(OK, other)] * 200, budget_seconds=120)
+    with pytest.raises(IcosUnavailable):
+        client.case_bundle(CASE_ID)
+
+
+def test_icos_spacing_of_a_case_number_does_not_matter():
+    """The search lists '01311  FECR000000'; the case page spaces it its own
+    way. Napier must not treat that as the wrong case."""
+    respaced = CASE_PAGE.replace(b"01311  FECR000000", b"01311\r\n\tFECR000000")
+    client, _, _ = build([FetchResult(OK, respaced)] * 3)
+    summary, _, _ = client.case_bundle(CASE_ID)
+    assert summary == respaced
 
 
 def test_logoff_is_silent_when_never_logged_in():
