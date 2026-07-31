@@ -244,8 +244,13 @@ class IcosClient:
         started = self._monotonic()
         waited_for_lock = False
         while True:
+            # Without the validator a problem report lands on the size check
+            # below, because it is well under MIN_SIGNED_IN_BYTES, and staff
+            # are told their user ID or password is wrong while the court site
+            # is down. They then retype credentials that were always correct.
             body = self._retry("search",
-                               lambda: self.reader.login_request(username, password))
+                               lambda: self.reader.login_request(username, password),
+                               validate=_is_not_a_problem_report)
             text = body.decode("utf-8", errors="ignore")
 
             if BAD_CREDS_MARKER in text:
