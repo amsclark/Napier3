@@ -1,68 +1,191 @@
 {% extends 'base.html' %}
+{% block title %}Working: Napier{% endblock %}
+
+{% block head %}
+<style>
+.track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  overflow: hidden;
+  margin: 1.1rem 0 1.2rem;
+}
+
+.track-fill {
+  height: 100%;
+  width: 38%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand-bright), var(--accent));
+  animation: slide 1.5s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-fill { animation: none; width: 100%; opacity: .55; }
+}
+
+.status {
+  font-size: 1.02rem;
+  margin: 0;
+  min-height: 1.55rem;
+}
+
+.elapsed {
+  color: var(--ink-faint);
+  font-size: .84rem;
+  font-variant-numeric: tabular-nums;
+  margin: .45rem 0 0;
+}
+
+details {
+  margin-top: 1.4rem;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 1rem;
+}
+
+summary {
+  cursor: pointer;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+summary::marker { color: var(--ink-faint); }
+
+.log {
+  list-style: none;
+  margin: .9rem 0 0;
+  padding: 0 0 0 1.1rem;
+  border-left: 2px solid var(--line);
+}
+
+.log li {
+  position: relative;
+  padding: 0 0 .55rem .2rem;
+  font-size: .88rem;
+  color: var(--ink-soft);
+}
+
+.log li::before {
+  content: "";
+  position: absolute;
+  left: -1.42rem;
+  top: .52rem;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.log li:last-child { color: var(--ink); padding-bottom: 0; }
+.log li:last-child::before { background: var(--accent); }
+</style>
+{% endblock %}
 
 {% block content %}
-    <h3 id="headline">Working...</h3>
+<div class="card">
+  <h1 id="headline">Working on it</h1>
+  <p class="lede">
+    This runs on the server, so you can close this tab or shut the laptop and
+    the work carries on. Iowa Courts is slow at times and Napier waits it out.
+  </p>
 
-    <div id="spinner" class="my-3">
-        <div class="progress">
-            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
-        </div>
-    </div>
+  <div id="track" class="track"><div class="track-fill"></div></div>
 
-    <p id="status" class="lead">{{ job.message }}</p>
+  <p id="status" class="status" role="status" aria-live="polite">{{ job.message }}</p>
+  <p id="elapsed" class="elapsed"></p>
 
-    <div id="failed" class="alert alert-warning" style="display: none"></div>
+  <div id="failed" class="notice notice-stop" role="alert" hidden></div>
 
-    <details class="mt-3">
-        <summary>Details</summary>
-        <ul id="log" class="mt-2 text-muted"></ul>
-    </details>
+  <details>
+    <summary>Show what it has done so far</summary>
+    <ul id="log" class="log"></ul>
+  </details>
 
-    <p class="mt-3">
-        <a href="/logout" class="btn btn-outline-secondary">Cancel and start over</a>
-    </p>
+  <div class="actions" style="margin-top:1.4rem">
+    <a href="/logout" class="btn btn-quiet">Cancel and start over</a>
+  </div>
+</div>
 
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script>
-        var jobId = {{ job.id|tojson }};
+<script>
+var jobId = {{ job.id|tojson }};
+var started = Date.now();
+var timer = null;
 
-        function render(state) {
-            $("#status").text(state.message || "");
-            var log = $("#log").empty();
-            $.each(state.progress || [], function (_, line) {
-                log.append($("<li>").text(line));
-            });
-        }
+function tick() {
+  var s = Math.round((Date.now() - started) / 1000);
+  var text;
+  if (s < 60) {
+    text = s + (s === 1 ? " second" : " seconds");
+  } else {
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    text = m + (m === 1 ? " minute " : " minutes ") + r + "s";
+  }
+  document.getElementById("elapsed").textContent = "Running for " + text;
+}
 
-        function poll() {
-            $.getJSON("/job/" + jobId)
-                .done(function (state) {
-                    render(state);
-                    if (state.status === "done") {
-                        $("#headline").text("Finished");
-                        window.location = state.next_url;
-                        return;
-                    }
-                    if (state.status === "failed") {
-                        $("#headline").text("Search stopped");
-                        $("#spinner").hide();
-                        $("#failed").text(state.error).show();
-                        return;
-                    }
-                    setTimeout(poll, 2000);
-                })
-                .fail(function (xhr) {
-                    // A restarted dyno loses in-flight searches; say so plainly
-                    // instead of spinning forever.
-                    var state = xhr.responseJSON;
-                    $("#headline").text("Search stopped");
-                    $("#spinner").hide();
-                    $("#failed").text(state && state.error
-                        ? state.error
-                        : "Lost contact with Napier. Please run the search again.").show();
-                });
-        }
+function render(state) {
+  document.getElementById("status").textContent = state.message || "";
+  var log = document.getElementById("log");
+  log.textContent = "";
+  (state.progress || []).forEach(function (line) {
+    var li = document.createElement("li");
+    li.textContent = line;
+    log.appendChild(li);
+  });
+}
 
-        $(document).ready(poll);
-    </script>
+function stop(headline, message) {
+  document.getElementById("headline").textContent = headline;
+  document.getElementById("track").hidden = true;
+  document.getElementById("elapsed").hidden = true;
+  if (timer) { clearInterval(timer); }
+  if (message) {
+    var box = document.getElementById("failed");
+    box.textContent = message;
+    box.hidden = false;
+  }
+}
+
+function poll() {
+  fetch("/job/" + encodeURIComponent(jobId), {
+    headers: { "Accept": "application/json" }
+  }).then(function (response) {
+    return response.json().catch(function () { return null; })
+      .then(function (state) { return { ok: response.ok, state: state }; });
+  }).then(function (result) {
+    var state = result.state;
+    // A restarted dyno loses in-flight searches, and the server says so in the
+    // body of a 410. Say the same thing rather than spinning forever.
+    if (!result.ok || !state) {
+      stop("Search stopped", (state && state.error) ||
+           "Lost contact with Napier. Please run the search again.");
+      return;
+    }
+    render(state);
+    if (state.status === "done") {
+      stop("Finished", null);
+      window.location = state.next_url;
+      return;
+    }
+    if (state.status === "failed") {
+      stop("Search stopped", state.error);
+      return;
+    }
+    setTimeout(poll, 2000);
+  }).catch(function () {
+    stop("Search stopped",
+         "Lost contact with Napier. Please run the search again.");
+  });
+}
+
+tick();
+timer = setInterval(tick, 1000);
+poll();
+</script>
 {% endblock %}
