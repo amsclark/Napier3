@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block title %}Ready: Napier{% endblock %}
+
+{% block head %}
+<style>
+.done-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--brand-bright) 14%, var(--surface));
+  color: var(--brand-bright);
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: .7rem;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  padding: .85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line-soft);
+  margin-bottom: 1.3rem;
+}
+
+.file-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.file-what {
+  display: block;
+  font-size: .84rem;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.missing {
+  list-style: none;
+  margin: .6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.missing li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem;
+  background: var(--surface);
+  border: 1px solid var(--warn-line);
+  border-radius: 5px;
+  padding: .12rem .45rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <span class="done-mark" aria-hidden="true">&check;</span>
+  <h1>The workbook is ready</h1>
+  <p class="lede">
+    The download starts on its own. If your browser blocked it, use the button.
+  </p>
+
+  <div class="file">
+    <span class="file-name">
+      {{ filename }}
+      <span class="file-what">
+        {{ "Lite" if is_lite else "Full" }} criminal record summary for
+        {{ def_name }}, {{ written }} case{{ written | pluralize("","s") }}.
+      </span>
+    </span>
+  </div>
+
+  {% if failed %}
+    <div class="notice" role="alert">
+      <p class="notice-title">
+        {{ failed | length }} case{{ failed | length | pluralize("","s") }}
+        {{ "is" if failed | length == 1 else "are" }} missing from this workbook.
+      </p>
+      <p>
+        Iowa Courts would not give {{ "it" if failed | length == 1 else "them" }}
+        up, or the page could not be read. The other {{ written }} of
+        {{ requested }} are in the file. Look
+        {{ "this one" if failed | length == 1 else "these" }} up by hand before
+        you rely on the summary being complete.
+      </p>
+      <ul class="missing">
+        {% for case_id in failed %}<li>{{ case_id }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <div class="actions">
+    <a href="/job/{{ job.id }}/download" class="btn btn-primary" id="again">Download the workbook</a>
+    <a href="/logout" class="btn btn-quiet">Search for someone else</a>
+  </div>
+
+  <p class="lede" style="margin:1.2rem 0 0">
+    This page keeps working for two hours, so you can come back and download the
+    file again without running the search a second time.
+  </p>
+</div>
+
+<iframe id="grab" title="download" hidden></iframe>
+
+<script>
+// Fetching it into a hidden frame keeps this page on screen, so the missing
+// case list above stays readable instead of being replaced by a file save.
+document.getElementById("grab").src = "/job/" +
+  encodeURIComponent({{ job.id|tojson }}) + "/download";
+</script>
+{% endblock %}

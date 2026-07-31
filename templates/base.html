@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Napier{% endblock %}</title>
+<!-- Drawn here rather than served, so a run that takes fifteen minutes is
+     findable among a row of identical blank tabs without costing a request. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2317314f'/><path d='M10 23V9h3.1l5.8 8.4V9H22v14h-3.1L13.1 14.6V23z' fill='%23b98900'/></svg>">
 <style>
 /* Everything the page needs is in this file. Nothing is fetched from a CDN.
    Legal aid offices sit behind filtered networks, and the previous version
@@ -201,6 +204,11 @@ input[type=text]:focus, input[type=password]:focus {
 .check-note { display: block; color: var(--ink-soft); font-size: .84rem; }
 
 /* --- buttons ----------------------------------------------------------- */
+
+/* A class that sets display beats the browser's own rule for the hidden
+   attribute, so anything laid out with flex ignores being hidden until this
+   says otherwise. */
+[hidden] { display: none !important; }
 
 .actions {
   display: flex;

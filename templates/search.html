@@ -76,6 +76,42 @@
   color: var(--ink-soft);
   margin: 0;
 }
+
+.filter {
+  width: 100%;
+  padding: .55rem .7rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  margin-bottom: .8rem;
+}
+
+.filter:focus {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+}
+
+.person[hidden] { display: none; }
+
+.empty {
+  color: var(--ink-soft);
+  font-size: .9rem;
+  padding: .8rem 0;
+  margin: 0;
+}
+
+/* With sixty names on screen the button is far below the fold, and the count
+   of what is picked is the thing you need while scrolling. */
+.actions-stuck {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: .9rem 0 .2rem;
+}
 </style>
 {% endblock %}
 
@@ -107,10 +143,20 @@
   {% endif %}
 
   <form id="crs">
+    {% if keys | length > 8 %}
+      <label>
+        <span class="field-label">Narrow the list</span>
+        <input type="search" class="filter" id="filter" autocomplete="off"
+               placeholder="Type part of a name or a date of birth">
+      </label>
+    {% endif %}
+
     <div class="result-head" style="margin-bottom:.6rem">
       <p class="selected-count" id="count">Nothing picked yet</p>
       <button type="button" class="bulk" id="toggle-all">Select all</button>
     </div>
+
+    <p class="empty" id="empty" hidden>No name here matches what you typed.</p>
 
     <div class="people">
       {% for key in keys %}
@@ -128,7 +174,7 @@
       {% endfor %}
     </div>
 
-    <div class="actions">
+    <div class="actions actions-stuck">
       <button id="crs-submit-button" type="submit" class="btn btn-primary">Create the CRS</button>
       <a href="/logout" class="btn btn-quiet">Start a new search</a>
     </div>
@@ -144,6 +190,8 @@ var button = document.getElementById("crs-submit-button");
 var statusBox = document.getElementById("status");
 var countLine = document.getElementById("count");
 var toggleAll = document.getElementById("toggle-all");
+var filterBox = document.getElementById("filter");
+var emptyLine = document.getElementById("empty");
 
 function boxes() {
   return Array.prototype.slice.call(
@@ -154,12 +202,45 @@ function picked() {
   return boxes().filter(function (b) { return b.checked; });
 }
 
+function shown() {
+  return boxes().filter(function (b) { return !b.closest(".person").hidden; });
+}
+
 function refresh() {
   var n = picked().length;
-  countLine.textContent = n === 0
+  var text = n === 0
     ? "Nothing picked yet"
     : n + (n === 1 ? " name picked" : " names picked");
-  toggleAll.textContent = n === boxes().length && n > 0 ? "Clear all" : "Select all";
+
+  // A name stays checked when the filter hides it, and it still goes into the
+  // workbook. Saying so beats a surprise in the finished file.
+  var hiddenPicks = picked().filter(function (b) {
+    return b.closest(".person").hidden;
+  }).length;
+  if (hiddenPicks) {
+    text += " (" + hiddenPicks + " not shown here)";
+  }
+  countLine.textContent = text;
+
+  var visible = shown();
+  var allOn = visible.length > 0 && visible.every(function (b) { return b.checked; });
+  toggleAll.textContent = allOn ? "Clear all" : "Select all";
+  toggleAll.hidden = visible.length === 0;
+}
+
+if (filterBox) {
+  filterBox.addEventListener("input", function () {
+    var needle = filterBox.value.trim().toLowerCase();
+    var visible = 0;
+    boxes().forEach(function (b) {
+      var row = b.closest(".person");
+      var match = !needle || row.textContent.toLowerCase().indexOf(needle) !== -1;
+      row.hidden = !match;
+      if (match) { visible++; }
+    });
+    emptyLine.hidden = visible !== 0;
+    refresh();
+  });
 }
 
 function say(message) {
@@ -169,9 +250,12 @@ function say(message) {
 
 form.addEventListener("change", refresh);
 
+// Acts on what is on screen. With a filter applied, "select all" meaning
+// "including the forty you filtered out" would be a trap.
 toggleAll.addEventListener("click", function () {
-  var turnOn = picked().length !== boxes().length;
-  boxes().forEach(function (b) { b.checked = turnOn; });
+  var visible = shown();
+  var turnOn = !visible.every(function (b) { return b.checked; });
+  visible.forEach(function (b) { b.checked = turnOn; });
   refresh();
 });
 
