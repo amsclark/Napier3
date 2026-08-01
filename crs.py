@@ -1,5 +1,7 @@
 import re
 
+from calendar import monthrange
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
@@ -141,6 +143,104 @@ def is_vehicular(statutes):
         if any(code.upper().startswith(section) for section in VEHICULAR_SECTIONS):
             return "YES"
     return "NO"
+
+
+# Sentence types ICOS uses that put somebody under supervision in the community.
+# All three are court-ordered, run for a stated term, and appear in the sentence
+# table with that term, which is what makes them answerable from ICOS at all.
+#
+# PRISON, JAIL and the suspended variants are deliberately not here. Somebody in
+# custody is not what the expungement sheet's 910.7 column is asking about, and
+# the day they get out is not on this page.
+SUPERVISION_SENTENCES = frozenset({
+    'PROBATION',
+    'DRUG COURT',
+    'RESIDENTIAL FACILITY',
+})
+
+# ICOS writes a term as a count and a unit, and has used only two units across
+# every case we have looked at. The others are here so a term Napier has not
+# seen is measured rather than ignored.
+DURATION = re.compile(r'^\s*(\d+)\s*(Year|Month|Week|Day)', re.I)
+
+SUPERVISION_NOTE = (
+    "Column I says YES because ICOS shows a %s term of %s imposed %s, which on "
+    "paper runs to %s. Napier reads the sentence table and cannot see a term "
+    "discharged early, a term extended, or anyone on parole, so confirm this "
+    "before relying on it."
+)
+
+
+def _add_term(start, count, unit):
+    """The day a term of `count` `unit`s beginning on `start` runs out.
+
+    Calendar arithmetic rather than a multiple of 365, because a five year
+    probation term imposed on a leap day is not five times 365 days long and
+    the answer here decides what goes in a column about somebody's debt.
+    """
+    unit = unit.lower()
+    if unit == 'day':
+        return start + timedelta(days=count)
+    if unit == 'week':
+        return start + timedelta(weeks=count)
+    months = count * 12 if unit == 'year' else count
+    month_index = start.month - 1 + months
+    year = start.year + month_index // 12
+    month = month_index % 12 + 1
+    # The 31st of a month landing on a 30 day month, and 29 February landing on
+    # a common year, both fall back to that month's last day.
+    day = min(start.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def parse_us_date(text):
+    """MM/DD/YYYY as ICOS writes it, or None for anything else."""
+    if not text:
+        return None
+    try:
+        return datetime.strptime(str(text).strip(), '%m/%d/%Y').date()
+    except ValueError:
+        return None
+
+
+def supervision_term(sentences):
+    """The supervision term that runs longest, as (type, duration, start, end).
+
+    None when the case has no supervision sentence, or has one with no date or
+    no stated term, because a term nobody can put an end date on cannot answer
+    the question the column is asking.
+    """
+    longest = None
+    for sentence in sentences or []:
+        if (sentence.get('type') or '').strip().upper() not in SUPERVISION_SENTENCES:
+            continue
+        start = parse_us_date(sentence.get('date'))
+        if start is None:
+            continue
+        match = DURATION.match(str(sentence.get('duration') or ''))
+        if not match:
+            continue
+        end = _add_term(start, int(match.group(1)), match.group(2))
+        if longest is None or end > longest[3]:
+            longest = (sentence['type'].strip().upper(),
+                       sentence['duration'].strip(), start, end)
+    return longest
+
+
+def is_under_supervision(sentences, as_of):
+    """("YES", term) when a supervision term is still running, else (None, None).
+
+    Never "NO". A blank and a "NO" read the same to the expungement sheet, so
+    writing "NO" would buy nothing and would claim something Napier cannot know:
+    ICOS records no discharge when probation ends early, records an extension
+    inconsistently, and does not carry parole at all, since parole is corrections
+    rather than the court. So this answers the one direction it can evidence,
+    which is that a term was imposed and has not run out yet.
+    """
+    term = supervision_term(sentences)
+    if term is None or term[3] < as_of:
+        return None, None
+    return "YES", term
 
 
 def get_dominant_charge(charges):
@@ -618,12 +718,19 @@ def append_note(worksheet, row, text):
     cell.value = ("%s %s" % (cell.value, text)).strip() if cell.value else text
 
 
-def process_case(case, worksheet, row):
+def process_case(case, worksheet, row, as_of=None):
     """Write one case into CASE DATA. Returns the dispositions it could not read.
 
     Almost always empty. When it is not, the case is on the sheet under a code
     Napier guessed at, and the return value is how the run gets to say so.
+
+    as_of is the clinic date, the same one build_workbook puts in BASIC INFO B3.
+    Whether a probation term is still running is only answerable against a day,
+    and it has to be that day rather than today, so that reopening a workbook
+    next year does not silently change what column I said.
     """
+    if as_of is None:
+        as_of = date.today()
     i = str(row)
     worksheet['A' + i] = case['id']
     worksheet['B' + i] = case['county']
@@ -663,17 +770,34 @@ def process_case(case, worksheet, row):
         if vehicular is not None:
             worksheet['H' + i] = vehicular
 
+    # Outside the charge branch on purpose. The sentence table is read off the
+    # charges page whatever get_dominant_charge made of the adjudications, and a
+    # case can carry a supervision term that Napier coded as something other
+    # than a plain conviction.
+    supervised, term = is_under_supervision(case.get('sentences'), as_of)
+    if supervised is not None:
+        worksheet['I' + i] = supervised
+        supervision_note = SUPERVISION_NOTE % (
+            term[0].lower(), term[1], term[2].strftime('%m/%d/%Y'),
+            term[3].strftime('%m/%d/%Y'))
+    else:
+        supervision_note = None
+
     cell_E.alignment = Alignment(wrap_text=True) # Apply text wrapping
 
     # If charge was None, we still need to process financials if it wasn't returned early
     if charge is None:
         # process_financials(case, worksheet, i) # Already called above if charge is None
+        if supervision_note:
+            append_note(worksheet, i, supervision_note)
         return [] # Now we can return
 
     process_financials(case, worksheet, i)
 
     # After process_financials, which owns column V, so the note joins whatever
     # it wrote about the money rather than being overwritten by it.
+    if supervision_note:
+        append_note(worksheet, i, supervision_note)
     unknown = charge.get('unknown_dispositions') or []
     if unknown:
         append_note(worksheet, i,

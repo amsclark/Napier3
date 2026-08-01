@@ -233,10 +233,15 @@ def build_workbook(cases, def_name, def_dob, is_lite):
     """
     workbook = load_workbook('CRS Lite 3.5.5.xlsx' if is_lite else 'CRS 3.5.5.xlsx')
     sheet = workbook['CASE DATA']
+    # One clinic date for the whole workbook, read once. Column I asks whether a
+    # probation term is still running, which is only answerable against a day,
+    # and it has to be the same day BASIC INFO B3 gets below or the workbook
+    # disagrees with itself about when it was built.
+    clinic_date = datetime.date.today()
     row = 4
     unknown = {}
     for case in cases:
-        for disposition in crs.process_case(case, sheet, row) or []:
+        for disposition in crs.process_case(case, sheet, row, clinic_date) or []:
             unknown.setdefault(disposition, []).append(case['id'])
         row += 1
 
@@ -249,7 +254,7 @@ def build_workbook(cases, def_name, def_dob, is_lite):
     # is the right default for a workbook built today, and it is a date value
     # rather than text so the arithmetic works. Staff can overwrite it for a
     # clinic on another day.
-    sheet['B3'] = datetime.date.today()
+    sheet['B3'] = clinic_date
     sheet['B3'].number_format = 'MM/DD/YYYY'
     sheet['B5'] = def_name.strip()
     sheet['B6'] = def_dob

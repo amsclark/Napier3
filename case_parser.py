@@ -264,10 +264,81 @@ def parse_case_summary(html, case):
     if case['summary_dispo_status'] is None:
         case['summary_dispo_status'] = ""
 
+# The sentence table's own header, in ICOS's order. It is matched exactly
+# rather than by position, because the table sits inside a nested table and the
+# outer row yields the header and the first data row joined together. Matching
+# the header is also how a change to the page announces itself: if ICOS renames
+# or reorders a column, no sentence is read at all rather than the wrong cell
+# being read as a date.
+SENTENCE_HEADER = [
+    'Sentence', 'Sentence Date', 'Duration', 'Fine', 'Appeal', 'Judge',
+    'Facility Type', 'Attorney', 'Restitution', 'Drug', 'Extradition',
+    'Lic. Revoked', 'DDS', 'Batterer',
+]
+
+
+def _row_words(row):
+    """One charges-page row as a list of cleaned cell strings.
+
+    The charges page wraps every value in <font>, and pads it with the CRLFs
+    and tabs that the rest of this module strips the same way.
+    """
+    return [
+        ''.join(col.find_all(string=True))
+        .replace(u'\xa0', u' ')
+        .replace('\r', '')
+        .replace('\n', '')
+        .replace('\t', '')
+        .strip()
+        for col in row.find_all('font')
+    ]
+
+
+def parse_sentences(soup):
+    """Every sentence ICOS lists on a case, as {type, date, duration}.
+
+    Napier has downloaded this table on every case it has ever pulled and read
+    nothing out of it. It is the only place in ICOS that says what happened to
+    somebody after the conviction: the sentence type, the day it was imposed
+    and how long it runs. Column I of CASE DATA wants exactly that, and so does
+    any question about when an expungement wait starts.
+
+    Returns a flat list rather than one per count. A count is not a useful key
+    here: ICOS repeats the same probation term under every count it applies to,
+    and what the workbook asks is whether the person is under supervision on
+    this case, not on which count.
+    """
+    sentences = []
+    # Nothing is read until the header has been seen and matched in full. The
+    # charges page has other wide tables on it, and a row of fourteen cells is
+    # not on its own evidence of a sentence. It is also the whole of Napier's
+    # defence against ICOS reordering the columns: no header, no read, rather
+    # than a confident date taken out of whichever cell is third now.
+    in_table = False
+    for row in soup.find_all('tr'):
+        texts = _row_words(row)
+        if len(texts) < len(SENTENCE_HEADER):
+            continue
+        if texts[:len(SENTENCE_HEADER)] == SENTENCE_HEADER:
+            # The header itself, or, for the row that wraps the nested table,
+            # the header with the first sentence joined onto the end of it.
+            in_table = True
+            continue
+        if not in_table or not texts[0] or texts[0] in SENTENCE_HEADER:
+            continue
+        sentences.append({
+            'type': texts[0],
+            'date': texts[1],
+            'duration': texts[2],
+        })
+    return sentences
+
+
 def parse_case_charges(html, case):
     html = html.decode('utf-8', errors='ignore')
     _dump(case['id'] + "_charges.html", html)
     soup = BeautifulSoup(html, 'html.parser')
+    case['sentences'] = parse_sentences(soup)
     charges = []
     charge_list = list()
     cur_charge = None
