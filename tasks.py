@@ -98,6 +98,7 @@ def search_task(job, username, password, firstname, middlename, lastname):
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     client.set_stop_check(lambda: job.cancelled)
     keep_session = False
+    person = {'first': firstname, 'middle': middlename, 'last': lastname}
     try:
         client.login(username, password)
         body = client.search(firstname, middlename, lastname)
@@ -114,6 +115,12 @@ def search_task(job, username, password, firstname, middlename, lastname):
             "keys": keys,
             "too_many_results": too_many_results,
             "session_token": token,
+            # Kept because a CRS run that comes back short can only be retried
+            # by putting this same search back in front of ICOS first, and by
+            # then the run has logged off and the terms are gone. It never goes
+            # to the browser: to_dict leaves result alone, and a client's name
+            # is privileged.
+            "person": person,
         }
         job.log("Found %d case%s across %d name%s."
                 % (len(cases), "" if len(cases) == 1 else "s",
@@ -201,6 +208,56 @@ def _pull_cases(job, client, case_ids, offset=0, total=None):
                 "be pulled. The workbook has the rest."
                 % (len(not_attempted), "" if len(not_attempted) == 1 else "s"))
     return cases, failed
+
+
+def _retry_entry(def_name, def_dob, person, case_ids, cases, failed):
+    """One client's share of what a retry needs.
+
+    case_ids is everything that was asked for, in the order it was asked for,
+    so a rebuilt workbook puts the recovered rows back where they were rather
+    than tacked on the end. cases is what came back, kept whole: the retry
+    signs in fresh and re-pulls only the failures, and it has to be able to
+    write the ones that already worked without asking ICOS for them again.
+
+    These sit in the dyno's memory for the two hours the job lives, which is
+    the same window the workbook itself sits in tmp for, so nothing is exposed
+    here that the finished run was not already holding. They reach no log, no
+    alert and no page.
+    """
+    return {'def_name': def_name, 'def_dob': def_dob, 'person': person,
+            'case_ids': list(case_ids), 'cases': cases, 'failed': list(failed)}
+
+
+def _retry_payload(kind, is_lite, entries):
+    """What the finish page needs to offer another go, or None if it cannot.
+
+    Every client of a clinic list is carried, not just the ones that came back
+    short. A retry rebuilds the whole list and re-zips it, so a staffer who
+    recovers one client's four cases still ends up with one file holding all
+    twenty clients instead of having to keep two zips straight.
+
+    None when nothing failed, and None when something failed that cannot be
+    retried. ICOS decides which case a case request means from the last search
+    it answered, so a client whose search terms were never recorded cannot be
+    re-selected, and pulling their cases without re-selecting is exactly the
+    bug that made every case after the first client come back as a stub.
+    """
+    if not any(entry['failed'] for entry in entries):
+        return None
+    if any(entry['failed'] and not entry['person'] for entry in entries):
+        return None
+    return {'kind': kind, 'is_lite': is_lite, 'clients': entries}
+
+
+def _merged_cases(entry, recovered):
+    """Last run's cases plus this run's, back in the order they were asked for.
+
+    Keyed by case number so a case that failed the first time and worked the
+    second appears once, in its own row, rather than twice or at the end.
+    """
+    by_id = {case['id']: case for case in entry['cases']}
+    by_id.update({case['id']: case for case in recovered})
+    return [by_id[case_id] for case_id in entry['case_ids'] if case_id in by_id]
 
 
 def batch_search_task(job, username, password, people, rejected=()):
@@ -344,6 +401,7 @@ def batch_crs_task(job, session_token, picks, is_lite):
     total_cases = sum(len(pick['case_ids']) for pick in picks)
     try:
         built = []
+        retry_entries = []
         pulled = 0
         for index, pick in enumerate(picks, start=1):
             _stop_if_asked(job)
@@ -354,10 +412,17 @@ def batch_crs_task(job, session_token, picks, is_lite):
             record = {'name': pick['def_name'], 'requested': len(pick['case_ids']),
                       'written': 0, 'failed': [], 'file': None, 'error': None}
             built.append(record)
+            # Carried alongside the record rather than inside it, because this
+            # holds whole parsed cases and the record is what the finish page
+            # renders.
+            entry = _retry_entry(pick['def_name'], pick['def_dob'],
+                                 pick.get('person'), pick['case_ids'], [], [])
+            retry_entries.append(entry)
 
             if not _reselect(job, client, pick):
                 pulled += len(pick['case_ids'])
                 record['failed'] = list(pick['case_ids'])
+                entry['failed'] = list(pick['case_ids'])
                 record['error'] = ("Iowa Courts would not answer this client's "
                                    "name a second time, so their cases could "
                                    "not be pulled. Search them on their own.")
@@ -367,6 +432,7 @@ def batch_crs_task(job, session_token, picks, is_lite):
                                         offset=pulled, total=total_cases)
             pulled += len(pick['case_ids'])
             record['failed'] = failed
+            entry['cases'], entry['failed'] = cases, list(failed)
             if not cases:
                 record['error'] = ("Iowa Courts would not give up any of this "
                                    "client's cases, so there is no workbook "
@@ -408,6 +474,7 @@ def batch_crs_task(job, session_token, picks, is_lite):
             "def_name": "a clinic list of %d client%s"
                         % (len(built), "" if len(built) == 1 else "s"),
             "done_url": "/batch-done/%s" % job.id,
+            "retry": _retry_payload('batch_crs', is_lite, retry_entries),
         }
         job.log("Done. %d of %d workbook%s built."
                 % (sum(1 for record in built if record['file']), len(built),
@@ -440,7 +507,14 @@ def _zip_workbooks(built, is_lite):
     return path
 
 
-def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
+def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
+             person=None):
+    """person is the search that produced these cases, carried for the retry.
+
+    Optional because a job that started before the search job recorded it has
+    none, and a run with no way back is still a run worth finishing. The finish
+    page just does not offer another go.
+    """
     client = icos_sessions.claim(session_token)
     if client is None:
         # Two ordinary things land here. Staff left the results page open past
@@ -478,6 +552,8 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
             "requested_cases": len(case_ids),
             "failed_cases": failed,
             "done_url": "/done/%s" % job.id,
+            "retry": _retry_payload('crs', is_lite, [
+                _retry_entry(def_name, def_dob, person, case_ids, cases, failed)]),
         }
 
         if failed:
@@ -494,6 +570,143 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
         return "/done/%s" % job.id
     finally:
         # The session was claimed, so nothing else will release it.
+        client.logoff()
+        alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
+
+
+def retry_task(job, username, password, payload):
+    """Another go at just the cases Iowa Courts would not give up.
+
+    Until this, a run that came back four cases short left staff two choices:
+    look those cases up on Iowa Courts by hand, or run the whole thing again
+    and spend another twenty minutes and another turn with the shared account
+    to re-pull sixty-three cases that already worked. Neither is a good day.
+    The July run that dropped sixty-three cases had no third option at all.
+
+    This signs in fresh, because the run that failed logged its session off on
+    the way out and that is the behaviour keeping the shared account usable. It
+    then does per client what the clinic list does: put that client's search
+    back in front of ICOS, pull only their failures, and write a workbook from
+    what came back plus what came back last time.
+
+    Every client of a clinic list is rebuilt, including the ones that had no
+    failures, so the retry produces one complete zip rather than a second
+    partial one to keep straight alongside the first.
+
+    A retry that still comes back short can itself be retried, because it
+    leaves the same thing behind that it was started from.
+    """
+    client = IcosClient(log=job.log, alert=alerts.emitter(job))
+    client.set_stop_check(lambda: job.cancelled)
+    entries = payload['clients']
+    is_lite = payload['is_lite']
+    total = sum(len(entry['failed']) for entry in entries)
+    try:
+        client.login(username, password)
+
+        built, rebuilt, pulled, recovered_total = [], [], 0, 0
+        for index, entry in enumerate(entries, start=1):
+            _stop_if_asked(job)
+            record = {'name': entry['def_name'],
+                      'requested': len(entry['case_ids']),
+                      'written': 0, 'failed': [], 'file': None, 'error': None}
+            built.append(record)
+
+            recovered, still_failed, reselect_failed = [], list(entry['failed']), False
+            if entry['failed']:
+                job.log("Client %d of %d: trying %d case%s again..."
+                        % (index, len(entries), len(entry['failed']),
+                           "" if len(entry['failed']) == 1 else "s"),
+                        count=pulled, total=total)
+                if _reselect(job, client, entry):
+                    recovered, still_failed = _pull_cases(
+                        job, client, entry['failed'], offset=pulled, total=total)
+                else:
+                    reselect_failed = True
+                pulled += len(entry['failed'])
+                recovered_total += len(recovered)
+
+            # Everything that has ever come back for this client, in the order
+            # it was asked for, so the rebuilt workbook is the whole summary
+            # and not a supplement to one.
+            cases = _merged_cases(entry, recovered)
+            record['failed'] = still_failed
+            rebuilt.append(_retry_entry(entry['def_name'], entry['def_dob'],
+                                        entry['person'], entry['case_ids'],
+                                        cases, still_failed))
+            if not cases:
+                record['error'] = (
+                    "Iowa Courts would not answer this client's name, so there "
+                    "is still no workbook for them."
+                    if reselect_failed else
+                    "Iowa Courts still would not give up any of this client's "
+                    "cases, so there is still no workbook for them.")
+                continue
+            try:
+                path, unknown = build_workbook(cases, entry['def_name'],
+                                               entry['def_dob'], is_lite)
+            except Exception as e:
+                print("Workbook failed on retry for client %d: %r" % (index, e),
+                      flush=True)
+                alerts.record(job.id[:8], job.kind, alerts.JOB_FAILED,
+                              progress=alerts.recent_progress(job),
+                              **{'note': "Rebuilding one client of %d on a "
+                                         "retry. The rest carried on."
+                                         % len(entries),
+                                 'traceback': alerts.safe_traceback(e)})
+                record['error'] = ("Napier could not rebuild this client's "
+                                   "workbook. The earlier one is still on the "
+                                   "run you started this from.")
+                continue
+            # Only the cases that came back this time. The rest were reported
+            # when they were first read, and telling somebody twice about a
+            # disposition they have already added to the map is how alerting
+            # stops being read.
+            fresh_ids = {case['id'] for case in recovered}
+            report_unknown_dispositions(job, {
+                wording: [case_id for case_id in case_ids if case_id in fresh_ids]
+                for wording, case_ids in unknown.items()
+                if any(case_id in fresh_ids for case_id in case_ids)})
+            record['written'] = len(cases)
+            record['file'] = path
+
+        if not any(record['file'] for record in built):
+            raise ValueError("no workbooks could be rebuilt")
+
+        still_missing = sum(len(record['failed']) for record in built)
+        job.log("Recovered %d of %d case%s. %s"
+                % (recovered_total, total, "" if total == 1 else "s",
+                   "Iowa Courts still would not give up %d." % still_missing
+                   if still_missing else "Nothing is missing now."))
+
+        after = _retry_payload(payload['kind'], is_lite, rebuilt)
+        if payload['kind'] == 'batch_crs':
+            job.result = {
+                "file": _zip_workbooks(built, is_lite),
+                "is_lite": is_lite,
+                "clients": built,
+                "written_cases": sum(record['written'] for record in built),
+                "requested_cases": sum(record['requested'] for record in built),
+                "def_name": "a clinic list of %d client%s"
+                            % (len(built), "" if len(built) == 1 else "s"),
+                "done_url": "/batch-done/%s" % job.id,
+                "retry": after,
+            }
+            return "/batch-done/%s" % job.id
+
+        record = built[0]
+        job.result = {
+            "file": record['file'],
+            "def_name": record['name'],
+            "is_lite": is_lite,
+            "written_cases": record['written'],
+            "requested_cases": record['requested'],
+            "failed_cases": record['failed'],
+            "done_url": "/done/%s" % job.id,
+            "retry": after,
+        }
+        return "/done/%s" % job.id
+    finally:
         client.logoff()
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 

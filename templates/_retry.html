@@ -1,0 +1,95 @@
+{#
+  The offer to go back for the cases that did not come back.
+
+  Shared by both finish pages because the errand is the same one whether the run
+  was a single client or a clinic list, and the only thing it needs is a sign in.
+  It asks for one because the run this is started from logged its Iowa Courts
+  session off on the way out, which is what keeps the shared account usable by
+  anybody else.
+#}
+{% if can_retry and missing %}
+<style>
+.retry {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: .85rem 1rem;
+  margin-bottom: 1.3rem;
+}
+
+.retry summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.retry summary::-webkit-details-marker { display: none; }
+
+.retry summary::before {
+  content: "+";
+  display: inline-block;
+  width: 1.1rem;
+  font-weight: 700;
+  color: var(--brand-bright);
+}
+
+.retry[open] summary::before { content: "\2212"; }
+.retry[open] summary { margin-bottom: 1.1rem; }
+
+.retry-title { font-weight: 600; }
+
+.retry-note {
+  display: block;
+  margin-left: 1.1rem;
+  font-size: .84rem;
+  color: var(--ink-soft);
+}
+</style>
+
+<details class="retry"{% if error %} open{% endif %}>
+  <summary>
+    <span class="retry-title">
+      Try {{ "that case" if missing == 1 else "those %d cases" % missing }} again
+    </span>
+    <span class="retry-note">
+      Signs in to Iowa Courts again and asks for only
+      {{ "the one that" if missing == 1 else "the ones that" }} did not come
+      back. Everything already in the workbook stays in it.
+    </span>
+  </summary>
+
+  {# What went wrong is said at the top of the page, not down here, because a
+     retry that was refused before it started can also be one this block does
+     not render at all. #}
+  <form method="post" action="/retry/{{ job.id }}" id="retry-form">
+    <div class="row row-two">
+      <label>
+        <span class="field-label">User ID</span>
+        <input type="text" name="username" autocomplete="username"
+               autocapitalize="none" spellcheck="false" required>
+      </label>
+      <label>
+        <span class="field-label">Password</span>
+        <input type="password" name="password"
+               autocomplete="current-password" required>
+      </label>
+    </div>
+    <div class="actions" style="margin-top:1rem">
+      <button type="submit" class="btn btn-primary">
+        Try {{ "it" if missing == 1 else "them" }} again
+      </button>
+    </div>
+  </form>
+</details>
+
+<script>
+// The same saved user ID the start page offers, under the same key. Whether to
+// remember it was decided there; this only reads what that decision left.
+(function () {
+  var user = document.querySelector("#retry-form input[name='username']");
+  if (!user) { return; }
+  try {
+    var saved = window.localStorage.getItem("napier.userid");
+    if (saved) { user.value = saved; }
+  } catch (e) { /* private window. Typing it is not the end of the world. */ }
+})();
+</script>
+{% endif %}
