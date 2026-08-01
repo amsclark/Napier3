@@ -31,6 +31,11 @@ RETENTION_SECONDS = 2 * 60 * 60
 # run leaves, since every other alert in this app fires from something throwing.
 UNCOLLECTED_AFTER = 5 * 60
 
+# The job kinds that end with a file somebody has to be handed. These are the
+# ones the uncollected alert watches and the ones the start page keeps offering
+# until a staffer has actually taken the file.
+BUILDS_A_WORKBOOK = ('crs', 'batch_crs')
+
 
 class Job:
     def __init__(self, kind):
@@ -151,7 +156,7 @@ def _uncollected_pass(now=None):
     now = now if now is not None else time.time()
     with _jobs_lock:
         orphans = [job for job in _jobs.values()
-                   if job.kind == 'crs' and job.status == DONE
+                   if job.kind in BUILDS_A_WORKBOOK and job.status == DONE
                    and not job.collected and not job.reported_uncollected
                    and now - job.updated_at > UNCOLLECTED_AFTER]
         for job in orphans:

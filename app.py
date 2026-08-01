@@ -7,6 +7,7 @@ import alerts
 import crs
 import icos_sessions
 import jobs
+import roster
 import tasks
 
 app = Flask(__name__)
@@ -151,6 +152,9 @@ def remember_job(job):
     session['job_ids'] = (session.get('job_ids', []) + [job.id])[-20:]
 
 
+app.jinja_env.globals['max_names'] = roster.MAX_NAMES
+
+
 @app.context_processor
 def waiting_workbook():
     """The most recent finished workbook this browser has not picked up yet.
@@ -163,8 +167,8 @@ def waiting_workbook():
     """
     for job_id in reversed(session.get('job_ids', [])):
         job = jobs.get(job_id)
-        if (job is not None and job.kind == 'crs' and job.status == jobs.DONE
-                and not job.collected):
+        if (job is not None and job.kind in jobs.BUILDS_A_WORKBOOK
+                and job.status == jobs.DONE and not job.collected):
             return {"waiting_job": job}
     return {"waiting_job": None}
 
@@ -203,6 +207,155 @@ def search():
                      request.form['lastname'])
     remember_job(job)
     return redirect(url_for('progress', job_id=job.id))
+
+
+@app.route('/batch', methods=['POST'])
+def batch():
+    """A whole clinic list, searched on one sign in."""
+    username = request.form['username'].strip()
+    password = request.form['password']
+    session['isLite'] = 'isLiteBatch' in request.form
+
+    if not username.startswith("ILA") and not username.startswith("drakelegalclinic"):
+        return render_template('start.html', open_batch=True,
+                               error="That user ID is not an Iowa Legal Aid Iowa Courts account.")
+
+    people, rejected = roster.parse(request.form.get('roster', ''))
+    if not people:
+        return render_template('start.html', open_batch=True,
+                               error="There were no names in that list. One "
+                                     "client per line, either \"Last, First\" "
+                                     "or \"First Last\".")
+    if len(people) > roster.MAX_NAMES:
+        return render_template(
+            'start.html', open_batch=True,
+            error="That list has %d names in it. Napier holds the shared Iowa "
+                  "Courts account for the whole run, so it takes %d at a time. "
+                  "Split the list." % (len(people), roster.MAX_NAMES))
+
+    icos_sessions.close(session.pop('icos_token', None))
+
+    # The rejected lines ride on the job, not the session. They can hold part of
+    # a client's name and the session cookie is a store on a shared machine.
+    job = jobs.start('batch_search', tasks.batch_search_task,
+                     username, password, people, rejected)
+    remember_job(job)
+    return redirect(url_for('progress', job_id=job.id))
+
+
+@app.route('/roster/<job_id>')
+def roster_page(job_id):
+    job = own_job(job_id)
+    if job is None or job.status != jobs.DONE or job.kind != 'batch_search':
+        return render_template('start.html', error=RESTARTED_MESSAGE)
+
+    session['icos_token'] = job.result['session_token']
+    return render_template('roster.html', clients=job.result['clients'],
+                           rejected=job.result['rejected'],
+                           search_job_id=job.id)
+
+
+@app.route('/batch-crs', methods=['POST'])
+def batch_crs():
+    data = request.get_json(silent=True) or {}
+    search_job = own_job(data.get('search_job_id', ''))
+    token = session.get('icos_token')
+    if search_job is None or search_job.status != jobs.DONE or not token:
+        return jsonify({"error": RESTARTED_MESSAGE}), 410
+
+    clients = search_job.result['clients']
+    picks = []
+    for chosen in data.get('picks') or []:
+        try:
+            entry = clients[int(chosen.get('client'))]
+        except (TypeError, ValueError, IndexError):
+            return jsonify({"error": "That clinic list does not look like the "
+                                     "one Napier searched. Please run it "
+                                     "again."}), 400
+        # Every key has to be one this search actually returned, so the browser
+        # cannot name a defendant nobody picked off a page.
+        keys = [key for key in (chosen.get('keys') or []) if key in entry['keys']]
+        if not keys:
+            continue
+        case_ids = []
+        for key in keys:
+            case_ids.extend(entry['cases'].get(key, []))
+        # The defendant key is "YYYY-MM-DD NAME", the way the search grouped it.
+        def_dob, _, def_name = keys[0].partition(" ")
+        picks.append({'def_name': def_name, 'def_dob': def_dob,
+                      'case_ids': case_ids})
+
+    if not picks:
+        return jsonify({"error": "Pick a match for at least one client."}), 400
+
+    job = jobs.start('batch_crs', tasks.batch_crs_task, token, picks,
+                     session.get('isLite', False))
+    remember_job(job)
+    session.pop('icos_token', None)  # the batch job owns it now and logs it off
+    return jsonify({"job_id": job.id,
+                    "progress_url": url_for('progress', job_id=job.id)})
+
+
+@app.route('/batch-done/<job_id>')
+def batch_done(job_id):
+    job = own_job(job_id)
+    if job is None or job.status != jobs.DONE or job.kind != 'batch_crs':
+        return render_template('start.html', error=RESTARTED_MESSAGE)
+
+    result = job.result
+    return render_template('batch_done.html', job=job.to_dict(),
+                           clients=result['clients'],
+                           is_lite=result['is_lite'],
+                           built=sum(1 for c in result['clients'] if c['file']),
+                           written=result['written_cases'],
+                           limits=crs.workbook_limits(
+                               max([c['written'] for c in result['clients']]
+                                   or [0]), result['is_lite']))
+
+
+def _served_file(path):
+    """A path is only servable if it is an ordinary file we wrote into tmp_dir.
+
+    Same rule the single download has kept: a tampered session must not be able
+    to point this at anything else on the dyno.
+    """
+    real = os.path.realpath(path)
+    if os.path.dirname(real) != os.path.realpath(tmp_dir).rstrip(os.sep):
+        return None
+    if not (real.endswith('.xlsx') or real.endswith('.zip')):
+        return None
+    return real
+
+
+@app.route('/batch/<job_id>/download')
+@app.route('/batch/<job_id>/download/<int:index>')
+def batch_download(job_id, index=None):
+    job = own_job(job_id)
+    if job is None or job.status != jobs.DONE or job.kind != 'batch_crs':
+        return render_template('start.html', error=RESTARTED_MESSAGE)
+
+    if index is None:
+        path, name = job.result['file'], 'Napier_clinic_list.zip'
+    else:
+        try:
+            record = job.result['clients'][index]
+        except IndexError:
+            return render_template('start.html', error=RESTARTED_MESSAGE)
+        if not record['file']:
+            return render_template('start.html', error=RESTARTED_MESSAGE)
+        path = record['file']
+        name = tasks.download_name(record['name'], job.result['is_lite'])
+
+    path = _served_file(path)
+    if path is None:
+        return "Bad session - invalid file"
+
+    # The zip is the whole errand; one client's workbook is not. Collecting the
+    # list is what stops the uncollected alert, so a staffer who grabs one file
+    # and closes the tab still gets chased about the other nineteen.
+    if index is None:
+        job.collected = True
+    return send_file(path, as_attachment=True, download_name=name)
 
 
 @app.route('/progress/<job_id>')

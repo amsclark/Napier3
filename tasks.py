@@ -8,6 +8,7 @@ walks away), and the CRS task logs off when it finishes or fails.
 import datetime
 import os
 import platform
+import zipfile
 
 from openpyxl import load_workbook
 from werkzeug.utils import secure_filename
@@ -17,6 +18,7 @@ import alerts
 import case_parser
 import crs
 import icos_sessions
+import roster
 from icos import IcosClient, IcosError
 
 # One case ICOS will not hand over is a bad case. Several in a row is the site
@@ -122,6 +124,247 @@ def search_task(job, username, password, firstname, middlename, lastname):
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
+def _pull_cases(job, client, case_ids, offset=0, total=None):
+    """Fetch and parse a list of cases. Returns what was read and what was not.
+
+    Shared by the single-client run and the clinic list, so a case that Iowa
+    Courts will not give up costs the same thing either way. offset and total
+    are for the progress bar when this is one client's slice of a longer run.
+    """
+    total = len(case_ids) if total is None else total
+    cases, failed = [], []
+    failures_in_a_row = 0
+    not_attempted = []
+    for index, case_id in enumerate(case_ids, start=1):
+        # Counted across the whole run, not this client's slice of it, so the
+        # sentence and the bar under it never disagree on a clinic list.
+        job.log("Pulling case %d of %d (%s)..." % (offset + index, total, case_id),
+                count=offset + index - 1, total=total)
+        case = {'id': case_id}
+        try:
+            summary, charges, financials = client.case_bundle(case_id)
+        except IcosError as e:
+            # ICOS never gave up this case inside its retry budget. That
+            # costs one row, not the run: the other cases are still worth
+            # pulling and the workbook still gets built without this one.
+            print("Case %s could not be retrieved: %r" % (case_id, e), flush=True)
+            alerts.record(job.id[:8], job.kind, alerts.CASE_UNAVAILABLE,
+                          progress=alerts.recent_progress(job),
+                          case=case_id,
+                          note="%s The run carried on without it." % e.message)
+            failed.append(case_id)
+            failures_in_a_row += 1
+            if failures_in_a_row >= CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
+                not_attempted = case_ids[index:]
+                break
+            continue
+        failures_in_a_row = 0
+        try:
+            case_parser.parse_case_summary(summary, case)
+            case_parser.parse_case_charges(charges, case)
+            case_parser.parse_case_financials(financials, case)
+        except Exception as e:
+            # One unparseable case should not cost staff the whole run --
+            # collect it, report it, and build the CRS from the rest.
+            print("Case %s failed to parse: %r" % (case_id, e), flush=True)
+            # The case id is in the alert on purpose: it is court public
+            # record, and without it nobody can go look at the page that
+            # broke the parser.
+            alerts.record(job.id[:8], job.kind, alerts.PARSE_FAILURE,
+                          progress=alerts.recent_progress(job),
+                          case=case_id,
+                          **{'traceback': alerts.safe_traceback(e)})
+            failed.append(case_id)
+            continue
+        cases.append(case)
+
+    if not_attempted:
+        failed.extend(not_attempted)
+        job.log("Iowa Courts stopped responding, so the last %d case%s could not "
+                "be pulled. The workbook has the rest."
+                % (len(not_attempted), "" if len(not_attempted) == 1 else "s"))
+    return cases, failed
+
+
+def batch_search_task(job, username, password, people, rejected=()):
+    """Search a whole clinic list on one sign in.
+
+    One search per name, all inside the session the first login opened, and the
+    session is handed to the store at the end the same way a single search
+    hands it over. What this saves is not the searching, it is the queueing:
+    Iowa Courts allows one session per account and Iowa Legal Aid shares a few,
+    so twenty clients used to mean twenty sign ins competing for the same
+    account, and any two staff working the list at once locked each other out.
+
+    One name Iowa Courts will not answer for does not end the list. It is
+    recorded against that client and the run carries on, because the other
+    nineteen clients are still in the building.
+
+    No client's name is logged. The progress log is quoted into alert email and
+    those names are privileged; a position in the list is not.
+
+    rejected is the lines Napier could not read a name out of, carried here
+    rather than in the browser's session for the same reason: they can hold a
+    piece of a client's name, and the session cookie is a store on a machine
+    other people use. This lives in the dyno's memory and is gone in two hours.
+    """
+    client = IcosClient(log=job.log, alert=alerts.emitter(job))
+    keep_session = False
+    try:
+        client.login(username, password)
+
+        clients = []
+        failures_in_a_row = 0
+        for index, person in enumerate(people, start=1):
+            job.log("Searching Iowa Courts for name %d of %d..."
+                    % (index, len(people)), count=index - 1, total=len(people))
+            entry = {'name': roster.describe(person), 'keys': [], 'cases': {},
+                     'too_many_results': False, 'error': None}
+            clients.append(entry)
+            try:
+                body = client.search(person['first'], person['middle'],
+                                     person['last'])
+            except IcosError as e:
+                entry['error'] = e.message
+                failures_in_a_row += 1
+                if failures_in_a_row >= CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
+                    for skipped in people[index:]:
+                        clients.append({
+                            'name': roster.describe(skipped), 'keys': [],
+                            'cases': {}, 'too_many_results': False,
+                            'error': "Iowa Courts had stopped responding "
+                                     "before Napier reached this name."})
+                    job.log("Iowa Courts stopped responding, so the rest of the "
+                            "list was not searched.")
+                    break
+                continue
+            failures_in_a_row = 0
+            cases, too_many = case_parser.parse_search(body)
+            report_novel_roles(job, cases)
+            entry['cases'], entry['keys'] = group_cases(cases)
+            entry['too_many_results'] = too_many
+
+        token = icos_sessions.put(client)
+        keep_session = True
+        job.result = {"clients": clients, "session_token": token,
+                      "rejected": list(rejected)}
+        answered = sum(1 for entry in clients if entry['keys'])
+        job.log("Searched %d name%s. %d came back with cases."
+                % (len(clients), "" if len(clients) == 1 else "s", answered))
+        return "/roster/" + job.id
+    finally:
+        if not keep_session:
+            client.logoff()
+        alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
+
+
+def batch_crs_task(job, session_token, picks, is_lite):
+    """Build a workbook per client, all on the sign in the batch search opened.
+
+    picks is what came back off the roster page, already checked against the
+    search job by the route: name, date of birth, the defendant keys somebody
+    ticked, and that client's own case list.
+
+    One client's run failing costs that client's workbook and nothing else. The
+    clinic gets the rest and the finish page says which one is missing, because
+    a list that quietly comes back one short is worse than one that says so.
+    """
+    client = icos_sessions.claim(session_token)
+    if client is None:
+        raise IcosError("That clinic list is no longer signed in to Iowa "
+                        "Courts Online. Please run it again.")
+    client.set_alert(alerts.emitter(job))
+
+    total_cases = sum(len(pick['case_ids']) for pick in picks)
+    try:
+        built = []
+        pulled = 0
+        for index, pick in enumerate(picks, start=1):
+            job.log("Client %d of %d: pulling %d case%s..."
+                    % (index, len(picks), len(pick['case_ids']),
+                       "" if len(pick['case_ids']) == 1 else "s"),
+                    count=pulled, total=total_cases)
+            record = {'name': pick['def_name'], 'requested': len(pick['case_ids']),
+                      'written': 0, 'failed': [], 'file': None, 'error': None}
+            built.append(record)
+
+            cases, failed = _pull_cases(job, client, pick['case_ids'],
+                                        offset=pulled, total=total_cases)
+            pulled += len(pick['case_ids'])
+            record['failed'] = failed
+            if not cases:
+                record['error'] = ("Iowa Courts would not give up any of this "
+                                   "client's cases, so there is no workbook "
+                                   "for them.")
+                continue
+            try:
+                path, unknown = build_workbook(cases, pick['def_name'],
+                                               pick['def_dob'], is_lite)
+            except Exception as e:
+                # The other clients' workbooks are already built or still to
+                # come, and neither should be lost to this one.
+                print("Workbook failed for client %d: %r" % (index, e), flush=True)
+                alerts.record(job.id[:8], job.kind, alerts.JOB_FAILED,
+                              progress=alerts.recent_progress(job),
+                              **{'note': "One client of %d in a clinic list. "
+                                         "The rest of the list carried on."
+                                         % len(picks),
+                                 'traceback': alerts.safe_traceback(e)})
+                record['error'] = ("Napier could not build this client's "
+                                   "workbook. The rest of the list is here.")
+                continue
+            report_unknown_dispositions(job, unknown)
+            record['written'] = len(cases)
+            record['file'] = path
+
+        if not any(record['file'] for record in built):
+            raise ValueError("no workbooks could be built")
+
+        job.log("Packaging %d workbook%s..."
+                % (len(built), "" if len(built) == 1 else "s"),
+                count=total_cases, total=total_cases)
+        bundle = _zip_workbooks(built, is_lite)
+        job.result = {
+            "file": bundle,
+            "is_lite": is_lite,
+            "clients": built,
+            "written_cases": sum(record['written'] for record in built),
+            "requested_cases": total_cases,
+            "def_name": "a clinic list of %d client%s"
+                        % (len(built), "" if len(built) == 1 else "s"),
+            "done_url": "/batch-done/%s" % job.id,
+        }
+        job.log("Done. %d of %d workbook%s built."
+                % (sum(1 for record in built if record['file']), len(built),
+                   "" if len(built) == 1 else "s"))
+        return "/batch-done/%s" % job.id
+    finally:
+        client.logoff()
+        alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
+
+
+def _zip_workbooks(built, is_lite):
+    """One file to download, because a clinic list is one errand.
+
+    Every workbook is also kept on disk under its own name and served on its
+    own from the finish page, for the staffer who only wants the one client
+    they are about to see.
+    """
+    stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    path = tmp_dir + "Napier_clinic_list_" + stamp + ".zip"
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as bundle:
+        for position, record in enumerate(built, start=1):
+            if not record['file']:
+                continue
+            # Numbered because two clients on one clinic list can share a name
+            # and a zip that quietly holds one of them is the kind of thing
+            # nobody notices until the wrong person is sitting there.
+            name = secure_filename(download_name(record['name'], is_lite))
+            bundle.write(record['file'],
+                         "%02d_%s" % (position, name or "client.xlsx"))
+    return path
+
+
 def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
     client = icos_sessions.claim(session_token)
     if client is None:
@@ -139,57 +382,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
         for key in keys:
             case_ids.extend(case_dict.get(key, []))
 
-        cases = []
-        failed = []
-        failures_in_a_row = 0
-        not_attempted = []
-        for index, case_id in enumerate(case_ids, start=1):
-            job.log("Pulling case %d of %d (%s)..." % (index, len(case_ids), case_id),
-                    count=index - 1, total=len(case_ids))
-            case = {'id': case_id}
-            try:
-                summary, charges, financials = client.case_bundle(case_id)
-            except IcosError as e:
-                # ICOS never gave up this case inside its retry budget. That
-                # costs one row, not the run: the other cases are still worth
-                # pulling and the workbook still gets built without this one.
-                print("Case %s could not be retrieved: %r" % (case_id, e), flush=True)
-                alerts.record(job.id[:8], job.kind, alerts.CASE_UNAVAILABLE,
-                              progress=alerts.recent_progress(job),
-                              case=case_id,
-                              note="%s The run carried on without it."
-                                   % e.message)
-                failed.append(case_id)
-                failures_in_a_row += 1
-                if failures_in_a_row >= CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
-                    not_attempted = case_ids[index:]
-                    break
-                continue
-            failures_in_a_row = 0
-            try:
-                case_parser.parse_case_summary(summary, case)
-                case_parser.parse_case_charges(charges, case)
-                case_parser.parse_case_financials(financials, case)
-            except Exception as e:
-                # One unparseable case should not cost staff the whole run --
-                # collect it, report it, and build the CRS from the rest.
-                print("Case %s failed to parse: %r" % (case_id, e), flush=True)
-                # The case id is in the alert on purpose: it is court public
-                # record, and without it nobody can go look at the page that
-                # broke the parser.
-                alerts.record(job.id[:8], job.kind, alerts.PARSE_FAILURE,
-                              progress=alerts.recent_progress(job),
-                              case=case_id,
-                              **{'traceback': alerts.safe_traceback(e)})
-                failed.append(case_id)
-                continue
-            cases.append(case)
-
-        if not_attempted:
-            failed.extend(not_attempted)
-            job.log("Iowa Courts stopped responding, so the last %d case%s could not "
-                    "be pulled. The workbook has the rest."
-                    % (len(not_attempted), "" if len(not_attempted) == 1 else "s"))
+        cases, failed = _pull_cases(job, client, case_ids)
 
         if not cases:
             raise ValueError("no cases could be read")
@@ -204,6 +397,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
             "written_cases": len(cases),
             "requested_cases": len(case_ids),
             "failed_cases": failed,
+            "done_url": "/done/%s" % job.id,
         }
 
         if failed:
