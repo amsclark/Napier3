@@ -64,6 +64,10 @@
 <div class="card">
   <span class="done-mark" aria-hidden="true">&check;</span>
   <h1>The workbook is ready</h1>
+
+  {% if error %}
+    <div class="notice notice-stop" role="alert">{{ error }}</div>
+  {% endif %}
   <p class="lede">
     The download starts on its own. If your browser blocked it, use the button.
   </p>
@@ -87,15 +91,24 @@
       <p>
         Iowa Courts would not give {{ "it" if failed | length == 1 else "them" }}
         up, or the page could not be read. The other {{ written }} of
-        {{ requested }} are in the file. Look
-        {{ "this one" if failed | length == 1 else "these" }} up by hand before
-        you rely on the summary being complete.
+        {{ requested }} are in the file.
+        {% if can_retry %}
+          Try {{ "it" if failed | length == 1 else "them" }} again below first.
+          If Iowa Courts still will not answer, look
+          {{ "this one" if failed | length == 1 else "these" }} up by hand
+          before you rely on the summary being complete.
+        {% else %}
+          Look {{ "this one" if failed | length == 1 else "these" }} up by hand
+          before you rely on the summary being complete.
+        {% endif %}
       </p>
       <ul class="missing">
         {% for case_id in failed %}<li>{{ case_id }}</li>{% endfor %}
       </ul>
     </div>
   {% endif %}
+
+  {% include '_retry.html' %}
 
   {% if limits %}
     <div class="notice" role="alert">
@@ -126,12 +139,17 @@
   </p>
 </div>
 
-<iframe id="grab" title="download" hidden></iframe>
+{% if not error %}
+  <iframe id="grab" title="download" hidden></iframe>
 
-<script>
-// Fetching it into a hidden frame keeps this page on screen, so the missing
-// case list above stays readable instead of being replaced by a file save.
-document.getElementById("grab").src = "/job/" +
-  encodeURIComponent({{ job.id|tojson }}) + "/download";
-</script>
+  <script>
+  // Fetching it into a hidden frame keeps this page on screen, so the missing
+  // case list above stays readable instead of being replaced by a file save.
+  // Not on a rejected retry: that lands back here without the run having
+  // finished again, and saving the same file a second time is nobody's idea of
+  // an answer to being told the user ID was wrong.
+  document.getElementById("grab").src = "/job/" +
+    encodeURIComponent({{ job.id|tojson }}) + "/download";
+  </script>
+{% endif %}
 {% endblock %}

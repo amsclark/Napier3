@@ -309,21 +309,84 @@ def batch_crs():
                     "progress_url": url_for('progress', job_id=job.id)})
 
 
+def _finish_page(job, error=None):
+    """The page a finished workbook run lands on, whichever kind of run it was.
+
+    Split out because the retry it offers has to be able to come back to this
+    same page with something to say, and a retry of a clinic list and a retry
+    of one client end up in different templates.
+    """
+    result = job.result
+    # Whether there is anything left worth trying, not the payload itself. The
+    # payload holds whole parsed cases and a browser has no business with them.
+    can_retry = bool(result.get('retry'))
+    if job.kind == 'batch_crs':
+        return render_template('batch_done.html', job=job.to_dict(),
+                               clients=result['clients'],
+                               is_lite=result['is_lite'],
+                               built=sum(1 for c in result['clients'] if c['file']),
+                               written=result['written_cases'],
+                               can_retry=can_retry, error=error,
+                               missing=sum(len(c['failed'])
+                                           for c in result['clients']),
+                               limits=crs.workbook_limits(
+                                   max([c['written'] for c in result['clients']]
+                                       or [0]), result['is_lite']))
+    return render_template('done.html', job=job.to_dict(),
+                           def_name=result['def_name'],
+                           is_lite=result['is_lite'],
+                           written=result['written_cases'],
+                           requested=result['requested_cases'],
+                           failed=result['failed_cases'],
+                           can_retry=can_retry, error=error,
+                           missing=len(result['failed_cases']),
+                           limits=crs.workbook_limits(result['written_cases'],
+                                                      result['is_lite']),
+                           filename=tasks.download_name(result['def_name'],
+                                                        result['is_lite']))
+
+
 @app.route('/batch-done/<job_id>')
 def batch_done(job_id):
     job = own_job(job_id)
     if job is None or job.status != jobs.DONE or job.kind != 'batch_crs':
         return render_template('start.html', error=RESTARTED_MESSAGE)
 
-    result = job.result
-    return render_template('batch_done.html', job=job.to_dict(),
-                           clients=result['clients'],
-                           is_lite=result['is_lite'],
-                           built=sum(1 for c in result['clients'] if c['file']),
-                           written=result['written_cases'],
-                           limits=crs.workbook_limits(
-                               max([c['written'] for c in result['clients']]
-                                   or [0]), result['is_lite']))
+    return _finish_page(job)
+
+
+@app.route('/retry/<job_id>', methods=['POST'])
+def retry(job_id):
+    """Another go at only the cases Iowa Courts would not give up.
+
+    A fresh sign in, because the run this is started from logged its ICOS
+    session off on the way out and that is the behaviour keeping the shared
+    account usable. It is the same sign in staff would do anyway, and it buys
+    them not re-pulling the sixty cases that already worked.
+    """
+    job = own_job(job_id)
+    if (job is None or job.status != jobs.DONE
+            or job.kind not in jobs.BUILDS_A_WORKBOOK):
+        return render_template('start.html', error=RESTARTED_MESSAGE)
+
+    payload = job.result.get('retry')
+    if not payload:
+        # The run came back complete, or it has no way to put the search back in
+        # front of ICOS. Either way there is nothing here to do.
+        return _finish_page(job, error="There is nothing on this run left to "
+                                       "try again.")
+
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    if not username.startswith("ILA") and not username.startswith("drakelegalclinic"):
+        return _finish_page(job, error="That user ID is not an Iowa Legal Aid "
+                                       "Iowa Courts account.")
+
+    icos_sessions.close(session.pop('icos_token', None))
+    retry_job = jobs.start(payload['kind'], tasks.retry_task,
+                           username, password, payload)
+    remember_job(retry_job)
+    return redirect(url_for('progress', job_id=retry_job.id))
 
 
 def _served_file(path):
@@ -465,8 +528,12 @@ def crs_job():
     primary = keys[0]
     def_dob, _, def_name = primary.partition(" ")
 
+    # The search terms travel with the run so a short workbook can be finished
+    # off later. They come off the search job and never off the browser, the
+    # same rule the clinic list keeps.
     job = jobs.start('crs', tasks.crs_task, token, keys, search_job.result['cases'],
-                     def_name, def_dob, session.get('isLite', False))
+                     def_name, def_dob, session.get('isLite', False),
+                     search_job.result.get('person'))
     remember_job(job)
     session.pop('icos_token', None)  # the CRS job owns it now and logs it off
     return jsonify({"job_id": job.id, "progress_url": url_for('progress', job_id=job.id)})
@@ -478,17 +545,7 @@ def done(job_id):
     if job is None or job.status != jobs.DONE or job.kind != 'crs':
         return render_template('start.html', error=RESTARTED_MESSAGE)
 
-    result = job.result
-    return render_template('done.html', job=job.to_dict(),
-                           def_name=result['def_name'],
-                           is_lite=result['is_lite'],
-                           written=result['written_cases'],
-                           requested=result['requested_cases'],
-                           failed=result['failed_cases'],
-                           limits=crs.workbook_limits(result['written_cases'],
-                                                      result['is_lite']),
-                           filename=tasks.download_name(result['def_name'],
-                                                        result['is_lite']))
+    return _finish_page(job)
 
 
 @app.route('/job/<job_id>/download')
