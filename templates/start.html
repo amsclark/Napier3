@@ -24,7 +24,7 @@
         {{ waiting_job.result.def_name }} and nothing has downloaded it yet.
         It keeps for two hours.
       </p>
-      <p><a href="/done/{{ waiting_job.id }}">Open that workbook</a></p>
+      <p><a href="{{ waiting_job.result.done_url }}">Open that workbook</a></p>
     </div>
   {% endif %}
 
@@ -85,6 +85,110 @@
     </div>
   </form>
 </div>
+
+{# A clinic day is twenty of the search above, each with its own sign in, each
+   waiting on the shared Iowa Courts account the last one still holds. Same
+   work, one sign in. Folded away because most days it is one client. #}
+<details class="card batch" {% if open_batch %}open{% endif %}>
+  <summary>
+    <span class="batch-title">Doing a whole clinic list?</span>
+    <span class="batch-note">
+      Paste the list and Napier searches every name on one sign in.
+    </span>
+  </summary>
+
+  <form action="/batch" method="post">
+    <fieldset>
+      <legend>Your clients</legend>
+      <label>
+        <span class="field-label">One client per line</span>
+        <textarea name="roster" rows="8" spellcheck="false"
+                  placeholder="Doe, Jane&#10;Roe, John Q&#10;Maria Garcia"></textarea>
+        <span class="check-note">
+          Either "Last, First" or "First Last". A heading row, a date of birth
+          column or a case number after the name are all fine, Napier ignores
+          them. Up to {{ max_names }} names at a time.
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Your Iowa Courts sign in</legend>
+      <div class="row row-two">
+        <label>
+          <span class="field-label">User ID</span>
+          <input type="text" name="username" autocomplete="username"
+                 autocapitalize="none" spellcheck="false" required>
+        </label>
+        <label>
+          <span class="field-label">Password</span>
+          <input type="password" name="password"
+                 autocomplete="current-password" required>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <label class="check">
+        <input type="checkbox" name="isLiteBatch">
+        <span class="check-text">
+          Build Lite workbooks
+          <span class="check-note">Applies to every client on the list.</span>
+        </span>
+      </label>
+    </fieldset>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Search the whole list</button>
+    </div>
+  </form>
+</details>
+
+<style>
+.batch summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.batch summary::-webkit-details-marker { display: none; }
+
+.batch summary::before {
+  content: "+";
+  display: inline-block;
+  width: 1.1rem;
+  font-weight: 700;
+  color: var(--brand-bright);
+}
+
+.batch[open] summary::before { content: "\2212"; }
+.batch[open] summary { margin-bottom: 1.1rem; }
+
+.batch-title { font-weight: 600; }
+
+.batch-note {
+  display: block;
+  margin-left: 1.1rem;
+  font-size: .84rem;
+  color: var(--ink-soft);
+}
+
+.batch textarea {
+  width: 100%;
+  padding: .55rem .7rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  resize: vertical;
+}
+
+.batch textarea:focus {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+}
+</style>
 
 <script>
 // The shared ICOS user IDs get retyped a dozen times a day. Only the ID is
