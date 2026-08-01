@@ -2,7 +2,7 @@ import re
 
 from calendar import monthrange
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
 
@@ -143,6 +143,102 @@ def is_vehicular(statutes):
         if any(code.upper().startswith(section) for section in VEHICULAR_SECTIONS):
             return "YES"
     return "NO"
+
+
+# How far back to look when working out what somebody is paying now. A court
+# asking whether a person can pay wants the recent record, not an average that
+# a garnishment in 2003 drags upwards.
+RECENT_MONTHS = 12
+
+
+def _money(text):
+    """A dollar figure off an ICOS page, or None when there is not one."""
+    if text is None:
+        return None
+    text = str(text).replace('$', '').replace(',', '').strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def payments(case):
+    """Every payment ICOS records on a case, oldest first.
+
+    The itemization has carried a date, a receipt number and a tender type
+    against each paid line for as long as Napier has been fetching it, and
+    nothing has ever read them. A fee paid in instalments gets a row per
+    instalment, so this is a payment history rather than a list of fees.
+
+    Third-party collection fees are excluded the same way they are excluded
+    from the fee columns: ICOS lists them and does not count them in the case
+    total, so counting a payment against one as money paid on the case would
+    overstate what the client has actually put in.
+    """
+    history = []
+    last_detail = None
+    for row in case.get('financials') or []:
+        detail = (row.get('detail') or '').strip()
+        if detail:
+            last_detail = detail
+        if is_excluded_fee(detail or last_detail or ''):
+            continue
+        paid = _money(row.get('paid'))
+        when = parse_us_date(row.get('paidDate'))
+        if paid is None or paid <= 0 or when is None:
+            continue
+        history.append({
+            'date': when,
+            'amount': paid,
+            'receipt': row.get('receipt'),
+            'tender': row.get('tender'),
+            'detail': detail or last_detail,
+        })
+    history.sort(key=lambda payment: payment['date'])
+    return history
+
+
+def payment_history(case, as_of):
+    """What a case's payment record says, or None when there is no record.
+
+    None and a record of zero payments are different answers and the sheet
+    should not have to guess which it is looking at. A case ICOS has no
+    itemization for cannot tell us the client never paid.
+    """
+    history = payments(case)
+    if not history:
+        return None
+    total = sum((payment['amount'] for payment in history), Decimal(0))
+    first, last = history[0]['date'], history[-1]['date']
+    recent = sum((payment['amount'] for payment in history
+                  if payment['date'] > _add_term(as_of, -RECENT_MONTHS, 'Month')),
+                 Decimal(0))
+    # Over the window the client was actually paying, not over the age of the
+    # case. Somebody who paid steadily for a year and then lost the job has a
+    # monthly figure of what they paid, and the gap is reported separately.
+    months = max(1, _months_between(first, last) + 1)
+    return {
+        'count': len(history),
+        'total': total,
+        'first': first,
+        'last': last,
+        'monthly': (total / months).quantize(Decimal('0.01')),
+        'recent': recent,
+        'recent_monthly': (recent / RECENT_MONTHS).quantize(Decimal('0.01')),
+        'months_since_last': _months_between(last, as_of),
+        'tenders': sorted({payment['tender'] for payment in history
+                           if payment['tender']}),
+    }
+
+
+def _months_between(start, end):
+    """Whole months from start to end, never negative."""
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    if end.day < start.day:
+        months -= 1
+    return max(0, months)
 
 
 # Sentence types ICOS uses that put somebody under supervision in the community.

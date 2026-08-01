@@ -32,6 +32,20 @@ def _dump(name, html):
     with open(os.path.join(tmp_dir, secure_filename(name)), 'w') as text_file:
         text_file.write(html)
 
+def _text(cell):
+    """A cell's text with ICOS's padding taken out, or None when it is empty.
+
+    `.string` is None whenever a cell holds more than one node, which is why
+    this exists alongside it rather than replacing it: the fields that already
+    use `.string` have been read that way for years and are not being changed
+    underneath the columns that depend on them.
+    """
+    if cell is None:
+        return None
+    text = ' '.join(cell.get_text().split())
+    return text or None
+
+
 def _cell_words(cell):
     """A table cell's words with ICOS's padding taken out.
 
@@ -523,7 +537,16 @@ def parse_case_financials(html, case):
             'detail': cols[1].string,
             'amount': cols[4].string,
             'paid': cols[5].string,
-            'paidDate': cols[6].string
+            'paidDate': cols[6].string,
+            # The receipt number and the tender type sit two cells further
+            # along and have never been read. They are what turns a paid figure
+            # into a payment: a date, a receipt to look it up by, and whether it
+            # came in as cash, a cheque or a garnishment. A client who paid five
+            # dollars a month for three years and still owes twelve hundred is a
+            # different hearing from one who never paid, and until now the
+            # workbook could not tell them apart.
+            'receipt': _text(cols[7]) if len(cols) > 7 else None,
+            'tender': _text(cols[8]) if len(cols) > 8 else None,
         })
     case['financials'] = financials
 

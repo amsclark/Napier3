@@ -12,6 +12,7 @@ import platform
 from openpyxl import load_workbook
 from werkzeug.utils import secure_filename
 
+import actions
 import alerts
 import case_parser
 import crs
@@ -258,6 +259,11 @@ def build_workbook(cases, def_name, def_dob, is_lite):
     sheet['B3'].number_format = 'MM/DD/YYYY'
     sheet['B5'] = def_name.strip()
     sheet['B6'] = def_dob
+
+    # Last, and only after BASIC INFO, because the action list reads CASE DATA
+    # back rather than recomputing it and puts the client's name at the top.
+    actions.build_action_sheet(workbook, cases, row - 4, clinic_date,
+                               def_name.strip())
 
     if not os.path.exists(tmp_dir):
         os.mkdir(tmp_dir)
