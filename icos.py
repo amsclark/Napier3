@@ -114,6 +114,13 @@ def _timeline(waits):
     return "+".join(str(w) for w in waits) + "s"
 
 
+# Said in one place because the run can stop in three, and a staffer who stops
+# a run wants to know the shared account is free, not that something failed.
+STOPPED_MESSAGE = ("Stopped at your request. Iowa Courts Online has been signed "
+                   "out, so the account is free for the next search straight "
+                   "away.")
+
+
 class IcosError(Exception):
     """Base for failures we surface to staff with a plain-language message."""
 
@@ -134,6 +141,14 @@ class IcosUnavailable(IcosError):
     pass
 
 
+class IcosStopped(IcosError):
+    """A staffer asked for the run to stop and it did.
+
+    Not a failure of anything, but it travels the same way as one so the run
+    unwinds through the same finally that logs the ESA session off.
+    """
+
+
 class IcosClient:
     def __init__(self, log=None, reader=None, budget_seconds=None,
                  concurrent_budget_seconds=None, sleep=time.sleep,
@@ -144,6 +159,10 @@ class IcosClient:
         # testable without a mail path, and so alerts describe the
         # classification below rather than a raw exception.
         self._alert = alert or (lambda failure, **fields: None)
+        # Asked between attempts. A stalled case is waited out for four minutes
+        # and a stalled search for forty-five, which is far too long to make
+        # somebody sit through once they have decided to stop.
+        self._should_stop = lambda: False
         self._sleep = sleep
         self._monotonic = monotonic
         self.budget = budget_seconds if budget_seconds is not None \
@@ -169,6 +188,22 @@ class IcosClient:
         produced the results list.
         """
         self._alert = alert or (lambda failure, **fields: None)
+
+    def set_log(self, log):
+        """Point the progress log at a different job, for the same reason.
+
+        Missing this is worse than missing set_alert, because it is the only
+        thing the person waiting can see. A staffer watching a CRS run whose
+        first case ICOS would not give up sat on "Pulling case 1 of 67" for
+        four minutes with nothing under it: the retry notices that say Iowa
+        Courts is being retried were being written into the search job, which
+        no page is showing by then. It read as a hang, and it was a wait.
+        """
+        self._log = log or (lambda message: None)
+
+    def set_stop_check(self, should_stop):
+        """Give the retry loop a way to be told to give up waiting."""
+        self._should_stop = should_stop or (lambda: False)
 
     # -- retry core --------------------------------------------------------
 
@@ -242,6 +277,10 @@ class IcosClient:
                 raise IcosUnavailable(
                     "Iowa Courts Online did not return this case after %d minutes of "
                     "retrying (last result: %s)." % (round(budget / 60), last))
+            # Checked here rather than only between cases, because the whole
+            # reason somebody reaches for stop is that a wait is in progress.
+            if self._should_stop():
+                raise IcosStopped(STOPPED_MESSAGE)
             self._log(self._attempt_message(what, attempt, elapsed))
             waits.append(wait)
             self._sleep(wait)

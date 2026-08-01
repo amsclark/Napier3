@@ -8,7 +8,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import icos
-from icos import IcosAccountLocked, IcosBadCredentials, IcosClient, IcosUnavailable
+from icos import (IcosAccountLocked, IcosBadCredentials, IcosClient,
+                  IcosStopped, IcosUnavailable)
 from reader import EMPTY, OK, TIMEOUT, FetchResult
 
 LOGIN_OK = b"x" * 28000
@@ -413,3 +414,36 @@ def test_no_credentials_are_logged():
     client, _, messages = build([FetchResult(OK, LOGIN_OK), FetchResult(OK, LOGIN_OK)])
     client.login("ILATEST", "hunter2")
     assert not any("hunter2" in m for m in messages)
+# -- stopping ---------------------------------------------------------------
+
+
+def test_a_stop_ends_the_wait_rather_than_riding_out_the_budget():
+    """The reason the check lives in here and not only between cases: the whole
+    reason somebody reaches for stop is that a wait is in progress. A stalled
+    search is waited out for forty-five minutes and a stalled case for four,
+    which is far too long to make a staffer sit through once they have decided
+    to stop."""
+    client, clock, _ = build([FetchResult(TIMEOUT)] * 200)
+    asked = []
+
+    def should_stop():
+        asked.append(1)
+        return len(asked) > 3      # they give up three attempts in
+
+    client.set_stop_check(should_stop)
+    with pytest.raises(IcosStopped):
+        client.search("PAT", "", "TESTER")
+    assert clock.now < 60          # seconds, against a budget of forty-five minutes
+
+
+def test_a_stopped_run_can_still_log_off():
+    """The property the whole design rests on. logoff goes straight at
+    fetch_once instead of through the retry loop, so the stop check can never
+    stand between a cancelled run and releasing the account Iowa Legal Aid
+    shares. Route logoff through _retry and this fails."""
+    client, _, _ = build([FetchResult(OK, LOGIN_OK), FetchResult(OK, LOGIN_OK)])
+    client.login("ILATEST", "secret")
+    client.set_stop_check(lambda: True)
+    client.logoff()
+    assert "EPALogout" in client.reader.calls
+    assert client.logged_in is False

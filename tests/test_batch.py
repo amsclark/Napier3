@@ -51,24 +51,40 @@ class FakeClient:
     instances = []
     search_error = None
     fail_searches = ()      # 1-based positions in the list that Iowa Courts refuses
+    # A line the real client writes from inside its retry loop. Opt-in, because
+    # only the test that cares where those notices land wants the noise.
+    retry_notice = None
 
     def __init__(self, log=None, alert=None, **kwargs):
         self.log = log or (lambda m, **kw: None)
         self.alert = alert
+        self.should_stop = lambda: False
         self.logged_off = False
         self.searched = []
         self.cases = []
+        # Searches and case pulls in the order they happened. Kept together
+        # because the thing worth asserting is which came before which.
+        self.trace = []
         self.fail_cases = []
         FakeClient.instances.append(self)
 
     def set_alert(self, alert):
         self.alert = alert
 
+    def set_log(self, log):
+        # Recorded rather than ignored: the retry notices going to the job
+        # nobody is watching is exactly the bug this stub has to be able to see.
+        self.log = log or (lambda m, **kw: None)
+
+    def set_stop_check(self, should_stop):
+        self.should_stop = should_stop or (lambda: False)
+
     def login(self, username, password):
         self.log("Signed in to Iowa Courts Online.")
 
     def search(self, first, middle, last):
         self.searched.append((first, middle, last))
+        self.trace.append(('search', last))
         if FakeClient.search_error:
             raise FakeClient.search_error
         if len(self.searched) in FakeClient.fail_searches:
@@ -77,6 +93,9 @@ class FakeClient:
 
     def case_bundle(self, case_id):
         self.cases.append(case_id)
+        self.trace.append(('case', case_id))
+        if FakeClient.retry_notice:
+            self.log(FakeClient.retry_notice)
         if case_id in self.fail_cases:
             raise IcosError("Iowa Courts did not answer for this case.")
         return b"<summary>", b"<charges>", b"<financials>"
@@ -90,6 +109,7 @@ def fake_icos(monkeypatch):
     FakeClient.instances = []
     FakeClient.search_error = None
     FakeClient.fail_searches = ()
+    FakeClient.retry_notice = None
     monkeypatch.setattr(tasks, 'IcosClient', FakeClient)
     monkeypatch.setattr(tasks.case_parser, 'parse_case_summary',
                         lambda html, case: case.update(county='DUBUQUE'))
@@ -441,3 +461,84 @@ class TestNamesStayOffTheBrowser:
         search_job_id, _ = run_batch(client, "Client Name\nDoe, Jane")
         assert 'Client Name' in client.get(
             '/roster/' + search_job_id).get_data(as_text=True)
+
+
+class TestEachClientsCasesComeFromTheirOwnSearch:
+    """The failure that made a real clinic run look hung.
+
+    ICOS decides which case a case request means from whatever it answered
+    last, not from the case number in the request. A two-phase run searches
+    every name and then pulls every case, so by pull time ICOS is standing on
+    the last name searched and every earlier client's cases come back as a
+    stub: right heading, no charges, no money. The validators refuse it, the
+    case retries for its full four minute budget, and the progress page sits on
+    "Pulling case 1 of 67" with nothing under it.
+    """
+
+    def test_a_clients_search_is_repeated_immediately_before_their_cases(self, client):
+        search_job_id, _ = run_batch(client)
+        response = pick_all(client, search_job_id)
+        await_job(client, response.get_json()['job_id'])
+        assert FakeClient.instances[0].trace == [
+            ('search', 'Doe'), ('search', 'Roe'),          # the roster search
+            ('search', 'Doe'), ('case', '00000 FECR000000'),
+            ('case', '00000 SRCR000000'),
+            ('search', 'Roe'), ('case', '00000 SMCR000000'),
+        ]
+
+    def test_the_search_terms_come_off_the_search_job_and_not_the_browser(self, client):
+        """A name posted by the browser would be somebody the staffer never saw
+        on the roster page, and their cases would go in a client's file."""
+        search_job_id, _ = run_batch(client)
+        client.get('/roster/' + search_job_id)
+        result = jobs.get(search_job_id).result
+        picks = [{'client': index, 'keys': entry['keys'], 'person':
+                  {'first': 'Someone', 'middle': '', 'last': 'Else'}}
+                 for index, entry in enumerate(result['clients']) if entry['keys']]
+        response = client.post('/batch-crs', json={'search_job_id': search_job_id,
+                                                   'picks': picks})
+        await_job(client, response.get_json()['job_id'])
+        trace = FakeClient.instances[0].trace
+        assert ('search', 'Else') not in trace
+        # And the re-search did happen, or the line above passes by never
+        # having searched anybody a second time at all.
+        assert trace.count(('search', 'Doe')) == 2
+
+    def test_a_name_that_will_not_answer_twice_costs_that_client_and_not_the_list(
+            self, client):
+        search_job_id, _ = run_batch(client)
+        FakeClient.fail_searches = (3,)    # Doe's re-search, not the roster pass
+        response = pick_all(client, search_job_id)
+        job_id = response.get_json()['job_id']
+        state = await_job(client, job_id)
+        assert state['status'] == 'done'
+        built = jobs.get(job_id).result['clients']
+        assert 'a second time' in built[0]['error']
+        assert built[1]['written'] == 1     # the rest of the clinic still gets theirs
+
+    def test_the_count_still_reaches_the_end_when_a_client_is_skipped(self, client):
+        """The bar measures against every case on the list, so a skipped client
+        has to be counted past or a finished run reads as stalled at 1 of 3."""
+        search_job_id, _ = run_batch(client)
+        FakeClient.fail_searches = (3,)
+        response = pick_all(client, search_job_id)
+        state = await_job(client, response.get_json()['job_id'])
+        assert state['count'] == state['total'] == 3
+
+
+class TestTheProgressPageShowsTheRunItIsWatching:
+    def test_retry_notices_land_in_the_job_the_staffer_is_watching(self, client):
+        """The second half of the hang. The CRS run rebound alerting to itself
+        but not the log, so "Iowa Courts is slow, retrying" was written into
+        the search job, which no page is showing by then. Four minutes of
+        retrying looked like four minutes of nothing."""
+        FakeClient.retry_notice = "Iowa Courts is slow, retrying (attempt 6)..."
+        search_job_id, _ = run_batch(client)
+        response = pick_all(client, search_job_id)
+        crs_job_id = response.get_json()['job_id']
+        await_job(client, crs_job_id)
+
+        crs = " ".join(p["message"] for p in jobs.get(crs_job_id).progress)
+        search = " ".join(p["message"] for p in jobs.get(search_job_id).progress)
+        assert "retrying (attempt 6)" in crs
+        assert "retrying (attempt 6)" not in search

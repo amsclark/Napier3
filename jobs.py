@@ -58,7 +58,22 @@ class Job:
         # a staffer has the workbook.
         self.collected = False
         self.reported_uncollected = False
+        # Set when a staffer asks the run to stop. The work checks it between
+        # cases rather than being killed, so the ICOS session is logged off on
+        # the way out and the account is free for the next person.
+        self.cancelled = False
         self._lock = threading.Lock()
+
+    def cancel(self):
+        """Ask the run to stop at its next check.
+
+        A run that is waiting out a court-side stall can sit on one case for
+        four minutes, so there has to be a way to stop it. Without this the
+        only button on the page logged the browser out, which left the work
+        running, held the shared ESA account, and threw away the browser's
+        claim on whatever the run did eventually produce.
+        """
+        self.cancelled = True
 
     def log(self, message, count=None, total=None):
         with self._lock:
@@ -81,6 +96,7 @@ class Job:
                 "count": self.count,
                 "total": self.total,
                 "next_url": self.next_url,
+                "cancelled": self.cancelled,
                 "done": self.status in (DONE, FAILED),
             }
 

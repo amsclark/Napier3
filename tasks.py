@@ -19,7 +19,7 @@ import case_parser
 import crs
 import icos_sessions
 import roster
-from icos import IcosClient, IcosError
+from icos import IcosClient, IcosError, IcosStopped, STOPPED_MESSAGE
 
 # One case ICOS will not hand over is a bad case. Several in a row is the site
 # being down, and there is no point walking the rest of the list to find that
@@ -96,6 +96,7 @@ def report_unknown_dispositions(job, unknown):
 
 def search_task(job, username, password, firstname, middlename, lastname):
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
+    client.set_stop_check(lambda: job.cancelled)
     keep_session = False
     try:
         client.login(username, password)
@@ -124,6 +125,16 @@ def search_task(job, username, password, firstname, middlename, lastname):
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
+def _stop_if_asked(job):
+    """Raise if a staffer has asked this run to stop.
+
+    Called between units of work. The retry loop has its own check, because a
+    run is usually stopped precisely while it is waiting one out.
+    """
+    if getattr(job, 'cancelled', False):
+        raise IcosStopped(STOPPED_MESSAGE)
+
+
 def _pull_cases(job, client, case_ids, offset=0, total=None):
     """Fetch and parse a list of cases. Returns what was read and what was not.
 
@@ -136,6 +147,7 @@ def _pull_cases(job, client, case_ids, offset=0, total=None):
     failures_in_a_row = 0
     not_attempted = []
     for index, case_id in enumerate(case_ids, start=1):
+        _stop_if_asked(job)
         # Counted across the whole run, not this client's slice of it, so the
         # sentence and the bar under it never disagree on a clinic list.
         job.log("Pulling case %d of %d (%s)..." % (offset + index, total, case_id),
@@ -143,6 +155,11 @@ def _pull_cases(job, client, case_ids, offset=0, total=None):
         case = {'id': case_id}
         try:
             summary, charges, financials = client.case_bundle(case_id)
+        except IcosStopped:
+            # A stop is an IcosError so it unwinds like one, which means every
+            # handler that drops a case has to let it past or stopping a run
+            # would read as one bad case and the run would carry on.
+            raise
         except IcosError as e:
             # ICOS never gave up this case inside its retry budget. That
             # costs one row, not the run: the other cases are still worth
@@ -209,6 +226,7 @@ def batch_search_task(job, username, password, people, rejected=()):
     other people use. This lives in the dyno's memory and is gone in two hours.
     """
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
+    client.set_stop_check(lambda: job.cancelled)
     keep_session = False
     try:
         client.login(username, password)
@@ -216,14 +234,21 @@ def batch_search_task(job, username, password, people, rejected=()):
         clients = []
         failures_in_a_row = 0
         for index, person in enumerate(people, start=1):
+            _stop_if_asked(job)
             job.log("Searching Iowa Courts for name %d of %d..."
                     % (index, len(people)), count=index - 1, total=len(people))
+            # The search terms ride along because the CRS run has to repeat
+            # this exact search before it can pull this client's cases. See
+            # batch_crs_task.
             entry = {'name': roster.describe(person), 'keys': [], 'cases': {},
-                     'too_many_results': False, 'error': None}
+                     'too_many_results': False, 'error': None,
+                     'person': person}
             clients.append(entry)
             try:
                 body = client.search(person['first'], person['middle'],
                                      person['last'])
+            except IcosStopped:
+                raise
             except IcosError as e:
                 entry['error'] = e.message
                 failures_in_a_row += 1
@@ -258,12 +283,49 @@ def batch_search_task(job, username, password, people, rejected=()):
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
+def _reselect(job, client, pick):
+    """Put this client's search results back in front of ICOS. True if it took.
+
+    Nothing is read out of the response. The point is the side effect: ICOS
+    decides which case a case request means from whatever it answered last,
+    so the run has to be standing on this client's results before it asks for
+    this client's cases.
+
+    A name that will not answer twice costs that client and not the list, and
+    it is reported as a search failure rather than as sixty-odd unavailable
+    cases, because that is what it is.
+    """
+    person = pick.get('person')
+    if not person:
+        return False
+    try:
+        client.search(person['first'], person['middle'], person['last'])
+    except IcosStopped:
+        raise
+    except IcosError as e:
+        alerts.record(job.id[:8], job.kind, alerts.CASE_UNAVAILABLE,
+                      progress=alerts.recent_progress(job),
+                      case="(re-search before pulling a client's cases)",
+                      note="%s That client was skipped." % e.message)
+        return False
+    return True
+
+
 def batch_crs_task(job, session_token, picks, is_lite):
     """Build a workbook per client, all on the sign in the batch search opened.
 
     picks is what came back off the roster page, already checked against the
     search job by the route: name, date of birth, the defendant keys somebody
     ticked, and that client's own case list.
+
+    Each client's search is repeated here, immediately before their cases are
+    pulled. ICOS keys case selection to the most recent set of search results,
+    not to the case number asked for, so on a clinic list every case belonging
+    to anyone but the last name searched comes back as a stub: right heading,
+    no charges, no money. The validators refuse it and it retries for the full
+    case budget, which reads on the progress page as a hang and costs four
+    minutes a case. Re-searching costs one request and about a third of a
+    second per client.
 
     One client's run failing costs that client's workbook and nothing else. The
     clinic gets the rest and the finish page says which one is missing, because
@@ -274,12 +336,17 @@ def batch_crs_task(job, session_token, picks, is_lite):
         raise IcosError("That clinic list is no longer signed in to Iowa "
                         "Courts Online. Please run it again.")
     client.set_alert(alerts.emitter(job))
+    # Both, or the person waiting watches a job that has stopped being written
+    # to while the run carries on under the search job's name.
+    client.set_log(job.log)
+    client.set_stop_check(lambda: job.cancelled)
 
     total_cases = sum(len(pick['case_ids']) for pick in picks)
     try:
         built = []
         pulled = 0
         for index, pick in enumerate(picks, start=1):
+            _stop_if_asked(job)
             job.log("Client %d of %d: pulling %d case%s..."
                     % (index, len(picks), len(pick['case_ids']),
                        "" if len(pick['case_ids']) == 1 else "s"),
@@ -287,6 +354,14 @@ def batch_crs_task(job, session_token, picks, is_lite):
             record = {'name': pick['def_name'], 'requested': len(pick['case_ids']),
                       'written': 0, 'failed': [], 'file': None, 'error': None}
             built.append(record)
+
+            if not _reselect(job, client, pick):
+                pulled += len(pick['case_ids'])
+                record['failed'] = list(pick['case_ids'])
+                record['error'] = ("Iowa Courts would not answer this client's "
+                                   "name a second time, so their cases could "
+                                   "not be pulled. Search them on their own.")
+                continue
 
             cases, failed = _pull_cases(job, client, pick['case_ids'],
                                         offset=pulled, total=total_cases)
@@ -376,6 +451,11 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite):
         raise IcosError("That search is no longer signed in to Iowa Courts "
                         "Online. Please run the search again.")
     client.set_alert(alerts.emitter(job))
+    # Without this the retry notices go on being written into the search job,
+    # and the progress page the staffer is actually watching sits on one case
+    # with nothing under it while ICOS is being retried.
+    client.set_log(job.log)
+    client.set_stop_check(lambda: job.cancelled)
 
     try:
         case_ids = []
