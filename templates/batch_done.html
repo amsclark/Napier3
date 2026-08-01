@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% block title %}Ready: Napier{% endblock %}
+
+{% block head %}
+<style>
+.done-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--brand-bright) 14%, var(--surface));
+  color: var(--brand-bright);
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: .7rem;
+}
+
+.sheet {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  padding: .7rem .9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: .5rem;
+}
+
+.sheet-main { flex: 1 1 auto; min-width: 0; }
+
+.sheet-name {
+  font-weight: 600;
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.sheet-what {
+  display: block;
+  font-size: .83rem;
+  color: var(--ink-soft);
+}
+
+.sheet-missing {
+  border-color: var(--warn-line);
+  background: var(--line-soft);
+}
+
+.missing {
+  list-style: none;
+  margin: .35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+}
+
+.missing li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .8rem;
+  background: var(--surface);
+  border: 1px solid var(--warn-line);
+  border-radius: 5px;
+  padding: .1rem .4rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <span class="done-mark" aria-hidden="true">&check;</span>
+  <h1>The clinic list is built</h1>
+  <p class="lede">
+    {{ built }} workbook{{ built | pluralize("","s") }} from
+    {{ clients | length }} client{{ clients | length | pluralize("","s") }},
+    {{ written }} case{{ written | pluralize("","s") }} in all. The zip
+    downloads on its own. Every client is also here on their own, for when you
+    only want the one you are about to see.
+  </p>
+
+  <div class="actions" style="margin-bottom:1.4rem">
+    <a href="/batch/{{ job.id }}/download" class="btn btn-primary" id="again">
+      Download all {{ built }}
+    </a>
+    <a href="/logout" class="btn btn-quiet">Start again</a>
+  </div>
+
+  {% for client in clients %}
+    <div class="sheet {{ 'sheet-missing' if not client['file'] or client['failed'] }}">
+      <span class="sheet-main">
+        <span class="sheet-name">{{ client['name'] }}</span>
+        {% if client['file'] %}
+          <span class="sheet-what">
+            {{ client['written'] }} of {{ client['requested'] }} case{{ client['requested'] | pluralize("","s") }}
+            {{ "written" if client['written'] == client['requested']
+               else "written, the rest would not come off Iowa Courts" }}
+          </span>
+          {% if client['failed'] %}
+            <ul class="missing">
+              {% for case_id in client['failed'] %}<li>{{ case_id }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        {% else %}
+          <span class="sheet-what">{{ client['error'] }}</span>
+        {% endif %}
+      </span>
+      {% if client['file'] %}
+        <a href="/batch/{{ job.id }}/download/{{ loop.index0 }}" class="btn btn-quiet">
+          Download
+        </a>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  {% if built != clients | length %}
+    <div class="notice" role="alert" style="margin-top:1.2rem">
+      <p class="notice-title">
+        {{ clients | length - built }} client{{ (clients | length - built) | pluralize("","s") }}
+        {{ "has" if clients | length - built == 1 else "have" }} no workbook.
+      </p>
+      <p>
+        Look {{ "that one" if clients | length - built == 1 else "those" }} up
+        by hand. A list that comes back short without saying so is worse than
+        one that says so.
+      </p>
+    </div>
+  {% endif %}
+
+  {% if limits %}
+    <div class="notice" role="alert" style="margin-top:1.2rem">
+      <p class="notice-title">
+        One of these clients has more cases than the CRS template counts.
+      </p>
+      <p>
+        Every case is in the workbook and every row is right. The template's own
+        formulas stop before the end of them, and Excel does not say so:
+      </p>
+      <ul>
+        {% for limit in limits %}<li>{{ limit }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <p class="lede" style="margin:1.2rem 0 0">
+    This page keeps working for two hours, so you can come back for a file
+    without running the list a second time.
+  </p>
+</div>
+
+<iframe id="grab" title="download" hidden></iframe>
+
+<script>
+// Into a hidden frame so this page stays on screen. What is on it, which
+// client came back short and which has no workbook at all, is the part that
+// matters after the file is saved.
+document.getElementById("grab").src = "/batch/" +
+  encodeURIComponent({{ job.id|tojson }}) + "/download";
+</script>
+{% endblock %}

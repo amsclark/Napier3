@@ -1,0 +1,302 @@
+{% extends 'base.html' %}
+{% block title %}Clinic list: Napier{% endblock %}
+
+{% block head %}
+<style>
+.client {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: .9rem 1rem;
+  margin-bottom: .9rem;
+  background: var(--surface);
+}
+
+.client-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: .8rem;
+  flex-wrap: wrap;
+  margin-bottom: .6rem;
+}
+
+.client-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.client-state {
+  font-size: .82rem;
+  color: var(--ink-soft);
+}
+
+.client.picked {
+  border-color: var(--brand-bright);
+  background: color-mix(in srgb, var(--brand-bright) 5%, var(--surface));
+}
+
+.candidates { display: grid; gap: .4rem; }
+
+.candidate {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.candidate:has(input:checked) { border-color: var(--brand-bright); }
+.candidate input { flex: none; margin: 0; }
+.candidate-main { flex: 1 1 auto; min-width: 0; }
+
+.candidate-name { display: block; overflow-wrap: anywhere; }
+
+.candidate-dob {
+  display: block;
+  font-size: .82rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.tally {
+  flex: none;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--line-soft);
+  border-radius: 999px;
+  padding: .15rem .6rem;
+  white-space: nowrap;
+}
+
+.nobody {
+  font-size: .88rem;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.bulk {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: .85rem;
+  color: var(--brand-bright);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.actions-stuck {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: .9rem 0 .2rem;
+}
+
+.skipped {
+  list-style: none;
+  margin: .6rem 0 0;
+  padding: 0;
+}
+
+.skipped li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .82rem;
+  overflow-wrap: anywhere;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Check the list before Napier builds it</h1>
+  <p class="lede">
+    Iowa Courts matched these names. Tick the entry that is your client, and
+    tick more than one where the same person appears under more than one date
+    of birth. A client you leave blank is skipped.
+  </p>
+
+  {% if rejected %}
+    <div class="notice" role="alert">
+      <p class="notice-title">
+        {{ rejected | length }} line{{ rejected | length | pluralize("","s") }}
+        {{ "was" if rejected | length == 1 else "were" }} not searched.
+      </p>
+      <p>
+        Napier could not read a name out of
+        {{ "it" if rejected | length == 1 else "them" }}, or took
+        {{ "it" if rejected | length == 1 else "them" }} for a heading. Search
+        {{ "it" if rejected | length == 1 else "them" }} on their own if
+        {{ "it belongs" if rejected | length == 1 else "they belong" }} on the
+        list.
+      </p>
+      <ul class="skipped">
+        {% for line in rejected %}<li>{{ line }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <form id="batch">
+    <div class="result-head" style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem">
+      <p class="client-state" id="count">Nothing picked yet</p>
+      {# Ticking the only answer for twenty clients by hand is twenty chances to
+         mis-click. This ticks only where Iowa Courts returned exactly one, and
+         they are all still on screen to be read. #}
+      <button type="button" class="bulk" id="take-singles">
+        Tick every client with only one match
+      </button>
+    </div>
+
+    {% for client in clients %}
+      <div class="client" data-client="{{ loop.index0 }}">
+        <div class="client-head">
+          <span class="client-name">{{ client['name'] }}</span>
+          <span class="client-state">
+            {% if client['error'] %}
+              not searched
+            {% elif client['keys'] %}
+              {{ client['keys'] | length }}
+              match{{ client['keys'] | length | pluralize("","es") }}
+            {% else %}
+              no cases
+            {% endif %}
+          </span>
+        </div>
+
+        {% if client['error'] %}
+          <p class="nobody">{{ client['error'] }}</p>
+        {% elif not client['keys'] %}
+          <p class="nobody">
+            Iowa Courts has no cases under that name. A maiden name or a
+            spelling on the court record will do this, so search it on its own
+            before concluding there is nothing there.
+          </p>
+        {% else %}
+          {% if client['too_many_results'] %}
+            <p class="nobody">
+              Iowa Courts stopped counting at 200 records, so some cases may be
+              missing from these matches.
+            </p>
+          {% endif %}
+          <div class="candidates">
+            {% for key in client['keys'] %}
+              {% set parts = key.split(' ', 1) %}
+              <label class="candidate">
+                <input type="checkbox" value="{{ key }}">
+                <span class="candidate-main">
+                  <span class="candidate-name">{{ parts[1] if parts|length > 1 else key }}</span>
+                  {% if parts|length > 1 %}
+                    <span class="candidate-dob">Born {{ parts[0] }}</span>
+                  {% endif %}
+                </span>
+                {% set n = client['cases'][key] | length %}
+                <span class="tally">{{ n }} case{{ n | pluralize("","s") }}</span>
+              </label>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="actions actions-stuck">
+      <button id="batch-submit" type="submit" class="btn btn-primary">
+        Build the workbooks
+      </button>
+      <a href="/logout" class="btn btn-quiet">Start again</a>
+    </div>
+  </form>
+
+  <div id="status" class="notice notice-stop" role="alert" hidden></div>
+</div>
+
+<script>
+var searchJobId = {{ search_job_id|tojson }};
+var form = document.getElementById("batch");
+var button = document.getElementById("batch-submit");
+var statusBox = document.getElementById("status");
+var countLine = document.getElementById("count");
+var singles = document.getElementById("take-singles");
+
+function clientBlocks() {
+  return Array.prototype.slice.call(form.querySelectorAll(".client"));
+}
+
+function picks() {
+  var out = [];
+  clientBlocks().forEach(function (block) {
+    var keys = Array.prototype.slice.call(
+      block.querySelectorAll("input[type=checkbox]"))
+      .filter(function (b) { return b.checked; })
+      .map(function (b) { return b.value; });
+    block.classList.toggle("picked", keys.length > 0);
+    if (keys.length) {
+      out.push({ client: Number(block.dataset.client), keys: keys });
+    }
+  });
+  return out;
+}
+
+function refresh() {
+  var n = picks().length;
+  countLine.textContent = n === 0
+    ? "Nothing picked yet"
+    : n + (n === 1 ? " client picked" : " clients picked");
+}
+
+singles.addEventListener("click", function () {
+  clientBlocks().forEach(function (block) {
+    var boxes = block.querySelectorAll("input[type=checkbox]");
+    if (boxes.length === 1) { boxes[0].checked = true; }
+  });
+  refresh();
+});
+
+function say(message) {
+  statusBox.textContent = message;
+  statusBox.hidden = !message;
+}
+
+form.addEventListener("change", refresh);
+
+// Same shape as the single-client flow: this page hands off the selection and
+// the run itself happens on the server, so a closed laptop does not end it.
+form.addEventListener("submit", function (e) {
+  e.preventDefault();
+  var chosen = picks();
+  if (!chosen.length) {
+    say("Tick a match for at least one client first.");
+    return;
+  }
+  say("");
+  button.disabled = true;
+  button.textContent = "Starting...";
+
+  fetch("/batch-crs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ search_job_id: searchJobId, picks: chosen })
+  }).then(function (response) {
+    return response.json().catch(function () { return null; })
+      .then(function (body) { return { ok: response.ok, body: body }; });
+  }).then(function (result) {
+    if (result.ok && result.body && result.body.progress_url) {
+      window.location = result.body.progress_url;
+      return;
+    }
+    button.disabled = false;
+    button.textContent = "Build the workbooks";
+    say((result.body && result.body.error) ||
+        "Could not start the run. Please try again.");
+  }).catch(function () {
+    button.disabled = false;
+    button.textContent = "Build the workbooks";
+    say("Could not start the run. Please try again.");
+  });
+});
+
+refresh();
+</script>
+{% endblock %}
