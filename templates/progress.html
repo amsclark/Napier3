@@ -121,7 +121,7 @@ summary::marker { color: var(--ink-faint); }
   </details>
 
   <div class="actions" style="margin-top:1.4rem">
-    <a href="/logout" class="btn btn-quiet">Cancel and start over</a>
+    <button type="button" class="btn btn-quiet" id="stop">Cancel and start over</button>
   </div>
 </div>
 
@@ -295,6 +295,20 @@ function poll() {
 }
 
 document.getElementById("recheck-btn").addEventListener("click", resume);
+
+// Ask the run to stop before starting over. It used to go straight to /logout,
+// which left the work running and holding the shared Iowa Courts account while
+// the browser lost its claim on whatever the run went on to produce. The
+// redirect happens either way, because a staffer who has decided to stop
+// should not be held on this page by a failed fetch: /logout cancels too.
+document.getElementById("stop").addEventListener("click", function () {
+  var button = this;
+  button.disabled = true;
+  button.textContent = "Stopping...";
+  fetch("/job/" + encodeURIComponent(jobId) + "/cancel", { method: "POST" })
+    .catch(function () {})
+    .then(function () { window.location = "/logout"; });
+});
 
 // A locked screen or a backgrounded tab suspends the timer above, and the
 // network coming back is the moment worth asking again rather than waiting out

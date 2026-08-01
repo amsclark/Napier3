@@ -471,6 +471,12 @@ def test_a_case_icos_will_not_return_alerts_with_the_case_and_not_the_person(
         def set_alert(self, alert):
             self.alert = alert
 
+        def set_log(self, log):
+            pass
+
+        def set_stop_check(self, should_stop):
+            pass
+
         def case_bundle(self, case_id):
             raise IcosUnavailable("Iowa Courts Online did not return this case "
                                   "after 4 minutes of retrying "
@@ -509,6 +515,12 @@ def test_a_case_that_will_not_parse_alerts_with_the_case_and_not_the_person(
 
         def set_alert(self, alert):
             self.alert = alert
+
+        def set_log(self, log):
+            pass
+
+        def set_stop_check(self, should_stop):
+            pass
 
         def case_bundle(self, case_id):
             return b'<summary>', b'<charges>', b'<financials>'

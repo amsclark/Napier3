@@ -53,6 +53,12 @@ class StubClient:
     def set_alert(self, alert):
         pass
 
+    def set_log(self, log):
+        pass
+
+    def set_stop_check(self, should_stop):
+        pass
+
     def case_bundle(self, case_id):
         self.asked.append(case_id)
         if case_id in self.unavailable:

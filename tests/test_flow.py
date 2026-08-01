@@ -41,6 +41,7 @@ class FakeClient:
     def __init__(self, log=None, alert=None, **kwargs):
         self.log = log or (lambda m: None)
         self.alert = alert
+        self.should_stop = lambda: False
         self.logged_in = False
         self.logged_off = False
         self.cases = []
@@ -51,6 +52,15 @@ class FakeClient:
         # The CRS job inherits the search job's session and rebinds alerting
         # to itself; a stub that skipped this would hide a break in that.
         self.alert = alert
+
+    def set_log(self, log):
+        # Same rebinding, and the one staff can actually see. Left unbound, the
+        # retry notices go on being written into the search job while the person
+        # waiting watches the CRS job say nothing.
+        self.log = log or (lambda m: None)
+
+    def set_stop_check(self, should_stop):
+        self.should_stop = should_stop or (lambda: False)
 
     def login(self, username, password):
         if FakeClient.login_error:

@@ -181,6 +181,16 @@ def index():
 @app.route('/logout')
 def logout():
     icos_sessions.close(session.pop('icos_token', None))
+    # Starting over has to stop what is running, or the old run keeps the
+    # shared ESA account while the new one queues behind it. This used to drop
+    # the browser's claim on the job and leave the work going, which is the
+    # worst of both: nobody watching and nobody able to collect the result.
+    # The session token is not enough, because a running CRS job has claimed
+    # its session out of the store and owns the logoff itself.
+    for job_id in session.get('job_ids', []):
+        job = jobs.get(job_id)
+        if job is not None and job.status in (jobs.QUEUED, jobs.RUNNING):
+            job.cancel()
     session.pop('job_ids', None)
     return redirect(url_for('index'))
 
@@ -282,8 +292,11 @@ def batch_crs():
             case_ids.extend(entry['cases'].get(key, []))
         # The defendant key is "YYYY-MM-DD NAME", the way the search grouped it.
         def_dob, _, def_name = keys[0].partition(" ")
+        # The search terms come off the search job, never off the browser: the
+        # run repeats this search on ICOS, and a name posted here instead would
+        # be somebody the staffer never saw on the roster page.
         picks.append({'def_name': def_name, 'def_dob': def_dob,
-                      'case_ids': case_ids})
+                      'case_ids': case_ids, 'person': entry.get('person')})
 
     if not picks:
         return jsonify({"error": "Pick a match for at least one client."}), 400
@@ -374,6 +387,25 @@ def job_status(job_id):
                         "error": RESTARTED_MESSAGE,
                         "message": RESTARTED_MESSAGE, "progress": []}), 410
     return jsonify(job.to_dict())
+
+
+@app.route('/job/<job_id>/cancel', methods=['POST'])
+def cancel_job(job_id):
+    """Stop a run a staffer has given up on.
+
+    POST rather than a link because a link gets followed by things that are not
+    the staffer, and the run this ends is holding an ESA account.
+
+    Nothing is killed. The work is asked to stop and stops at its next check,
+    which is what lets it log the session off on the way out. That is the part
+    that matters: the account Iowa Legal Aid shares is locked for a quarter of
+    an hour by a session nobody released.
+    """
+    job = own_job(job_id)
+    if job is None:
+        return jsonify({"error": RESTARTED_MESSAGE}), 410
+    job.cancel()
+    return jsonify({"cancelled": True})
 
 
 @app.route('/job/<job_id>/lost', methods=['POST'])
