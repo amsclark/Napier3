@@ -18,6 +18,7 @@ import os
 import re
 import time
 
+import accounts
 import alerts
 from opener import Opener
 from reader import Reader
@@ -179,6 +180,9 @@ class IcosClient:
             else _env_seconds("CONCURRENT_WAIT_MIN", 16)
         self.logged_in = False
         self.username = None
+        # The registry entry for the ESA account this client holds, so the next
+        # staffer to collide with it can be told what is holding it.
+        self._account_handle = None
 
     def set_alert(self, alert):
         """Point alerts at a different job.
@@ -295,6 +299,15 @@ class IcosClient:
         in a log line.
         """
         self._log("Connecting to Iowa Courts Online...")
+
+        # Said before ICOS is asked, not after it refuses. If Napier is holding
+        # this account itself then the refusal is already certain and the wait
+        # is already started, and the sentence is worth more now than it is
+        # seventy-five seconds from now.
+        held_by_napier = accounts.describe(username)
+        if held_by_napier:
+            self._log(held_by_napier)
+
         self._retry("search", self.reader.init_request)
 
         started = self._monotonic()
@@ -319,24 +332,47 @@ class IcosClient:
                 # ends our own, which is not the one holding the lock. Waiting is
                 # the only thing that works.
                 elapsed = self._monotonic() - started
+                # Asked again rather than reused, because a run can pick this
+                # account up or put it down while somebody is waiting on it.
+                napier_holds = accounts.describe(username)
                 if elapsed + CONCURRENT_INTERVAL > self.concurrent_budget:
                     self._alert(
                         alerts.CONCURRENT_EXHAUSTED,
                         account=alerts.username_prefix(username),
                         elapsed=_describe(elapsed),
-                        note="ESA never released the lock. This is shared "
-                             "accounts colliding, not an ICOS fault.")
+                        note="Napier's own run held the account for the whole "
+                             "wait. Two staff on one login."
+                             if napier_holds else
+                             "ESA never released the lock, and Napier was not "
+                             "holding the account. Somebody is signed in to "
+                             "Iowa Courts outside Napier.")
+                    if napier_holds:
+                        raise IcosAccountLocked(
+                            "This Iowa Courts account has been busy with another "
+                            "Napier run for the whole wait. Whoever started it can "
+                            "stop it from their own progress page, or you can sign "
+                            "in with a different Iowa Courts account.")
                     raise IcosAccountLocked(
                         "This Iowa Courts account is still logged in from another "
                         "session and Iowa Courts has not released it. Try again in a "
                         "few minutes, or use your own Iowa Courts account so searches "
                         "do not collide.")
                 if not waited_for_lock:
-                    self._log(
-                        "This Iowa Courts account is already logged in somewhere else. "
-                        "Waiting for that session to clear -- Iowa Courts releases it "
-                        "within about 15 minutes. Nothing is lost; the search will run "
-                        "as soon as the account frees up.")
+                    if napier_holds and held_by_napier:
+                        # Named a moment ago, before ICOS was even asked. Saying
+                        # the same paragraph twice reads as the page repeating
+                        # itself rather than as progress.
+                        self._log("Waiting for that run to finish. Nothing is lost; "
+                                  "this search starts as soon as it does.")
+                    elif napier_holds:
+                        self._log(napier_holds)
+                    else:
+                        self._log(
+                            "This Iowa Courts account is already logged in somewhere "
+                            "else, and not by Napier. Waiting for that session to "
+                            "clear -- Iowa Courts releases it within about 15 "
+                            "minutes. Nothing is lost; the search will run as soon "
+                            "as the account frees up.")
                     waited_for_lock = True
                 self._sleep(CONCURRENT_INTERVAL)
                 continue
@@ -368,6 +404,11 @@ class IcosClient:
 
             self.logged_in = True
             self.username = username
+            # Registered here rather than at the top of login, because until
+            # ESA answers with the search screen Napier is not holding
+            # anything and pointing the next staffer at a session that does
+            # not exist is worse than telling them nothing.
+            self._account_handle = accounts.hold(username)
             self._log("Signed in to Iowa Courts Online.")
             return
 
@@ -421,3 +462,10 @@ class IcosClient:
             print("ICOS logoff failed: %s" % type(e).__name__, flush=True)
         finally:
             self.logged_in = False
+            # Released even when the request above failed. ESA may well still
+            # be holding the session, but no Napier run is, and the entry
+            # exists to point the next staffer at a run they can go and stop.
+            # Pointing them at one that has already finished is worse than
+            # saying nothing.
+            accounts.release(self._account_handle)
+            self._account_handle = None

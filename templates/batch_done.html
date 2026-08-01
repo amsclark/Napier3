@@ -70,6 +70,11 @@
 <div class="card">
   <span class="done-mark" aria-hidden="true">&check;</span>
   <h1>The clinic list is built</h1>
+
+  {% if error %}
+    <div class="notice notice-stop" role="alert">{{ error }}</div>
+  {% endif %}
+
   <p class="lede">
     {{ built }} workbook{{ built | pluralize("","s") }} from
     {{ clients | length }} client{{ clients | length | pluralize("","s") }},
@@ -119,12 +124,15 @@
         {{ "has" if clients | length - built == 1 else "have" }} no workbook.
       </p>
       <p>
-        Look {{ "that one" if clients | length - built == 1 else "those" }} up
+        {% if can_retry %}Try them again below first, then look{% else %}Look{% endif %}
+        {{ "that one" if clients | length - built == 1 else "those" }} up
         by hand. A list that comes back short without saying so is worse than
         one that says so.
       </p>
     </div>
   {% endif %}
+
+  <div style="margin-top:1.2rem">{% include '_retry.html' %}</div>
 
   {% if limits %}
     <div class="notice" role="alert" style="margin-top:1.2rem">
@@ -147,13 +155,16 @@
   </p>
 </div>
 
-<iframe id="grab" title="download" hidden></iframe>
+{% if not error %}
+  <iframe id="grab" title="download" hidden></iframe>
 
-<script>
-// Into a hidden frame so this page stays on screen. What is on it, which
-// client came back short and which has no workbook at all, is the part that
-// matters after the file is saved.
-document.getElementById("grab").src = "/batch/" +
-  encodeURIComponent({{ job.id|tojson }}) + "/download";
-</script>
+  <script>
+  // Into a hidden frame so this page stays on screen. What is on it, which
+  // client came back short and which has no workbook at all, is the part that
+  // matters after the file is saved. Not on a rejected retry: nothing has been
+  // rebuilt, so there is nothing new to save.
+  document.getElementById("grab").src = "/batch/" +
+    encodeURIComponent({{ job.id|tojson }}) + "/download";
+  </script>
+{% endif %}
 {% endblock %}
