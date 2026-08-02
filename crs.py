@@ -185,6 +185,21 @@ DISPOSITION_SPREAD_NOTE = (
     "the 20 year line check the counts separately."
 )
 
+# Column D is blank on a case no court has ruled on yet, and it has to stay
+# blank: the EXPUNGEMENT sheet counts blank-D rows as the pending charges that
+# block expungement under 901C.2. But the SOL sheet reads the same cell
+# arithmetically, and a blank reads as zero, which is a date in 1900.
+PENDING_CASE_NOTE = (
+    "Iowa Courts show no adjudication on this case, so column D is blank and "
+    "column G has no code. Column D blank is what tells the EXPUNGEMENT sheet "
+    "this charge is still pending, but the SOL sheet reads it as a date and a "
+    "blank reads as 1900: it reports this row's indigent defense and collection "
+    "costs as barred by the 20 year limit, counts jail and room & board as 20 "
+    "years old, and leaves the rest of the balance out of all three of its "
+    "columns. Nothing here has aged out, because there is no judgment yet. "
+    "Treat this row's SOL figures as unanswered."
+)
+
 
 def is_vehicular(statutes):
     """"YES", "NO", or None when there is nothing to judge from.
@@ -1119,6 +1134,11 @@ def process_case(case, worksheet, row, as_of=None):
     if spread and owes_money(worksheet, i):
         append_note(worksheet, i, DISPOSITION_SPREAD_NOTE
                     % (", ".join(spread), disposition_date))
+    # Only where the SOL sheet has something to be wrong about. A pending case
+    # with nothing outstanding puts zero in all three of its columns whatever
+    # column D says, and a caveat there describes a decision nobody is making.
+    if not disposition_date and owes_money(worksheet, i):
+        append_note(worksheet, i, PENDING_CASE_NOTE)
     unknown = charge.get('unknown_dispositions') or []
     if unknown:
         append_note(worksheet, i,
