@@ -52,6 +52,15 @@ stops and builds from what it has. Names are counted separately at three,
 because an unanswered name costs the 45 minute search budget rather than the
 four minute case budget.
 
+Six and three are both guesses about what the silence means. Sometimes ICOS says
+it in words instead: a request that spent its whole budget being handed the court
+site's own problem report page, which is ICOS reporting that its own data source
+is unreachable, is counted a second time on its own and stops the run at two.
+Sealed cases and stalls cannot produce that page, so the reason six exists is
+untouched. Two rather than one, because a court site can serve one of these and
+come back. The progress log says which of the two stopped the run, since one of
+them means the account and the machine in front of the staffer are fine.
+
 Anything left missing is offered back as a retry, on the run's own finish page,
 for the two hours the job is kept. A retry signs in again, puts the same search
 back in front of ICOS, asks only for the cases that are still missing, and
