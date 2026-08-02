@@ -195,10 +195,13 @@ carries the reason as its first line. They used to be one class with a size
 field on it, so a timeout, an empty body, a transport error, an ICOS problem
 report page and a page for the wrong case all arrived worded identically, and
 since it is one email per class per job, whichever happened first silenced the
-rest. On 2026-08-01 that meant one email saying "unusable response, 0b" while
-what actually stopped the run was ICOS serving problem report pages. A court
-site that is down and a session that has lost its place look the same from
-outside, and only one of them is Iowa's fault.
+rest. On 2026-08-01 that meant one email saying "unusable response, 0b", which
+is what a timeout looks like, while the digest for the same run listed a 3407
+byte reply carrying a 200 under that same subject line. Which of the five that
+body was is no longer recoverable, because the one email that would have said so
+had already been spent on something else. A court site that is down and a
+session that has lost its place look the same from outside, and only one of them
+is Iowa's fault.
 
 The last two are the ones nothing else would catch, because the server thinks
 those runs went fine. A staffer whose phone drops the progress page sees a
