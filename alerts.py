@@ -31,6 +31,12 @@ and are never assembled into an alert. Exception messages are dropped for the
 same reason: a parser that dies on a case usually quotes that case back. What
 survives is the traceback's frames, which are our own source, plus the exception
 type.
+
+One thing here is not an alert. outage_evidence() mails a redacted copy of the
+page ICOS serves when it has declared itself down, because everything else in
+this module is Napier's word about a bad morning and Napier's word is what a
+court would question. What may be kept and what has to come out first is
+evidence.py's problem, not this module's.
 """
 
 import base64
@@ -40,6 +46,8 @@ import time
 import traceback
 import urllib.parse
 import urllib.request
+
+import evidence
 
 # Failure classes. The wording is the email subject line, so it reads as English.
 RETRY_EXHAUSTED = 'ICOS retry budget exhausted'
@@ -83,6 +91,17 @@ SLOW_RECOVERY_ATTEMPTS = 3
 # of emails rather than one per staffer per attempt.
 CLASS_FLOOR_SECONDS = 10 * 60
 
+# Not a failure class. It never goes through record(), is never suppressed by a
+# job having already alerted, and never appears in a digest. It is a separate
+# piece of mail with a separate subject so it can be filtered, kept, and
+# forwarded to Iowa Courts without the diagnostics around it.
+OUTAGE_EVIDENCE = 'Iowa Courts served its own outage page'
+
+# Its own floor, counted across every job on the dyno. During the 2026-07-30
+# outage ICOS served the same page 45 times in eleven minutes; one copy of a
+# byte-identical page proves as much as forty five do.
+EVIDENCE_FLOOR_SECONDS = 15 * 60
+
 MAILGUN_ENDPOINT = 'https://api.mailgun.net/v3/%s/messages'
 
 # Both maps below are keyed by something unique per job, and the web error path
@@ -94,6 +113,7 @@ MAX_TRACKED_JOBS = 500
 _sent = {}             # job_id -> failure classes already emailed for that job
 _class_floor = {}      # failure class -> when it last went out, any job
 _pending = {}          # job_id -> the events behind the end-of-job digest
+_evidence_floor = [None]   # when an outage page was last mailed, any job
 _lock = threading.Lock()
 
 
@@ -179,29 +199,51 @@ def _format(job_id, kind, failure, fields, progress):
 
 # -- delivery -------------------------------------------------------------
 
-def _mailgun(subject, body):
+def _form_data(fields, attachment):
+    """Encode an attachment the way Mailgun's API wants it.
+
+    Hand rolled because the dyno has no requests library and this is the only
+    thing in Napier that needs multipart.
+    """
+    boundary = 'napier-%s' % os.urandom(16).hex()
+    while boundary.encode('ascii') in attachment['content']:
+        boundary = 'napier-%s' % os.urandom(16).hex()
+    out = []
+    for name, value in fields.items():
+        out.append(('--%s\r\nContent-Disposition: form-data; name="%s"'
+                    '\r\n\r\n%s\r\n' % (boundary, name, value)).encode('utf-8'))
+    out.append(('--%s\r\nContent-Disposition: form-data; name="attachment"; '
+                'filename="%s"\r\nContent-Type: text/html\r\n\r\n'
+                % (boundary, attachment['filename'])).encode('utf-8'))
+    out.append(attachment['content'])
+    out.append(('\r\n--%s--\r\n' % boundary).encode('utf-8'))
+    return 'multipart/form-data; boundary=%s' % boundary, b''.join(out)
+
+
+def _mailgun(subject, body, attachment=None):
     domain = os.environ.get('MAILGUN_DOMAIN')
     key = os.environ.get('MAILGUN_API_KEY')
     to = os.environ.get('ALERT_EMAIL_TO')
     if not (domain and key and to):
         return False
     sender = os.environ.get('ALERT_EMAIL_FROM') or 'Napier <napier@%s>' % domain
-    data = urllib.parse.urlencode({
-        'from': sender,
-        'to': to,
-        'subject': subject,
-        'text': body,
-    }).encode('utf-8')
+    fields = {'from': sender, 'to': to, 'subject': subject, 'text': body}
+    if attachment is None:
+        content_type = 'application/x-www-form-urlencoded'
+        data = urllib.parse.urlencode(fields).encode('utf-8')
+    else:
+        content_type, data = _form_data(fields, attachment)
     request = urllib.request.Request(MAILGUN_ENDPOINT % domain, data=data)
+    request.add_header('Content-Type', content_type)
     request.add_header('Authorization', 'Basic ' + base64.b64encode(
         ('api:%s' % key).encode('utf-8')).decode('ascii'))
     urllib.request.urlopen(request, timeout=10).read()
     return True
 
 
-def _deliver(subject, body):
+def _deliver(subject, body, attachment=None):
     try:
-        if _mailgun(subject, body):
+        if _mailgun(subject, body, attachment):
             print('ALERT sent: %s' % subject, flush=True)
         else:
             print('ALERT not configured, would have sent: %s' % subject, flush=True)
@@ -211,12 +253,12 @@ def _deliver(subject, body):
               flush=True)
 
 
-def _send(subject, body):
+def _send(subject, body, attachment=None):
     """Hand the send to a daemon thread and get out of the way.
 
     Returned so tests can join it. Nothing in the app waits on it.
     """
-    thread = threading.Thread(target=_deliver, args=(subject, body),
+    thread = threading.Thread(target=_deliver, args=(subject, body, attachment),
                               name='alert', daemon=True)
     thread.start()
     return thread
@@ -245,6 +287,68 @@ def record(job_id, kind, failure, progress=None, now=None, **fields):
         _class_floor[failure] = now
     return _send('Napier: %s' % failure,
                  _format(job_id, kind, failure, fields, progress))
+
+
+def outage_evidence(body, endpoint=None, case_id=None, username=None,
+                    status=None, attempts=None, now=None):
+    """Mail a redacted copy of a page on which ICOS declared itself down.
+
+    Every other alert here is Napier's account of what happened, which is
+    exactly what is in dispute when a clinic tells Iowa Courts it lost a
+    morning. This one is Iowa's account, in Iowa's wording, and it is the
+    difference between a complaint and a report.
+
+    Sends at most once every 15 minutes across the whole dyno, and only for a
+    page evidence.package() will vouch for. Returns the send thread, or None if
+    nothing was sent.
+    """
+    now = time.time() if now is None else now
+    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(now))
+    document = evidence.package(body, case_id=case_id, stamp=stamp)
+    if document is None:
+        return None
+    with _lock:
+        last = _evidence_floor[0]
+        if last is not None and now - last < EVIDENCE_FLOOR_SECONDS:
+            return None
+        _evidence_floor[0] = now
+
+    lines = [
+        'Iowa Courts answered a request with its own problem report page:',
+        'its web application could not reach the data behind it. The page is',
+        'attached as it was served, less the redactions noted below.',
+        '',
+    ]
+    for label, value in (
+            ('when (UTC)', time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(now))),
+            ('when (local)', time.strftime('%Y-%m-%d %H:%M:%S %Z',
+                                           time.localtime(now))),
+            ('ICOS endpoint', endpoint),
+            ('case requested', case_id),
+            ('HTTP status', status),
+            ('page size', '%db' % document['original size']),
+            ('attempts so far', attempts),
+            ('ESA account', username_prefix(username) if username else None),
+            ('sha256 of the page as served', document['fingerprint'])):
+        if value is not None:
+            lines.append('%s: %s' % (label, value))
+    lines += [
+        '',
+        'Note the case number printed on the attached page. ICOS keeps serving',
+        'the heading of whichever case the session selected last, so on a',
+        'problem report it is usually not the case that was requested, and the',
+        'disposition table under it is empty. That is why this page is a',
+        'hazard rather than an inconvenience: it parses as a real case with no',
+        'charges and nothing owed.',
+        '',
+        'Three things are withheld from the attachment and nothing else is.',
+        'The case caption, because on a clinic run it names the client and is',
+        'privileged. Any date, for the same reason. The signed-in account,',
+        'which ICOS stamps into the corner of every page it serves. None of',
+        'them bear on whether ICOS was up. The sha256 above is of the page as',
+        'ICOS served it, before any of that was taken out.',
+    ]
+    return _send('Napier: %s' % OUTAGE_EVIDENCE, '\n'.join(lines), document)
 
 
 def digest(job_id, kind, progress=None):
@@ -299,3 +403,4 @@ def reset():
         _sent.clear()
         _class_floor.clear()
         _pending.clear()
+        _evidence_floor[0] = None

@@ -17,9 +17,11 @@ Timing is injectable so the retry behaviour can be tested without real waits.
 import os
 import re
 import time
+import urllib.parse
 
 import accounts
 import alerts
+import evidence
 from opener import Opener
 from reader import EMPTY, TIMEOUT, Reader
 
@@ -52,7 +54,11 @@ MIN_SIGNED_IN_BYTES = 8000
 # well as a civil case with nothing owed. A criminal case quietly reported that
 # way is worse than one that fails outright, so a case page has to prove it is
 # the case that was asked for before it is accepted.
-PROBLEM_REPORT_MARKER = "There was a communication problem"
+#
+# The marker itself lives in evidence.py, because recognising this page and
+# being allowed to mail a copy of it are the same question, and two copies of
+# the string would be two things to keep in step.
+PROBLEM_REPORT_MARKER = evidence.PROBLEM_REPORT_MARKER
 
 
 def _text(body):
@@ -150,6 +156,18 @@ def _timeline(waits):
     if not waits:
         return "none"
     return "+".join(str(w) for w in waits) + "s"
+
+
+def _requested_case(url):
+    """The case id in a case request, for evidence that names what was asked.
+
+    Read back off the wire rather than plumbed down from the caller, because
+    what matters on an outage page is the gap between the case requested and
+    the stale case the page came back wearing, and this is the requested one as
+    ICOS received it.
+    """
+    match = re.search(r"[?&]caseid=([^&]*)", url or "", re.I)
+    return urllib.parse.unquote_plus(match.group(1)) if match else None
 
 
 # Said in one place because the run can stop in three, and a staffer who stops
@@ -337,6 +355,16 @@ class IcosClient:
             if self.logged_in:
                 self._alert(failure, endpoint=endpoint, reason=reason,
                             attempts=attempt + 1, status=result.status, **extra)
+
+            # An alert says Napier could not get a case. That is Napier's word
+            # for it, and Napier's word is the thing in question when a clinic
+            # tells the court it lost a morning. When ICOS has said in its own
+            # wording that it cannot reach its own data, keep the page.
+            if evidence.is_outage_page(result.body):
+                alerts.outage_evidence(
+                    result.body, endpoint=endpoint,
+                    case_id=_requested_case(url), username=self.username,
+                    status=result.status, attempts=attempt + 1)
 
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)

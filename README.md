@@ -149,6 +149,10 @@ progress log, because the log is what alert mail carries out. Nothing about a
 client is written to browser storage, since the machine is shared. Each of these
 guards has a test that fails when the guard is removed.
 
+The one thing Napier ever sends out whole is the page ICOS serves when it has
+declared itself down, and it goes redacted. See "Proving an outage to the
+court" under Alerts for what comes out of it first and why the rest may stay.
+
 ## Production
 
 The application runs on [Heroku](https://www.heroku.com/). `crs-napier` is production; `napier-dev` is staging and auto-deploys from `main`.
@@ -227,6 +231,36 @@ that were suppressed.
 The keepalive used to log every ping, which was 4,300 lines a day and buried
 everything worth reading. It now logs state changes and a heartbeat every ten
 minutes.
+
+### Proving an outage to the court
+
+Every alert above is Napier's account of a bad morning, and Napier's account is
+the thing a court would question. So when ICOS answers with the page that says
+in its own wording that it cannot reach its own data source, Napier keeps that
+page and emails a copy, at most once every fifteen minutes across the whole
+dyno. The mail carries the time in UTC and local, the endpoint, the case that
+was requested, the HTTP status, the attempt count, and a sha256 of the page as
+ICOS served it. That is a report Iowa Courts can act on rather than a
+complaint.
+
+Only that one page type is ever attached. Napier can recognise it, so it knows
+what is on it and can take out what has to come out. A real case page names a
+defendant and a search results page lists everyone who matched with their dates
+of birth, and neither is a shape worth guessing at, so neither is ever sent.
+
+Three things are withheld from the copy and nothing else is: the case caption,
+which on a clinic run is the client's own case, since ICOS keeps serving the
+heading of whichever case the session selected last; any date; and the account
+ICOS stamps into the corner of every page it serves. None of them bear on
+whether ICOS was up, so nothing evidential is lost. The sha256 is of the page
+before any of that came out, so the redacted copy can still be tied to the
+original if it ever has to be.
+
+The scrubbing is checked rather than trusted. Napier reads its own output back
+with a second set of patterns written from the other direction, and if anything
+it was supposed to remove is still there, no mail goes out at all. An email
+that never arrives costs a follow-up. One that arrives carrying a client's name
+cannot be recalled from a court's inbox.
 
 ## Development
 
