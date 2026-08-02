@@ -139,6 +139,21 @@ def test_a_padded_defendant_is_still_read_as_a_defendant():
     assert cases[0]['role'] == 'DEFENDANT'
 
 
+def test_a_beneficiary_is_not_the_person_the_search_is_about():
+    """Found by running a real search on 2026-08-01: ICOS answered with a role
+    of BENEFICIARY, which was in neither list, so it was read as the person
+    searched for and mailed out as unrecognised.
+
+    A beneficiary is on a probate or trust case because somebody left them
+    something. The estate's costs and whatever its parties did are not theirs,
+    and Napier reads every charge row on a case page, so treating one as the
+    party puts an estate's record into a client's criminal record summary. It
+    belongs with EXECUTOR, TRUSTEE, WARD and the rest of that cluster.
+    """
+    cases, _ = case_parser.parse_search(role_row('BENEFICIARY'))
+    assert cases == []
+
+
 def test_the_two_role_lists_do_not_overlap():
     """A role in both would be suppressed and vouched for at the same time."""
     assert not (case_parser.NON_PARTY_ROLES & case_parser.KNOWN_PARTY_ROLES)

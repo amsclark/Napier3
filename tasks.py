@@ -572,7 +572,7 @@ def _zip_workbooks(built, is_lite):
     own from the finish page, for the staffer who only wants the one client
     they are about to see.
     """
-    stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    stamp = crs.iowa_now().strftime('%Y%m%d%H%M%S')
     path = tmp_dir + "Napier_clinic_list_" + stamp + ".zip"
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as bundle:
         for position, record in enumerate(built, start=1):
@@ -846,7 +846,7 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     # probation term is still running, which is only answerable against a day,
     # and it has to be the same day BASIC INFO B3 gets below or the workbook
     # disagrees with itself about when it was built.
-    clinic_date = datetime.date.today()
+    clinic_date = crs.iowa_today()
     row = 4
     unknown = {}
     for case in cases:
@@ -878,7 +878,7 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
 
     # def_name is user-supplied; sanitize it before using it in a filesystem path
     safe_name = secure_filename(def_name.strip().replace(' ', '_')) or "case"
-    stamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    stamp = crs.iowa_now().strftime('%Y%m%d%H%M%S')
     suffix = "_Lite_CRS_" if is_lite else "_CRS_"
     path = tmp_dir + safe_name + suffix + stamp + ".xlsx"
     workbook.save(path)
@@ -889,5 +889,5 @@ def download_name(def_name, is_lite):
     parts = [def_name.strip().replace(" ", "_")]
     if is_lite:
         parts.append("Lite")
-    parts.append(datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    parts.append(crs.iowa_now().strftime("%Y%m%d_%H%M%S"))
     return "%s.xlsx" % "_".join(parts)

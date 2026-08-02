@@ -5,6 +5,27 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
+from zoneinfo import ZoneInfo
+
+# Iowa keeps one time zone, and this app runs on a dyno that keeps UTC. Every
+# date in a workbook is a court date read against a clinic day: the twenty year
+# cut on the SOL sheet, the two and eight year expungement waits, whether a
+# probation term is still running. A run at nine at night in Des Moines was
+# stamped tomorrow and measured every one of those waits a day early.
+#
+# Verified on the napier-dev dyno on 2026-08-01: date.today() answered
+# 2026-08-02 while Iowa was still on the 1st.
+IOWA = ZoneInfo('America/Chicago')
+
+
+def iowa_now():
+    """The moment, where the client and the courthouse are."""
+    return datetime.now(IOWA)
+
+
+def iowa_today():
+    """The day in Iowa, which is the day the clinic is having."""
+    return iowa_now().date()
 
 MISMATCH_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 MISMATCH_FONT = Font(color="9C0006")
@@ -826,7 +847,7 @@ def process_case(case, worksheet, row, as_of=None):
     next year does not silently change what column I said.
     """
     if as_of is None:
-        as_of = date.today()
+        as_of = iowa_today()
     i = str(row)
     worksheet['A' + i] = case['id']
     worksheet['B' + i] = case['county']
