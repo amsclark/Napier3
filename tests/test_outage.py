@@ -53,9 +53,13 @@ class StubClient:
 
     logged_in = True
 
-    def __init__(self, dead_cases=(), dead_searches=()):
+    def __init__(self, dead_cases=(), dead_searches=(), court_site_down=False):
         self.dead_cases = set(dead_cases)
         self.dead_searches = set(dead_searches)
+        # ICOS refusing with its own problem report page rather than simply
+        # not answering. The client hands that out to the run as a flag on the
+        # exception, so a stub that cannot set it cannot exercise the path.
+        self.court_site_down = court_site_down
         self.searched = []
         self.asked = []
 
@@ -74,6 +78,9 @@ class StubClient:
     def search(self, first, middle, last):
         self.searched.append(last)
         if last in self.dead_searches:
+            if self.court_site_down:
+                raise IcosUnavailable("Iowa Courts Online did not respond",
+                                      court_site_down=True)
             raise IcosError("Iowa Courts did not answer.")
         return b'<results>'
 
@@ -81,7 +88,8 @@ class StubClient:
         self.asked.append(case_id)
         if case_id in self.dead_cases:
             raise IcosUnavailable("Iowa Courts Online did not return this case "
-                                  "after 4 minutes of retrying")
+                                  "after 4 minutes of retrying",
+                                  court_site_down=self.court_site_down)
         return b'<summary>', b'<charges>', b'<financials>'
 
     def logoff(self):
@@ -126,8 +134,9 @@ def pick(surname, case_ids):
             'person': person(surname), 'case_ids': list(case_ids)}
 
 
-def run_list(monkeypatch, picks, dead_cases=(), dead_searches=()):
-    stub = StubClient(dead_cases, dead_searches)
+def run_list(monkeypatch, picks, dead_cases=(), dead_searches=(),
+             court_site_down=False):
+    stub = StubClient(dead_cases, dead_searches, court_site_down)
     monkeypatch.setattr(icos_sessions, 'claim', lambda token: stub)
     job = FakeJob()
     try:
@@ -175,6 +184,119 @@ class TestTheCounterItself:
         watch a dead site, not a tuning knob."""
         assert tasks.Outage().threshold == 6
         assert tasks.CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE == 6
+
+
+class TestWhenICOSSaysItItself:
+    """Six is the price of not knowing. It is not owed when ICOS has said so.
+
+    A problem report page is the court site reporting that its own data source
+    is unreachable. Napier already told that apart from a request that never
+    came back, but only in the alert: the run's counter treated the two the
+    same and spent six cases at four minutes apiece, about twenty three
+    minutes, rediscovering what the very first response had said in words. On
+    the search side, where a name carries the forty-five minute budget, three
+    of them is an hour and a half.
+
+    Six exists to protect one client's sealed cases from ending the list for
+    the nineteen names behind them. Sealed cases cannot produce a problem
+    report page, so nothing about that is given up here.
+    """
+
+    def test_two_refusals_ICOS_declared_are_enough(self):
+        outage = tasks.Outage()
+        assert outage.failed(declared=True) is False
+        assert outage.failed(declared=True) is True
+        assert outage.over
+
+    def test_a_refusal_that_says_nothing_still_costs_the_full_six(self):
+        """The whole point of splitting them. If an ordinary refusal tripped at
+        two, one client's bad patch would end a clinic list."""
+        outage = tasks.Outage()
+        for _ in range(5):
+            assert outage.failed() is False
+        assert not outage.over
+        assert outage.failed() is True
+
+    def test_a_case_coming_back_clears_the_declared_count_too(self):
+        """Otherwise a site that blinked twice across a whole morning would
+        stop a run that was working fine in between."""
+        outage = tasks.Outage()
+        outage.failed(declared=True)
+        outage.worked()
+        assert outage.failed(declared=True) is False
+        assert not outage.over
+
+    def test_the_number_is_named_and_is_below_both_others(self):
+        """Named here because moving it is a decision about how long staff
+        watch a site that has already said it is down."""
+        assert tasks.ICOS_DECLARED_ITSELF_DOWN_IS_AN_OUTAGE == 2
+        assert (tasks.ICOS_DECLARED_ITSELF_DOWN_IS_AN_OUTAGE
+                < tasks.SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE
+                < tasks.CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE)
+
+    def test_it_applies_to_the_search_counter_at_the_same_two(self):
+        """A refused name costs the 45 minute search budget, so this saves more
+        here than it does on cases."""
+        searches = tasks.Outage(
+            threshold=tasks.SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE)
+        assert searches.failed(declared=True) is False
+        assert searches.failed(declared=True) is True
+
+    def test_a_clinic_list_stops_after_two_cases_not_six(self, monkeypatch):
+        dead = ids('FECR', 8)
+        job, stub = run_list(monkeypatch,
+                             [pick('DOE', dead), pick('ROE', ids('SRCR', 4))],
+                             dead_cases=dead, court_site_down=True)
+
+        assert stub.asked == dead[:2], stub.asked
+        assert stub.searched == ['DOE']
+
+    def test_the_same_list_without_the_page_still_costs_six(self, monkeypatch):
+        """The control. Same stub, same refusals, one flag different."""
+        dead = ids('FECR', 8)
+        job, stub = run_list(monkeypatch,
+                             [pick('DOE', dead), pick('ROE', ids('SRCR', 4))],
+                             dead_cases=dead, court_site_down=False)
+
+        assert stub.asked == dead[:6], stub.asked
+
+    def test_staff_are_told_the_court_site_said_so(self, monkeypatch):
+        """A staffer watching a run die wants to know whether it is their
+        account, their password or their laptop. When ICOS has answered that
+        question, passing the answer on costs nothing."""
+        dead = ids('FECR', 8)
+        job, _ = run_list(monkeypatch,
+                          [pick('DOE', dead), pick('ROE', ids('SRCR', 4))],
+                          dead_cases=dead, court_site_down=True)
+
+        assert job.said('reported that its own system is unavailable')
+        assert not job.said('Iowa Courts stopped responding')
+
+    def test_a_client_nobody_reached_says_the_same_thing(self, monkeypatch):
+        """The finish page outlives the progress log, so the row for a client
+        who was never pulled has to carry it too."""
+        doe, roe = ids('FECR', 8), ids('SRCR', 4)
+        job, _ = run_list(monkeypatch, [pick('DOE', doe), pick('ROE', roe)],
+                          dead_cases=doe[2:], court_site_down=True)
+
+        skipped = job.result['clients'][1]
+        assert skipped['failed'] == roe
+        assert 'its own system was unavailable' in skipped['error'], skipped
+
+    def test_a_batch_search_stops_after_two_names(self, monkeypatch):
+        names = ['DOE', 'ROE', 'POE', 'MOE']
+        stub = StubClient(dead_searches=names, court_site_down=True)
+        monkeypatch.setattr(tasks, 'IcosClient',
+                            lambda log=None, alert=None, **kw: stub)
+        monkeypatch.setattr(tasks.icos_sessions, 'put', lambda client: 'tok')
+        monkeypatch.setattr(tasks.case_parser, 'parse_search',
+                            lambda body: ([], False))
+        job = FakeJob()
+        tasks.batch_search_task(job, 'ILATEST', 'secret',
+                               [person(n) for n in names])
+
+        assert stub.searched == names[:2], stub.searched
+        assert job.said('reported that its own system is unavailable')
 
 
 class TestAClinicListMeetingADeadSite:

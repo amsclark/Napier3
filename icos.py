@@ -174,7 +174,18 @@ class IcosAccountLocked(IcosError):
 
 
 class IcosUnavailable(IcosError):
-    pass
+    """ICOS would not hand something over inside its retry budget.
+
+    court_site_down says ICOS gave the reason itself rather than leaving it to
+    be worked out. A problem report page is the court site reporting that its
+    own data source is unreachable, which is a different quality of evidence
+    from a request that simply never came back, and the run's outage counter is
+    allowed to believe it sooner.
+    """
+
+    def __init__(self, message, court_site_down=False):
+        super().__init__(message)
+        self.court_site_down = court_site_down
 
 
 class IcosStopped(IcosError):
@@ -334,16 +345,23 @@ class IcosClient:
                             backoff=_timeline(waits), reason=reason,
                             note="Last result: %s. Staff were told to try again "
                                  "later." % reason)
+                # Carried out to the caller because the run's outage counter
+                # wants it: six cases that never arrived is a guess about the
+                # site, two that spent their whole budget being told ICOS
+                # cannot reach its own data is not.
+                declared = reason == PROBLEM_REPORT_REASON
                 if what == "search":
                     raise IcosUnavailable(
                         "Iowa Courts Online did not respond after %d minutes of "
                         "retrying (last result: %s). The court site is likely down. "
-                        "Please try again later." % (round(budget / 60), last))
+                        "Please try again later." % (round(budget / 60), last),
+                        court_site_down=declared)
                 # The caller drops this one case and carries on, so this text
                 # is not staff-facing advice about the whole run.
                 raise IcosUnavailable(
                     "Iowa Courts Online did not return this case after %d minutes of "
-                    "retrying (last result: %s)." % (round(budget / 60), last))
+                    "retrying (last result: %s)." % (round(budget / 60), last),
+                    court_site_down=declared)
             # Checked here rather than only between cases, because the whole
             # reason somebody reaches for stop is that a wait is in progress.
             if self._should_stop():

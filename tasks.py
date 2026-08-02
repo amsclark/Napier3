@@ -34,6 +34,20 @@ CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 6
 # names do not come in runs the way one client's sealed cases do.
 SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 3
 
+# When ICOS says it itself. A problem report page is the court site reporting
+# that its own data source is unreachable, so a request that spent its entire
+# budget being told that is not the ambiguous thing six exists to protect
+# against. On 2026-08-01 a run met one and burned four minutes per case
+# rediscovering what the very first response had already said; under today's
+# threshold the same outage would take twenty three minutes to confirm, or
+# ninety on the search side.
+#
+# Two rather than one, because a court site can serve one of these and come
+# back, and the cost of being wrong is a clinic list that ends early. Sealed
+# cases, stalls and timeouts cannot produce it at all, so the reason cases stop
+# at six and names at three is untouched.
+ICOS_DECLARED_ITSELF_DOWN_IS_AN_OUTAGE = 2
+
 
 class Outage:
     """How many cases in a row Iowa Courts has refused, counted across a run.
@@ -50,24 +64,63 @@ class Outage:
     real client can have, and that client's bad luck should not end the list
     for the nineteen names behind them. Six costs about twenty three minutes
     during a real outage, which is the price of not throwing away good runs.
+
+    Refusals where ICOS reported its own outage are counted a second time on
+    their own and stop the run at two, because that price is only worth paying
+    while the cause is still in doubt.
     """
 
-    def __init__(self, threshold=CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE):
+    def __init__(self, threshold=CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE,
+                 declared_threshold=ICOS_DECLARED_ITSELF_DOWN_IS_AN_OUTAGE):
         self.threshold = threshold
+        self.declared_threshold = declared_threshold
         self.failures = 0
+        self.declared = 0
 
     @property
     def over(self):
-        return self.failures >= self.threshold
+        return self.failures >= self.threshold or self.declared_down
+
+    @property
+    def declared_down(self):
+        """The run stopped because ICOS said it was down, not because we guessed.
+
+        Staff are told which of the two it was, since one of them means the
+        account and the machine in front of them are fine.
+        """
+        return self.declared >= self.declared_threshold
 
     def worked(self):
         """A case came back. Whatever came before it was not an outage."""
         self.failures = 0
+        self.declared = 0
 
-    def failed(self):
-        """A case did not come back. True if that is now enough to stop."""
+    def failed(self, declared=False):
+        """A case did not come back. True if that is now enough to stop.
+
+        declared is ICOS having reported its own outage rather than having
+        simply not answered.
+        """
         self.failures += 1
+        if declared:
+            self.declared += 1
         return self.over
+
+
+def stopped_responding(*counters, past=False):
+    """How the run describes a dead site to staff, in half a sentence.
+
+    Written once and used at every place a run says this, because a staffer
+    reading that Iowa Courts reported its own system unavailable stops
+    wondering whether it is their account, their password or their laptop, and
+    that is the whole value of having told the two apart upstream.
+    """
+    if any(counter.declared_down for counter in counters):
+        return ("Iowa Courts had reported that its own system was unavailable"
+                if past else
+                "Iowa Courts reported that its own system is unavailable")
+    return "Iowa Courts had stopped responding" if past else \
+        "Iowa Courts stopped responding"
 
 
 tmp_dir = '/tmp/'
@@ -225,7 +278,7 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
                           case=case_id,
                           note="%s The run carried on without it." % e.message)
             failed.append(case_id)
-            if outage.failed():
+            if outage.failed(declared=getattr(e, 'court_site_down', False)):
                 not_attempted = case_ids[index:]
                 break
             continue
@@ -251,9 +304,10 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
 
     if not_attempted:
         failed.extend(not_attempted)
-        job.log("Iowa Courts stopped responding, so the last %d case%s could not "
-                "be pulled. The workbook has the rest."
-                % (len(not_attempted), "" if len(not_attempted) == 1 else "s"))
+        job.log("%s, so the last %d case%s could not be pulled. The workbook "
+                "has the rest."
+                % (stopped_responding(outage), len(not_attempted),
+                   "" if len(not_attempted) == 1 else "s"))
     return cases, failed
 
 
@@ -336,7 +390,11 @@ def batch_search_task(job, username, password, people, rejected=()):
         client.login(username, password)
 
         clients = []
-        failures_in_a_row = 0
+        # A counter rather than an int, so a name refused because ICOS said it
+        # was down stops the list at two. A name costs the 45 minute search
+        # budget, so the third one is an hour and a half spent confirming what
+        # the first refusal already said in words.
+        dead_searches = Outage(threshold=SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE)
         for index, person in enumerate(people, start=1):
             _stop_if_asked(job)
             job.log("Searching Iowa Courts for name %d of %d..."
@@ -355,19 +413,20 @@ def batch_search_task(job, username, password, people, rejected=()):
                 raise
             except IcosError as e:
                 entry['error'] = e.message
-                failures_in_a_row += 1
-                if failures_in_a_row >= SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
+                if dead_searches.failed(
+                        declared=getattr(e, 'court_site_down', False)):
                     for skipped in people[index:]:
                         clients.append({
                             'name': roster.describe(skipped), 'keys': [],
                             'cases': {}, 'too_many_results': False,
-                            'error': "Iowa Courts had stopped responding "
-                                     "before Napier reached this name."})
-                    job.log("Iowa Courts stopped responding, so the rest of the "
-                            "list was not searched.")
+                            'error': "%s before Napier reached this name."
+                                     % stopped_responding(dead_searches,
+                                                          past=True)})
+                    job.log("%s, so the rest of the list was not searched."
+                            % stopped_responding(dead_searches))
                     break
                 continue
-            failures_in_a_row = 0
+            dead_searches.worked()
             cases, too_many = case_parser.parse_search(body)
             report_novel_roles(job, cases)
             entry['cases'], entry['keys'] = group_cases(cases)
@@ -388,7 +447,11 @@ def batch_search_task(job, username, password, people, rejected=()):
 
 
 def _reselect(job, client, pick):
-    """Put this client's search results back in front of ICOS. True if it took.
+    """Put this client's search results back in front of ICOS.
+
+    Answers (whether it took, whether ICOS reported its own outage), because
+    the caller's dead-search counter believes the second one sooner than it
+    believes a name that merely went unanswered.
 
     Nothing is read out of the response. The point is the side effect: ICOS
     decides which case a case request means from whatever it answered last,
@@ -401,7 +464,7 @@ def _reselect(job, client, pick):
     """
     person = pick.get('person')
     if not person:
-        return False
+        return False, False
     try:
         client.search(person['first'], person['middle'], person['last'])
     except IcosStopped:
@@ -411,8 +474,8 @@ def _reselect(job, client, pick):
                       progress=alerts.recent_progress(job),
                       case="(re-search before pulling a client's cases)",
                       note="%s That client was skipped." % e.message)
-        return False
-    return True
+        return False, getattr(e, 'court_site_down', False)
+    return True, False
 
 
 def batch_crs_task(job, session_token, picks, is_lite):
@@ -480,22 +543,24 @@ def batch_crs_task(job, session_token, picks, is_lite):
             if outage.over or dead_searches.over:
                 if not announced:
                     announced = True
-                    job.log("Iowa Courts stopped responding, so the rest of the "
-                            "list was not pulled.")
+                    job.log("%s, so the rest of the list was not pulled."
+                            % stopped_responding(outage, dead_searches))
                 pulled += len(pick['case_ids'])
                 record['failed'] = list(pick['case_ids'])
                 entry['failed'] = list(pick['case_ids'])
-                record['error'] = ("Iowa Courts had stopped responding before "
-                                   "Napier reached this client, so their cases "
-                                   "were not pulled.")
+                record['error'] = ("%s before Napier reached this client, so "
+                                   "their cases were not pulled."
+                                   % stopped_responding(outage, dead_searches,
+                                                        past=True))
                 continue
 
             job.log("Client %d of %d: pulling %d case%s..."
                     % (index, len(picks), len(pick['case_ids']),
                        "" if len(pick['case_ids']) == 1 else "s"),
                     count=pulled, total=total_cases)
-            if not _reselect(job, client, pick):
-                dead_searches.failed()
+            reselected, site_down = _reselect(job, client, pick)
+            if not reselected:
+                dead_searches.failed(declared=site_down)
                 pulled += len(pick['case_ids'])
                 record['failed'] = list(pick['case_ids'])
                 entry['failed'] = list(pick['case_ids'])
@@ -710,21 +775,23 @@ def retry_task(job, username, password, payload):
                 skipped = True
                 if not announced:
                     announced = True
-                    job.log("Iowa Courts stopped responding, so the rest of "
-                            "the missing cases were not tried again.")
+                    job.log("%s, so the rest of the missing cases were not "
+                            "tried again."
+                            % stopped_responding(outage, dead_searches))
                 pulled += len(entry['failed'])
             elif entry['failed']:
                 job.log("Client %d of %d: trying %d case%s again..."
                         % (index, len(entries), len(entry['failed']),
                            "" if len(entry['failed']) == 1 else "s"),
                         count=pulled, total=total)
-                if _reselect(job, client, entry):
+                reselected, site_down = _reselect(job, client, entry)
+                if reselected:
                     dead_searches.worked()
                     recovered, still_failed = _pull_cases(
                         job, client, entry['failed'], offset=pulled,
                         total=total, outage=outage)
                 else:
-                    dead_searches.failed()
+                    dead_searches.failed(declared=site_down)
                     reselect_failed = True
                 pulled += len(entry['failed'])
                 recovered_total += len(recovered)
@@ -739,9 +806,11 @@ def retry_task(job, username, password, payload):
                                         cases, still_failed))
             if not cases:
                 if skipped:
-                    record['error'] = ("Iowa Courts had stopped responding "
-                                       "before Napier reached this client, so "
-                                       "there is still no workbook for them.")
+                    record['error'] = ("%s before Napier reached this client, "
+                                       "so there is still no workbook for them."
+                                       % stopped_responding(outage,
+                                                            dead_searches,
+                                                            past=True))
                 elif reselect_failed:
                     record['error'] = ("Iowa Courts would not answer this "
                                        "client's name, so there is still no "
