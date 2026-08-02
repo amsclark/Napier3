@@ -20,6 +20,7 @@ import crs
 import grid
 import icos_sessions
 import roster
+import statutes
 from icos import IcosClient, IcosError, IcosStopped, STOPPED_MESSAGE
 
 # One case ICOS will not hand over is a bad case: sealed, or a page the parser
@@ -925,6 +926,18 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
         for disposition in crs.process_case(case, sheet, row, clinic_date) or []:
             unknown.setdefault(disposition, []).append(case['id'])
         row += 1
+
+    # Columns W to AH take column F apart one statute per column, and the
+    # expungement sheet's second screen reads them with LEFT(). The template
+    # did the split with an array formula that pads its unused slots with
+    # #VALUE!, which LEFT() will not step over, so the 910.7 columns failed on
+    # exactly the rows that cleared the first screen and nowhere else. Napier
+    # wrote column F, so it can split it too, and an empty slot is an empty
+    # string rather than an error.
+    for case_row, spare in statutes.write_statute_split(workbook,
+                                                        row - 4).items():
+        crs.append_note(sheet, case_row,
+                        statutes.OVERFLOW_NOTE % ", ".join(spare))
 
     # The templates were filled down by hand, each to a different depth, and
     # nothing above stops the case list before it runs past them. A case on a
