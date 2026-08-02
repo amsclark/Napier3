@@ -12,6 +12,7 @@ not carry a name, a date of birth, or a credential.
 """
 
 import base64
+import email.parser
 import os
 import sys
 import threading
@@ -26,10 +27,37 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ['NAPIER_DISABLE_BACKGROUND'] = '1'
 
 import alerts
+import evidence
 import icos
 import tasks
 from icos import IcosClient, IcosAccountLocked, IcosUnavailable
 from reader import FetchResult, OK, EMPTY
+
+
+def _parse_multipart(raw, content_type):
+    """Read the attachment back with a parser we did not write.
+
+    Napier hand rolls the multipart encoding, because the dyno has no requests
+    library. Checking it by splitting on our own boundary would only prove the
+    encoder agrees with itself, so this hands the bytes to the stdlib email
+    parser and asks it to make sense of them. If it cannot, Mailgun would not
+    either, and the attachment nobody looked at would have been the outage
+    evidence.
+    """
+    message = email.parser.BytesParser().parsebytes(
+        b'MIME-Version: 1.0\r\nContent-Type: %s\r\n\r\n'
+        % content_type.encode('ascii') + raw)
+    assert message.is_multipart(), 'the POST body did not parse as multipart'
+    fields, attachment = {}, None
+    for part in message.get_payload():
+        if part.get_filename():
+            attachment = {'filename': part.get_filename(),
+                          'content': part.get_payload(decode=True)}
+            continue
+        name = part.get_param('name', header='content-disposition')
+        fields.setdefault(name, []).append(
+            part.get_payload(decode=True).decode('utf-8'))
+    return fields, attachment
 
 
 class Mailgun(BaseHTTPRequestHandler):
@@ -38,7 +66,13 @@ class Mailgun(BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get('Content-Length') or 0)
-        fields = urllib.parse.parse_qs(self.rfile.read(length).decode('utf-8'))
+        raw = self.rfile.read(length)
+        content_type = self.headers.get('Content-Type') or ''
+        if content_type.startswith('multipart/'):
+            fields, attachment = _parse_multipart(raw, content_type)
+        else:
+            fields = urllib.parse.parse_qs(raw.decode('utf-8'))
+            attachment = None
         Mailgun.received.append({
             'path': self.path,
             'auth': self.headers.get('Authorization'),
@@ -46,6 +80,7 @@ class Mailgun(BaseHTTPRequestHandler):
             'from': fields.get('from', [''])[0],
             'subject': fields.get('subject', [''])[0],
             'text': fields.get('text', [''])[0],
+            'attachment': attachment,
         })
         self.send_response(Mailgun.status)
         self.end_headers()
@@ -789,3 +824,162 @@ def test_another_browser_cannot_make_napier_send_mail(mailbox):
     assert response.status_code == 204
     settle()
     assert mailbox == []
+
+
+# -- proving the outage to the court, not just noticing it -------------------
+#
+# Every other test in this file is about Napier telling Alex something broke.
+# These are about Alex being able to tell Iowa Courts something broke, which is
+# a different burden: his own logs are the thing a court would question, so the
+# mail carries the court's own page.
+
+from test_evidence import OUTAGE_PAGE, REAL_CASE_PAGE   # noqa: E402
+
+
+def test_an_outage_page_arrives_as_a_real_attachment(mailbox):
+    send(alerts.outage_evidence(OUTAGE_PAGE, endpoint='TViewCaseCivil',
+                                case_id='00000  FECR000000', username='ila00',
+                                status=200, attempts=3, now=1000.0))
+    assert len(mailbox) == 1
+    mail = mailbox[0]
+    assert alerts.OUTAGE_EVIDENCE in mail['subject']
+    attached = mail['attachment']
+    assert attached is not None, "the page itself is the point of the email"
+    assert attached['filename'].endswith('-00000-FECR000000.html')
+    assert b'There was a communication problem' in attached['content']
+
+
+def test_the_attachment_carries_no_client_and_no_account(mailbox):
+    send(alerts.outage_evidence(OUTAGE_PAGE, endpoint='TViewCaseCivil',
+                                case_id='00000  FECR000000', username='ila00',
+                                status=200, attempts=3, now=1000.0))
+    everything = mailbox[0]['attachment']['content'] + \
+        mailbox[0]['text'].encode('utf-8') + mailbox[0]['subject'].encode('utf-8')
+    assert b'SYNTHETIC DEFENDANT' not in everything
+    assert b'ila00' not in everything, "Article 1.2: the family, never the account"
+    assert b'ILA##' in everything, "which pool collided is the useful part"
+
+
+def test_the_email_says_what_was_asked_for_and_when(mailbox):
+    send(alerts.outage_evidence(OUTAGE_PAGE, endpoint='TViewCaseCivil',
+                                case_id='00000  FECR000000', username='ila00',
+                                status=200, attempts=3, now=1000.0))
+    text = mailbox[0]['text']
+    # Forwarded to a court, the attachment on its own says a page exists. What
+    # makes it a report is which case was requested, at what time, on which
+    # endpoint, and a hash tying the copy to the bytes ICOS served.
+    assert 'case requested: 00000  FECR000000' in text
+    assert 'ICOS endpoint: TViewCaseCivil' in text
+    assert 'HTTP status: 200' in text
+    assert evidence.fingerprint(OUTAGE_PAGE) in text
+    assert '1970-01-01 00:16:40' in text, "UTC, so a court can line it up"
+
+
+def test_a_second_outage_page_within_fifteen_minutes_is_not_sent(mailbox):
+    # ICOS served this page 45 times in eleven minutes on 2026-07-30. Forty
+    # five byte-identical attachments prove nothing the first one does not.
+    assert alerts.outage_evidence(OUTAGE_PAGE, now=1000.0) is not None
+    settle()
+    assert alerts.outage_evidence(OUTAGE_PAGE, now=1000.0 + 14 * 60) is None
+    assert len(mailbox) == 1
+
+
+def test_an_outage_still_going_an_hour_later_is_sent_again(mailbox):
+    assert alerts.outage_evidence(OUTAGE_PAGE, now=1000.0) is not None
+    settle()
+    assert alerts.outage_evidence(OUTAGE_PAGE, now=1000.0 + 16 * 60) is not None
+    settle()
+    assert len(mailbox) == 2
+
+
+def test_the_floor_is_not_spent_on_a_page_that_was_never_sendable(mailbox):
+    """A refused page must not consume the 15 minutes the real one needs.
+
+    Otherwise a run that hits an unrelated failure first buys ICOS a quarter
+    hour of not being on the record.
+    """
+    assert alerts.outage_evidence(REAL_CASE_PAGE, now=1000.0) is None
+    assert alerts.outage_evidence(OUTAGE_PAGE, now=1000.0) is not None
+    settle()
+    assert len(mailbox) == 1
+
+
+def test_a_run_that_never_saw_an_outage_page_sends_nothing(mailbox):
+    for body in (b'', None, REAL_CASE_PAGE, b'<html>timeout</html>'):
+        assert alerts.outage_evidence(body, now=1000.0) is None
+    settle()
+    assert mailbox == []
+
+
+def test_an_ordinary_alert_still_goes_out_urlencoded(mailbox):
+    """The multipart path is new. The path every other alert takes is not."""
+    send(alerts.record('j1', 'search', alerts.NO_ANSWER, reason='timed out'))
+    assert mailbox[0]['attachment'] is None
+    assert 'timed out' in mailbox[0]['text']
+
+
+def _reader_serving_an_outage():
+    """Signs in, then answers every case request with Iowa's problem report.
+
+    The 200 matters. This page is not an error the client can see coming: ICOS
+    reports it succeeded, hands back a well formed case summary, and the only
+    thing wrong with it is that it is the wrong case with nothing in it.
+    """
+    class Stub:
+        def fetch_once(self, url, data=None, timeout=8):
+            if 'TViewCase' in url or 'TView' in url:
+                return FetchResult(OK, OUTAGE_PAGE, 200, 0.1)
+            return FetchResult(OK, b'x' * 30000, 200, 0.1)
+
+        def init_request(self):
+            return 'https://x/ESAWebApp/ESALogin.jsp', None
+
+        def login_request(self, username, password):
+            return 'https://x/ESAWebApp/EUACustomLoginServlet', b'd'
+
+        def case_summary_request(self, case_id):
+            return ('https://x/ESAWebApp/TViewCaseCivil?caseid='
+                    + case_id.replace(' ', '+')), None
+
+        def logoff_request(self):
+            return 'https://x/ESAWebApp/logoff', None
+
+    return Stub()
+
+
+def test_a_run_that_walks_into_an_outage_mails_the_page(mailbox):
+    """The whole feature, end to end, from a client that only sees HTTP 200s."""
+    client = IcosClient(reader=_reader_serving_an_outage(), case_budget_seconds=1,
+                        sleep=lambda s: None, monotonic=_clock(),
+                        alert=alerts.emitter(FakeJob('crs')))
+    client.login('ILA04', 'password')
+    with pytest.raises(IcosUnavailable):
+        client.case_bundle('00000  FECR000000')
+    settle()
+
+    evidence_mail = [m for m in mailbox if m['attachment'] is not None]
+    assert len(evidence_mail) == 1, "one page proves it; forty five do not"
+    mail = evidence_mail[0]
+    assert alerts.OUTAGE_EVIDENCE in mail['subject']
+    # The case Napier asked for, read back off the wire, next to the different
+    # case the page came back wearing. That gap is the technical argument.
+    assert 'case requested: 00000  FECR000000' in mail['text']
+    assert b'Case: 00000  FECR000000' in mail['attachment']['content']
+    assert b'There was a communication problem' in mail['attachment']['content']
+    assert b'SYNTHETIC DEFENDANT' not in mail['attachment']['content']
+    assert 'ILA04' not in mail['text']
+
+
+def test_an_ordinary_icos_failure_mails_no_page(mailbox):
+    """Nothing is attached unless ICOS itself said it was down.
+
+    A timeout is Napier's word against the court's. Only the page is not.
+    """
+    client = IcosClient(reader=_reader_that('empty'), budget_seconds=200,
+                        sleep=lambda s: None, monotonic=_clock(),
+                        alert=alerts.emitter(FakeJob()))
+    with pytest.raises(IcosUnavailable):
+        client.login('ILA04', 'password')
+    settle()
+    assert mailbox, "expected the ordinary alerts, otherwise this proves nothing"
+    assert all(m['attachment'] is None for m in mailbox)
