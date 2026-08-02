@@ -383,7 +383,19 @@ def get_dominant_charge(charges):
     for disposition in raw_charge:
         disposition = disposition.replace("DNU-", "")
         if not disposition:
-            charge_dict["NOTF"] = 0
+            # ICOS printed no adjudication for this count. That is the absence
+            # of a disposition, and it used to be recorded as NOTF, NOT FILED,
+            # which is a specific thing that was not true of any of the three
+            # real cases it landed on: one filed eleven days earlier and still
+            # open, one ICOS dismissed in 2021, one ICOS closed in 1993.
+            #
+            # It is not a harmless label. The EXPUNGEMENT sheet's DISM ACQ?
+            # column reads NOTF as dismissed or acquitted and answers YES,
+            # eligible under 901C.2, so an open charge was reported as
+            # expungeable. Nothing is recorded here instead, which is the
+            # workbook's own way of saying it: SOL, BANKRUPTCY and EXEMPTIONS
+            # each render column G as IF(G=0, "open charge", G).
+            continue
         elif disposition not in charge_code_map:
             charge_dict["OTH"] = OTH_RANK
             unknown.add(disposition)
@@ -392,9 +404,29 @@ def get_dominant_charge(charges):
             charge_dict[charge_key] = rank
     sorted_tuples = sorted(charge_dict.items(), reverse=True,
                            key=lambda item: item[1] if item[1] is not None else float('inf'))
-    delisted['disposition'] = sorted_tuples[0][0]
+    delisted['disposition'] = sorted_tuples[0][0] if sorted_tuples else ''
     delisted['unknown_dispositions'] = sorted(unknown)
     return delisted
+
+
+def case_level_code(status):
+    """The CRS code for ICOS's case-level status, or None if it is not one.
+
+    The status ICOS prints on the case summary is its own vocabulary. Across 90
+    captured pages it reads GUILTY PLEA/DEFAULT, VIOLATIONS HANDLED BY CLERK,
+    DISMISSED, BY TRIAL TO COURT, OTHER JUDGMENT, CLOSED, TRANSFERRED and SMALL
+    CLAIM-DISPOSED BY CLERK, and it overlaps the per-count adjudication wordings
+    at DISMISSED and nowhere else.
+
+    Only the overlap is read. The rest are not translated here, because whether
+    VIOLATIONS HANDLED BY CLERK is a guilty plea is a question about Iowa
+    practice rather than about parsing, and five sheets key formulas on the
+    answer. An unrecognised status returns None and travels out through
+    unknown_dispositions, which already puts the wording in column V and tells
+    the run, so the case is visibly uncoded rather than quietly miscoded.
+    """
+    entry = charge_code_map.get((status or "").replace("DNU-", "").strip())
+    return next(iter(entry)) if entry else None
 
 
 def get_finance_column(detail):
@@ -897,11 +929,43 @@ def process_case(case, worksheet, row, as_of=None):
           process_financials(case, worksheet, i)
           # return # This was here, but we want to apply alignment, so moved it down
     else:
+        description = charge['description']
+        disposition = charge['disposition']
+        disposition_date = charge['dispositionDate']
+
+        if not disposition:
+            # No count on this case has been adjudicated. ICOS still prints a
+            # status and a date for the case as a whole, and Napier parsed both
+            # off the summary page and then used them only on the civil path.
+            #
+            # The date is the one that hurts. A blank column D is how this
+            # workbook detects an open case: the EXPUNGEMENT sheet's POSSIBLE
+            # PENDING CHARGES column counts case rows that have no disposition
+            # date. So a case ICOS closed in 1993 and one it dismissed in 2021
+            # were both being counted as live charges hanging over the client,
+            # and a pending charge is what blocks expungement under 901C.2.
+            # Filling it from the summary is also what keeps that column honest
+            # in the other direction: the genuinely pending case has no date on
+            # the summary either, so it stays blank and still counts.
+            description = description or charge.get('original_description') or ''
+            disposition_date = disposition_date or case.get(
+                'summary_disposition_date') or ''
+            status = (case.get('summary_dispo_status') or '').strip()
+            if status:
+                code = case_level_code(status)
+                if code is None:
+                    charge.setdefault('unknown_dispositions', [])
+                    if status not in charge['unknown_dispositions']:
+                        charge['unknown_dispositions'] = sorted(
+                            charge['unknown_dispositions'] + [status])
+                else:
+                    disposition = code
+
         worksheet['C' + i] = charge['offenseDate']
-        worksheet['D' + i] = charge['dispositionDate']
-        cell_E.value = charge['description']
+        worksheet['D' + i] = disposition_date
+        cell_E.value = description
         worksheet['F' + i] = charge['charge']
-        worksheet['G' + i] = charge['disposition']
+        worksheet['G' + i] = disposition
         # Only when we can tell. is_vehicular returns None for a case with no
         # adjudicated statute, and the cell is left alone rather than told "NO".
         vehicular = is_vehicular(charge['charge'])
