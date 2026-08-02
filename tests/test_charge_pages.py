@@ -64,6 +64,14 @@ NOT_ADJUDICATED_WORDINGS = [
     ('ACQUITTED', 'ACQ'),
     ('NOT GUILTY', 'ACQ'),
     ('NOT FILED', 'NOTF'),
+    # The same six as ICOS prefixes them. Polk County served a DNU-ACQUITTED
+    # and the map had entries for DNU-GUILTY and DNU-DISMISSED but not that
+    # one, so an acquitted domestic abuse assault coded OTH and kept its
+    # statute in column F. Everything above was already covered and passing.
+    ('DNU-WITHDRAWN', 'WTHD'),
+    ('DNU-DISMISSED', 'DISM'),
+    ('DNU-ACQUITTED', 'ACQ'),
+    ('DNU-NOT FILED', 'NOTF'),
 ]
 
 
@@ -95,6 +103,32 @@ def test_a_conviction_keeps_its_statute():
 def test_two_convictions_both_survive():
     charge = parse(GUILTY, ('321J.2', 'SYNTHETIC OWI', 'GUILTY BY COURT'))
     assert charge['charge'] == '124.401;321J.2'
+
+
+@pytest.mark.parametrize('outcome', ['DNU-GUILTY', 'DNU-GUILTY BY COURT',
+                                     'DNU-DEFERRED'])
+def test_a_prefixed_conviction_still_keeps_its_statute(outcome):
+    """The other direction, so stripping the prefix cannot empty column F."""
+    assert parse(('321J.2', 'SYNTHETIC OWI', outcome))['charge'] == '321J.2'
+
+
+def test_the_two_maps_agree_on_what_a_prefixed_wording_means():
+    """case_parser codes the count; crs codes the case. They read one page.
+
+    They are separate maps with separate spellings, and only one of them
+    stripped the prefix. So ICOS could hand over a count that crs called ACQ
+    for column N while case_parser called it OTH and left the statute in
+    column F, and the workbook contradicted itself on the same row with no
+    test looking at both sides.
+    """
+    import crs
+    for wording in case_parser.charge_code_dict:
+        for form in (wording, 'DNU-' + wording):
+            ours = case_parser.disposition_code(form)
+            theirs = crs.charge_code_map.get(form.replace('DNU-', ''))
+            if theirs is None:
+                continue
+            assert ours == next(iter(theirs)), form
 
 
 def test_a_deferred_judgment_is_adjudicated():
