@@ -126,13 +126,24 @@ def test_failures_that_are_not_consecutive_are_not_an_outage(monkeypatch):
 
 
 def test_icos_going_down_mid_run_still_yields_the_cases_already_pulled(monkeypatch):
-    case_ids = ids(8)
+    case_ids = ids(11)
     job, stub, written = run(monkeypatch, case_ids, unavailable=case_ids[2:])
 
     assert written == case_ids[:2]          # the two that came back
-    assert stub.asked == case_ids[:5]       # stopped after three in a row
+    assert stub.asked == case_ids[:8]       # stopped after six in a row
     assert job.result['failed_cases'] == case_ids[2:]   # none quietly dropped
     assert any('stopped responding' in line['message'] for line in job.progress)
+
+
+def test_five_sealed_cases_in_a_row_do_not_end_a_run(monkeypatch):
+    """Five is under the cap, so the sixth case is still asked for. One client
+    with a bad patch in the middle of their record is not an outage, and the
+    old count of three was low enough to call it one."""
+    case_ids = ids(8)
+    _, stub, written = run(monkeypatch, case_ids, unavailable=case_ids[1:6])
+
+    assert stub.asked == case_ids
+    assert written == [case_ids[0], case_ids[6], case_ids[7]]
 
 
 def test_a_run_where_no_case_comes_back_still_fails(monkeypatch):
