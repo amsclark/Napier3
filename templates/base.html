@@ -276,6 +276,68 @@ input[type=text]:focus, input[type=password]:focus {
   color: var(--stop-ink);
 }
 
+/* --- ability to pay ---------------------------------------------------- */
+
+.atp {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: .85rem 1rem;
+  margin-bottom: 1.3rem;
+}
+
+.atp-title {
+  font-weight: 600;
+  font-size: .93rem;
+  margin: 0 0 .55rem;
+}
+
+.atp-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.6rem;
+  margin: 0 0 .55rem;
+}
+
+.atp-figure { min-width: 0; }
+
+.atp-label {
+  display: block;
+  font-size: .8rem;
+  color: var(--ink-soft);
+}
+
+.atp-value {
+  font-size: 1.12rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.atp-value.atp-unknown {
+  font-size: .93rem;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.atp-note {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--ink-soft);
+}
+
+/* The clinic-list form of the same thing. One line per client, because a
+   boxed pair of figures twenty times over buries the list it belongs to. */
+.atp-inline {
+  display: block;
+  font-size: .83rem;
+  color: var(--ink-soft);
+  margin-top: .15rem;
+}
+
+.atp-inline b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
 footer {
   max-width: 60rem;
   margin: 0 auto;

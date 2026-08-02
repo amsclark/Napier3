@@ -428,7 +428,8 @@ def build_action_sheet(workbook, cases, written, as_of, def_name):
     """Add ACTION LIST to a workbook Napier has finished writing.
 
     Called after CASE DATA is filled in, because it reads CASE DATA back.
-    Returns the number of actions it found.
+    Returns the ability-to-pay figures, which are a by-product of what it had
+    to work out anyway.
     """
     sheets = set(workbook.sheetnames)
     found = collect(workbook['CASE DATA'], written, as_of, sheets,
@@ -509,7 +510,31 @@ def build_action_sheet(workbook, cases, written, as_of, def_name):
 
     worksheet.freeze_panes = 'A' + str(FIRST_ACTION_ROW)
     build_payment_sheet(workbook, history)
-    return len(found)
+    return ability_to_pay(total_owed, history)
+
+
+def ability_to_pay(total_owed, history):
+    """The two court-side numbers the ability-to-pay calculator asks for.
+
+    The calculator at abilitytopay.org wants a court debt balance and what the
+    client pays toward it each month, and then asks them for everything else:
+    income, rent, groceries, all the things only the client can answer. These
+    two are the ones a person sitting in a clinic cannot answer from memory,
+    which is why the interview stalls on them.
+
+    Both are already in the workbook. This is the same pair, taken from the
+    same place, so the screen cannot disagree with the file. Returned as
+    formatted text because that is all anyone does with them: read them off
+    and type them in.
+
+    monthly is None when ICOS itemized no payments at all, which is not the
+    same as nothing having been paid and must not be handed over as $0.00.
+    """
+    return {
+        'balance': _dollars(total_owed),
+        'monthly': None if history is None else _dollars(history['recent_monthly']),
+        'months': crs.RECENT_MONTHS,
+    }
 
 
 def build_payment_sheet(workbook, history):

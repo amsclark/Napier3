@@ -1,0 +1,40 @@
+{#
+  The two numbers the ability-to-pay calculator asks the court side for.
+
+  Both are in the workbook already, on the action list and the payment sheet.
+  They are here because the calculator gets run with the client sitting there,
+  and hunting two figures out of a spreadsheet while somebody waits is how the
+  conversation stops being about them.
+
+  Nothing is sent anywhere. The figures are on screen for reading off, and the
+  client's own answers about income and rent stay between them and the
+  calculator.
+#}
+<div class="atp">
+  <p class="atp-title">For the ability to pay calculator</p>
+  <div class="atp-figures">
+    <span class="atp-figure">
+      <span class="atp-label">Court debt balance</span>
+      <span class="atp-value">{{ atp['balance'] }}</span>
+    </span>
+    <span class="atp-figure">
+      <span class="atp-label">Paid toward it each month</span>
+      {% if atp['monthly'] %}
+        <span class="atp-value">{{ atp['monthly'] }}</span>
+      {% else %}
+        <span class="atp-value atp-unknown">Iowa Courts itemized no payments</span>
+      {% endif %}
+    </span>
+  </div>
+  <p class="atp-note">
+    {% if atp['monthly'] %}
+      The monthly figure is the average over the last {{ atp['months'] }} months
+      of what Iowa Courts recorded, so it says what has been paid rather than
+      what was agreed. The payment sheet in the workbook has every one.
+    {% else %}
+      That is what the record says, not proof nothing was paid. A case whose
+      itemization Iowa Courts does not publish looks exactly the same, so ask
+      before entering a zero.
+    {% endif %}
+  </p>
+</div>
