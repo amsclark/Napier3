@@ -21,10 +21,54 @@ import icos_sessions
 import roster
 from icos import IcosClient, IcosError, IcosStopped, STOPPED_MESSAGE
 
-# One case ICOS will not hand over is a bad case. Several in a row is the site
-# being down, and there is no point walking the rest of the list to find that
-# out one four-minute budget at a time.
-CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 3
+# One case ICOS will not hand over is a bad case: sealed, or a page the parser
+# cannot read. Several in a row with nothing in between is the site being down,
+# and there is no point walking the rest of the list to find that out one
+# four-minute budget at a time. See Outage for why this is counted across the
+# whole run and why it is six.
+CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 6
+
+# Searches are counted on their own and stay at three. A name that will not
+# answer costs the 45 minute search budget rather than the four minute case
+# budget, so three of them is already most of an afternoon, and unanswered
+# names do not come in runs the way one client's sealed cases do.
+SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 3
+
+
+class Outage:
+    """How many cases in a row Iowa Courts has refused, counted across a run.
+
+    Reset by any case that comes back, so a run that is merely bumpy carries on
+    to the end and only an unbroken run of refusals stops it.
+
+    The count runs across the whole clinic list rather than per client. A per
+    client counter starts over at every name, so a site that is down costs
+    twenty clients times six cases times four minutes to discover twenty times
+    over, and the staffer watches it happen. Shared, the run stops once.
+
+    Six rather than three because three sealed cases in a row is something one
+    real client can have, and that client's bad luck should not end the list
+    for the nineteen names behind them. Six costs about twenty three minutes
+    during a real outage, which is the price of not throwing away good runs.
+    """
+
+    def __init__(self, threshold=CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE):
+        self.threshold = threshold
+        self.failures = 0
+
+    @property
+    def over(self):
+        return self.failures >= self.threshold
+
+    def worked(self):
+        """A case came back. Whatever came before it was not an outage."""
+        self.failures = 0
+
+    def failed(self):
+        """A case did not come back. True if that is now enough to stop."""
+        self.failures += 1
+        return self.over
+
 
 tmp_dir = '/tmp/'
 if platform.system() == 'Windows':
@@ -142,16 +186,20 @@ def _stop_if_asked(job):
         raise IcosStopped(STOPPED_MESSAGE)
 
 
-def _pull_cases(job, client, case_ids, offset=0, total=None):
+def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
     """Fetch and parse a list of cases. Returns what was read and what was not.
 
     Shared by the single-client run and the clinic list, so a case that Iowa
     Courts will not give up costs the same thing either way. offset and total
     are for the progress bar when this is one client's slice of a longer run.
+
+    outage is the run's refusal count, passed in by a caller that has more than
+    one client to get through so the whole list stops together. A caller with
+    one client can leave it out and gets a counter of its own.
     """
     total = len(case_ids) if total is None else total
+    outage = Outage() if outage is None else outage
     cases, failed = [], []
-    failures_in_a_row = 0
     not_attempted = []
     for index, case_id in enumerate(case_ids, start=1):
         _stop_if_asked(job)
@@ -177,12 +225,11 @@ def _pull_cases(job, client, case_ids, offset=0, total=None):
                           case=case_id,
                           note="%s The run carried on without it." % e.message)
             failed.append(case_id)
-            failures_in_a_row += 1
-            if failures_in_a_row >= CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
+            if outage.failed():
                 not_attempted = case_ids[index:]
                 break
             continue
-        failures_in_a_row = 0
+        outage.worked()
         try:
             case_parser.parse_case_summary(summary, case)
             case_parser.parse_case_charges(charges, case)
@@ -309,7 +356,7 @@ def batch_search_task(job, username, password, people, rejected=()):
             except IcosError as e:
                 entry['error'] = e.message
                 failures_in_a_row += 1
-                if failures_in_a_row >= CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
+                if failures_in_a_row >= SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE:
                     for skipped in people[index:]:
                         clients.append({
                             'name': roster.describe(skipped), 'keys': [],
@@ -403,12 +450,19 @@ def batch_crs_task(job, session_token, picks, is_lite):
         built = []
         retry_entries = []
         pulled = 0
+        # One count for the whole list. Six cases refused in a row is Iowa
+        # Courts being down, and the nineteen names behind this one are not
+        # going to fare any better.
+        outage = Outage()
+        # The same news arriving by the other door, and it arrives first: a
+        # client's turn starts with the re-search, so a site that is properly
+        # down never lets the case count get going at all. Counted at three
+        # like the search task's own, and kept apart from the case count
+        # because the two budgets are nothing like each other.
+        dead_searches = Outage(threshold=SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE)
+        announced = False
         for index, pick in enumerate(picks, start=1):
             _stop_if_asked(job)
-            job.log("Client %d of %d: pulling %d case%s..."
-                    % (index, len(picks), len(pick['case_ids']),
-                       "" if len(pick['case_ids']) == 1 else "s"),
-                    count=pulled, total=total_cases)
             record = {'name': pick['def_name'], 'requested': len(pick['case_ids']),
                       'written': 0, 'failed': [], 'file': None, 'error': None}
             built.append(record)
@@ -419,7 +473,29 @@ def batch_crs_task(job, session_token, picks, is_lite):
                                  pick.get('person'), pick['case_ids'], [], [])
             retry_entries.append(entry)
 
+            # Before the re-search, not after it. A dead site would otherwise
+            # still be asked to answer every remaining name, and a search
+            # carries the 45 minute search budget, which is ten times what
+            # skipping the cases behind it just saved.
+            if outage.over or dead_searches.over:
+                if not announced:
+                    announced = True
+                    job.log("Iowa Courts stopped responding, so the rest of the "
+                            "list was not pulled.")
+                pulled += len(pick['case_ids'])
+                record['failed'] = list(pick['case_ids'])
+                entry['failed'] = list(pick['case_ids'])
+                record['error'] = ("Iowa Courts had stopped responding before "
+                                   "Napier reached this client, so their cases "
+                                   "were not pulled.")
+                continue
+
+            job.log("Client %d of %d: pulling %d case%s..."
+                    % (index, len(picks), len(pick['case_ids']),
+                       "" if len(pick['case_ids']) == 1 else "s"),
+                    count=pulled, total=total_cases)
             if not _reselect(job, client, pick):
+                dead_searches.failed()
                 pulled += len(pick['case_ids'])
                 record['failed'] = list(pick['case_ids'])
                 entry['failed'] = list(pick['case_ids'])
@@ -427,9 +503,11 @@ def batch_crs_task(job, session_token, picks, is_lite):
                                    "name a second time, so their cases could "
                                    "not be pulled. Search them on their own.")
                 continue
+            dead_searches.worked()
 
             cases, failed = _pull_cases(job, client, pick['case_ids'],
-                                        offset=pulled, total=total_cases)
+                                        offset=pulled, total=total_cases,
+                                        outage=outage)
             pulled += len(pick['case_ids'])
             record['failed'] = failed
             entry['cases'], entry['failed'] = cases, list(failed)
@@ -605,6 +683,13 @@ def retry_task(job, username, password, payload):
         client.login(username, password)
 
         built, rebuilt, pulled, recovered_total = [], [], 0, 0
+        # Shared for the same reason the clinic list shares one, and it matters
+        # more here: a retry is somebody's second try, and spending it walking
+        # a dead site client by client is how they stop bothering with the
+        # button at all.
+        outage = Outage()
+        dead_searches = Outage(threshold=SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE)
+        announced = False
         for index, entry in enumerate(entries, start=1):
             _stop_if_asked(job)
             record = {'name': entry['def_name'],
@@ -613,15 +698,28 @@ def retry_task(job, username, password, payload):
             built.append(record)
 
             recovered, still_failed, reselect_failed = [], list(entry['failed']), False
-            if entry['failed']:
+            skipped = False
+            if entry['failed'] and (outage.over or dead_searches.over):
+                # Their earlier cases are still rebuilt below. It is only the
+                # second attempt at the missing ones that is called off.
+                skipped = True
+                if not announced:
+                    announced = True
+                    job.log("Iowa Courts stopped responding, so the rest of "
+                            "the missing cases were not tried again.")
+                pulled += len(entry['failed'])
+            elif entry['failed']:
                 job.log("Client %d of %d: trying %d case%s again..."
                         % (index, len(entries), len(entry['failed']),
                            "" if len(entry['failed']) == 1 else "s"),
                         count=pulled, total=total)
                 if _reselect(job, client, entry):
+                    dead_searches.worked()
                     recovered, still_failed = _pull_cases(
-                        job, client, entry['failed'], offset=pulled, total=total)
+                        job, client, entry['failed'], offset=pulled,
+                        total=total, outage=outage)
                 else:
+                    dead_searches.failed()
                     reselect_failed = True
                 pulled += len(entry['failed'])
                 recovered_total += len(recovered)
@@ -635,12 +733,18 @@ def retry_task(job, username, password, payload):
                                         entry['person'], entry['case_ids'],
                                         cases, still_failed))
             if not cases:
-                record['error'] = (
-                    "Iowa Courts would not answer this client's name, so there "
-                    "is still no workbook for them."
-                    if reselect_failed else
-                    "Iowa Courts still would not give up any of this client's "
-                    "cases, so there is still no workbook for them.")
+                if skipped:
+                    record['error'] = ("Iowa Courts had stopped responding "
+                                       "before Napier reached this client, so "
+                                       "there is still no workbook for them.")
+                elif reselect_failed:
+                    record['error'] = ("Iowa Courts would not answer this "
+                                       "client's name, so there is still no "
+                                       "workbook for them.")
+                else:
+                    record['error'] = ("Iowa Courts still would not give up any "
+                                       "of this client's cases, so there is "
+                                       "still no workbook for them.")
                 continue
             try:
                 path, unknown = build_workbook(cases, entry['def_name'],
