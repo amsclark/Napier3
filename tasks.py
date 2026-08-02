@@ -518,7 +518,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
                 continue
             try:
                 path, unknown, atp = build_workbook(cases, pick['def_name'],
-                                                    pick['def_dob'], is_lite)
+                                                    pick['def_dob'], is_lite,
+                                                    failed)
             except Exception as e:
                 # The other clients' workbooks are already built or still to
                 # come, and neither should be lost to this one.
@@ -622,7 +623,8 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
         path, unknown_dispositions, atp = build_workbook(cases, def_name,
-                                                         def_dob, is_lite)
+                                                         def_dob, is_lite,
+                                                         failed)
         report_unknown_dispositions(job, unknown_dispositions)
         job.result = {
             "file": path,
@@ -751,7 +753,8 @@ def retry_task(job, username, password, payload):
                 continue
             try:
                 path, unknown, atp = build_workbook(cases, entry['def_name'],
-                                                    entry['def_dob'], is_lite)
+                                                    entry['def_dob'], is_lite,
+                                                    still_failed)
             except Exception as e:
                 print("Workbook failed on retry for client %d: %r" % (index, e),
                       flush=True)
@@ -823,9 +826,14 @@ def retry_task(job, username, password, payload):
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
-def build_workbook(cases, def_name, def_dob, is_lite):
+def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     """Returns the path written, the dispositions Napier could not read, and
     the two figures the ability-to-pay calculator asks for.
+
+    failed is the cases that would not come off Iowa Courts, so the workbook
+    can say what is not in it. The file travels further than any page Napier
+    serves, and one that is quietly short two cases is worse than one that
+    says it is short two cases.
 
     The second value is a map of the ICOS wording to the case numbers it turned
     up on. Empty on almost every run. When it is not, those cases are on the
@@ -863,7 +871,7 @@ def build_workbook(cases, def_name, def_dob, is_lite):
     # Last, and only after BASIC INFO, because the action list reads CASE DATA
     # back rather than recomputing it and puts the client's name at the top.
     atp = actions.build_action_sheet(workbook, cases, row - 4, clinic_date,
-                                     def_name.strip())
+                                     def_name.strip(), failed)
 
     if not os.path.exists(tmp_dir):
         os.mkdir(tmp_dir)

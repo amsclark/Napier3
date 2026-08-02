@@ -70,6 +70,12 @@ class StubClient:
         pass
 
 
+# What the workbook build was told is missing from it. The finish page and the
+# progress log both say so already, and both are gone in two hours; the file is
+# the copy that gets emailed and kept.
+TOLD_MISSING = []
+
+
 def run(monkeypatch, case_ids, unavailable=()):
     """Drive crs_task directly; parsing and workbook building are stubbed."""
     stub = StubClient(unavailable)
@@ -85,9 +91,11 @@ def run(monkeypatch, case_ids, unavailable=()):
                         lambda body, case: case.update(financials=[],
                                                        total_due='$0.00'))
     written = []
+    TOLD_MISSING[:] = []
 
-    def fake_build(cases, name, dob, lite):
+    def fake_build(cases, name, dob, lite, failed=()):
         written.extend(case['id'] for case in cases)
+        TOLD_MISSING.extend(failed)
         return os.path.join(tasks.tmp_dir, 'stub.xlsx'), {}, {'balance': '$0.00', 'monthly': None, 'months': 12}
 
     monkeypatch.setattr(tasks, 'build_workbook', fake_build)
@@ -106,6 +114,20 @@ def test_a_case_icos_will_not_give_up_costs_one_row_not_the_run(monkeypatch):
     assert job.result['failed_cases'] == [case_ids[1]]
     # The run carried on past the bad one rather than dying on it.
     assert stub.asked == case_ids
+
+
+def test_the_workbook_is_told_what_is_missing_from_it(monkeypatch):
+    """crs_task knows which cases it could not get and used to keep it to
+    itself. A workbook that is quietly one case short outlives every page that
+    would have said so."""
+    case_ids = ids(3)
+    run(monkeypatch, case_ids, unavailable=[case_ids[1]])
+    assert TOLD_MISSING == [case_ids[1]]
+
+
+def test_and_told_nothing_is_missing_when_nothing_is(monkeypatch):
+    run(monkeypatch, ids(3))
+    assert TOLD_MISSING == []
 
 
 def test_the_failed_case_is_named_for_staff(monkeypatch):
