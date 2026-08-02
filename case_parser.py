@@ -82,6 +82,9 @@ NON_PARTY_ROLES = frozenset({
     'ATTORNEY FOR RESPONDENT',
     'ATTORNEY - LIMITED APPEARANCE',
     'ATTORNEY OTHER',
+    # On a probate or trust case because somebody left them something. The
+    # estate is not their record. Seen on a live search on 2026-08-01.
+    'BENEFICIARY',
     'CONSERVATOR',
     'COUNTER DEFENDANT',
     'COUNTER PLAINTIFF',
