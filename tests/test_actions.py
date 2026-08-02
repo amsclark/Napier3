@@ -397,7 +397,7 @@ class TestActionSheet:
 
     def test_the_caveat_is_on_the_sheet_not_in_a_manual(self):
         workbook = written_workbook(FULL, [{'G': 'DISM', 'R': 100}])
-        assert 'has been read by a lawyer' in workbook['ACTION LIST']['A7'].value
+        assert 'has been read by a lawyer' in workbook['ACTION LIST']['A8'].value
 
     def test_the_total_owed_adds_up_every_fee_column(self):
         workbook = written_workbook(
