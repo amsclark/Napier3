@@ -188,6 +188,33 @@ def test_a_different_class_on_the_same_job_still_gets_through(mailbox):
     assert len(mailbox) == 2
 
 
+def test_ICOS_answering_wrongly_and_not_answering_are_separate_classes(mailbox):
+    """Why they are two classes rather than one with a field on it.
+
+    Suppression is keyed on the class and nothing else, so a run where ICOS
+    times out once and then serves problem report pages for an hour used to
+    send a single email about the timeout. The thing that stopped the run was
+    never mentioned.
+    """
+    assert alerts.NO_ANSWER != alerts.BAD_RESPONSE
+    send(alerts.record('job1234', 'crs', alerts.NO_ANSWER, reason='timed out'))
+    send(alerts.record('job1234', 'crs', alerts.BAD_RESPONSE,
+                       reason='problem report page'))
+    assert len(mailbox) == 2
+
+
+def test_the_reason_is_the_first_thing_under_the_failure(mailbox):
+    """It is the sentence that decides whether anyone needs to do anything, so
+    it does not belong in the alphabetical tail with the incidental fields."""
+    send(alerts.record('job1234', 'crs', alerts.BAD_RESPONSE,
+                       endpoint='TViewCaseCivil', attempts=4,
+                       reason='a page for a different case than the one asked for',
+                       **{'response size': '3407b'}))
+    body = mailbox[0]['text']
+    assert 'different case' in body, body
+    assert body.index('reason:') < body.index('endpoint:'), body
+
+
 def test_a_second_job_inside_the_floor_is_suppressed(mailbox):
     send(alerts.record('job1234', 'search', alerts.BAD_RESPONSE, now=1000.0))
     # A clinic morning puts several staff behind the same broken ICOS.

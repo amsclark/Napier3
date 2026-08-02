@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import icos
 from icos import (IcosAccountLocked, IcosBadCredentials, IcosClient,
                   IcosStopped, IcosUnavailable)
-from reader import EMPTY, OK, TIMEOUT, FetchResult
+import alerts
+from reader import EMPTY, ERROR, OK, TIMEOUT, FetchResult
 
 LOGIN_OK = b"x" * 28000
 CONCURRENT_PAGE = b"<html>Concurrent Login Error: A user is already logged on</html>"
@@ -447,3 +448,102 @@ def test_a_stopped_run_can_still_log_off():
     client.logoff()
     assert "EPALogout" in client.reader.calls
     assert client.logged_in is False
+
+
+class TestWhatTheAlertSays:
+    """Which of five different things went wrong.
+
+    Every failed attempt used to reach the inbox as "unusable response from
+    ICOS" with a size field, including the ones where nothing came back at all
+    and the size was 0b. Five causes, one subject line, and because
+    alerts.record only emails the first of each class per run, whichever
+    happened first silenced the other four.
+
+    That is not a tidiness complaint. On 2026-08-01 a clinic batch stopped at
+    1 of 67 cases and the only email about why said "unusable response, 0b",
+    which is what a timeout looks like. What actually stopped the run was ICOS
+    serving problem report pages, and no email said so. Working out which had
+    happened meant reading the source rather than the alert.
+
+    A court site that is down and a session that has lost its place also look
+    identical from outside, and only one of them is Iowa's fault.
+    """
+
+    def _first_alert(self, script):
+        seen = []
+        client, _, _ = build(script, case_budget_seconds=20)
+        client.set_alert(lambda failure, **fields: seen.append((failure, fields)))
+        client.logged_in = True          # alerts are held until after login
+        with pytest.raises(IcosUnavailable):
+            client.case_bundle(CASE_ID)
+        assert seen, 'a failing case must alert at all before this proves anything'
+        return seen[0]
+
+    def test_a_timeout_is_not_called_an_unusable_response(self):
+        failure, fields = self._first_alert([FetchResult(TIMEOUT)] * 50)
+        assert failure == alerts.NO_ANSWER
+        assert 'timeout' in fields['reason']
+        # 0b is not a fact about a response that never arrived, and printing it
+        # is what made this indistinguishable from a page that came back wrong.
+        assert 'response size' not in fields
+
+    def test_an_empty_body_says_so(self):
+        """The live shape: ICOS answers a case request with 200 and nothing in
+        it when the session never selected that case through a search."""
+        failure, fields = self._first_alert([FetchResult(EMPTY)] * 50)
+        assert failure == alerts.NO_ANSWER
+        assert 'empty body' in fields['reason']
+
+    def test_a_transport_error_carries_what_the_transport_said(self):
+        failure, fields = self._first_alert(
+            [FetchResult(ERROR, b'', '503', 0.1, 'HTTP Error 503')] * 50)
+        assert failure == alerts.NO_ANSWER
+        assert '503' in fields['reason']
+
+    def test_a_problem_report_page_is_named_as_one(self):
+        failure, fields = self._first_alert([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 50)
+        assert failure == alerts.BAD_RESPONSE
+        assert 'problem report' in fields['reason']
+        assert fields['response size'] != '0b'   # this one did arrive
+
+    def test_a_page_for_the_wrong_case_is_named_as_one(self):
+        """The dangerous one. It carries no problem report wording, wears some
+        other case's heading and lists nothing, so accepting it writes a
+        conviction down as a non-conviction."""
+        failure, fields = self._first_alert([FetchResult(OK, STUB_CASE_PAGE)] * 50)
+        assert failure == alerts.BAD_RESPONSE
+        assert 'different case' in fields['reason']
+
+    def test_the_five_causes_do_not_collapse_into_each_other(self):
+        """The property that matters, stated as one assertion.
+
+        alerts.record dedupes on the failure class and on nothing else, so two
+        causes sharing a class means hearing about one of them and never the
+        other. Distinct (class, reason) pairs are what keeps that from
+        happening.
+        """
+        scripts = [
+            [FetchResult(TIMEOUT)] * 50,
+            [FetchResult(EMPTY)] * 50,
+            [FetchResult(ERROR, b'', '503', 0.1, 'HTTP Error 503')] * 50,
+            [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 50,
+            [FetchResult(OK, STUB_CASE_PAGE)] * 50,
+        ]
+        seen = [self._first_alert(script) for script in scripts]
+        pairs = {(failure, fields['reason']) for failure, fields in seen}
+        assert len(pairs) == len(scripts), pairs
+
+    def test_the_giving_up_email_says_what_it_gave_up_on(self):
+        """RETRY_EXHAUSTED used to end on "Last result: unusable response",
+        which is the same sentence for all five."""
+        seen = []
+        client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 50,
+                             case_budget_seconds=20)
+        client.set_alert(lambda failure, **fields: seen.append((failure, fields)))
+        client.logged_in = True
+        with pytest.raises(IcosUnavailable):
+            client.case_bundle(CASE_ID)
+        gave_up = [fields for failure, fields in seen
+                   if failure == alerts.RETRY_EXHAUSTED]
+        assert gave_up, 'a case that ran out its budget must say so'
+        assert 'problem report' in gave_up[0]['note']
