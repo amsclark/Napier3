@@ -175,11 +175,21 @@ detail needed to diagnose a failure without shelling into Heroku.
 
 What sends mail: ICOS exhausting the retry budget, an ESA account still locked
 when the wait gives up, a run that succeeded but needed three or more attempts,
-an unusable response once signed in, a case that would not parse, a case ICOS
-would not retrieve, a job crashing, an unhandled exception in a request, a
-party role or a disposition ICOS used that Napier does not recognise, a
-workbook built and never collected, and a progress page that lost contact with
-the server.
+an unusable response once signed in, ICOS not answering at all, a case that
+would not parse, a case ICOS would not retrieve, a job crashing, an unhandled
+exception in a request, a party role or a disposition ICOS used that Napier
+does not recognise, a workbook built and never collected, and a progress page
+that lost contact with the server.
+
+An unusable response and no answer at all are separate subject lines, and each
+carries the reason as its first line. They used to be one class with a size
+field on it, so a timeout, an empty body, a transport error, an ICOS problem
+report page and a page for the wrong case all arrived worded identically, and
+since it is one email per class per job, whichever happened first silenced the
+rest. On 2026-08-01 that meant one email saying "unusable response, 0b" while
+what actually stopped the run was ICOS serving problem report pages. A court
+site that is down and a session that has lost its place look the same from
+outside, and only one of them is Iowa's fault.
 
 The last two are the ones nothing else would catch, because the server thinks
 those runs went fine. A staffer whose phone drops the progress page sees a
