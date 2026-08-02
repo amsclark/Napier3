@@ -29,6 +29,7 @@ import sys
 from decimal import Decimal
 
 from openpyxl import load_workbook
+from openpyxl.worksheet.formula import ArrayFormula
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -43,6 +44,12 @@ LITE = os.path.join(ROOT, 'CRS Lite 3.5.5.xlsx')
 # The shallowest per-row grid in either template, so a list longer than this
 # has cases the SOL sheet cannot see.
 SOL_LAST_ROW = 150
+
+# Where the expungement sheet's own per-row formulas stop, and the columns it
+# keeps as ctrl-shift-enter array formulas rather than plain ones.
+EXPUNGEMENT_LAST_ROW = 200
+ARRAY_COLUMNS = {'CRS 3.5.5.xlsx': ('F', 'M', 'N'),
+                 'CRS Lite 3.5.5.xlsx': ('F', 'L', 'M')}
 
 CASE_REF = re.compile(r"'CASE DATA'!(\$?)[A-Z]{1,3}(\$?)(\d+)")
 
@@ -237,6 +244,106 @@ def test_the_lite_template_grows_too():
 def test_it_reports_which_sheets_it_had_to_touch():
     _, grown = extended(SOL_LAST_ROW + 20)
     assert 'SOL' in grown and grown['SOL'] > 0, grown
+
+
+# -- the columns that were entered with ctrl-shift-enter ---------------------
+
+def array_columns(template=FULL):
+    return ARRAY_COLUMNS[os.path.basename(template)]
+
+
+def test_an_array_formula_column_reaches_the_new_rows_too():
+    """openpyxl hands a ctrl-shift-enter cell back as an object rather than a
+    string, so a formula read as a string is silently not one of these. Three
+    columns of the expungement sheet are that kind, and one of them is whether
+    there is a subsequent conviction, which is what decides a juvenile record
+    under 232.150. Dropping them leaves a row that is present and blank, which
+    reads as nothing to report."""
+    count = EXPUNGEMENT_LAST_ROW + 20
+    workbook, grown = extended(count)
+    sheet = workbook['EXPUNGEMENT & 910.7']
+    assert grown.get('EXPUNGEMENT & 910.7'), 'the sheet did not grow'
+    for column in array_columns():
+        source = sheet['%s%d' % (column, EXPUNGEMENT_LAST_ROW)]
+        assert isinstance(source.value, ArrayFormula), \
+            '%s is no longer an array formula, so nothing is being tested' % column
+        for row in (EXPUNGEMENT_LAST_ROW + 1, EXPUNGEMENT_LAST_ROW + 10):
+            assert sheet['%s%d' % (column, row)].value is not None, \
+                '%s%d is blank' % (column, row)
+
+
+def test_a_copied_array_formula_is_still_an_array_formula():
+    """Written back as a plain string it loses the marking, and every one of
+    these is a SUM(COUNTIF(range, range)) that stops summing without it and
+    answers about a single cell instead."""
+    workbook, _ = extended(EXPUNGEMENT_LAST_ROW + 20)
+    sheet = workbook['EXPUNGEMENT & 910.7']
+    for column in array_columns():
+        cell = sheet['%s%d' % (column, EXPUNGEMENT_LAST_ROW + 5)]
+        assert isinstance(cell.value, ArrayFormula), (column, cell.value)
+
+
+def test_a_copied_array_formula_is_entered_over_its_own_cell():
+    """The ref travels with the formula. Left pointing at the row it came from,
+    the copy is entered over a cell it is not in."""
+    workbook, _ = extended(EXPUNGEMENT_LAST_ROW + 20)
+    sheet = workbook['EXPUNGEMENT & 910.7']
+    for column in array_columns():
+        for row in (EXPUNGEMENT_LAST_ROW + 1, EXPUNGEMENT_LAST_ROW + 12):
+            cell = sheet['%s%d' % (column, row)]
+            assert isinstance(cell.value, ArrayFormula), (column, row,
+                                                          cell.value)
+            assert cell.value.ref == '%s%d' % (column, row), \
+                (column, row, cell.value.ref)
+
+
+def test_a_copied_array_formula_reads_its_own_case():
+    """Filling down has to move the case reference with the row, or every new
+    row answers about the last case that fitted."""
+    count = EXPUNGEMENT_LAST_ROW + 20
+    workbook, _ = extended(count)
+    sheet = workbook['EXPUNGEMENT & 910.7']
+    row = EXPUNGEMENT_LAST_ROW + 10
+    cell = sheet['M%d' % row]
+    assert isinstance(cell.value, ArrayFormula), cell.value
+    assert "'CASE DATA'!G%d" % (row + 1) in cell.value.text, cell.value.text
+
+
+def test_an_array_formula_counting_every_case_is_widened_too():
+    """SUBSEQUENT CONVICTION counts convictions over 'CASE DATA'!$G$4:$G$200.
+    On a longer list that answers "no subsequent conviction" from a partial
+    reading of the case list, which is the direction that says a juvenile
+    record is clear to expunge when it is not."""
+    count = 260
+    workbook, _ = extended(count)
+    sheet = workbook['EXPUNGEMENT & 910.7']
+    last_case_row = 3 + count
+    for row in (3, EXPUNGEMENT_LAST_ROW, EXPUNGEMENT_LAST_ROW + 20):
+        cell = sheet['F%d' % row]
+        assert isinstance(cell.value, ArrayFormula), (row, cell.value)
+        end = int(re.search(r"\$G\$4:\$G\$(\d+)", cell.value.text).group(1))
+        assert end >= last_case_row, 'row %d counts only to %d' % (row, end)
+
+
+def test_the_lite_template_keeps_its_array_formulas_too():
+    workbook, _ = extended(EXPUNGEMENT_LAST_ROW + 20, template=LITE)
+    sheet = workbook['EXPUNGEMENT & 910.7']
+    for column in array_columns(LITE):
+        cell = sheet['%s%d' % (column, EXPUNGEMENT_LAST_ROW + 5)]
+        assert isinstance(cell.value, ArrayFormula), (column, cell.value)
+
+
+def test_a_short_case_list_leaves_the_array_formulas_alone():
+    plain = load_workbook(FULL)['EXPUNGEMENT & 910.7']
+    workbook, _ = extended(40)
+    sheet = workbook['EXPUNGEMENT & 910.7']
+    for column in array_columns():
+        for row in (3, 100, EXPUNGEMENT_LAST_ROW):
+            was = plain['%s%d' % (column, row)].value
+            now = sheet['%s%d' % (column, row)].value
+            assert now.text == was.text, (column, row)
+            assert now.ref == was.ref, (column, row)
+        assert sheet['%s%d' % (column, EXPUNGEMENT_LAST_ROW + 1)].value is None
 
 
 # -- through the real build ---------------------------------------------------
