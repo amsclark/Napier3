@@ -547,3 +547,51 @@ class TestWhatTheAlertSays:
                    if failure == alerts.RETRY_EXHAUSTED]
         assert gave_up, 'a case that ran out its budget must say so'
         assert 'problem report' in gave_up[0]['note']
+
+
+class TestWhatTheRunIsToldToBelieve:
+    """Whether ICOS said it was down, or merely failed to answer.
+
+    The run's outage counter stops a clinic list after six refused cases,
+    which is about twenty three minutes, and that price buys the difference
+    between one client's sealed cases and a dead court site. When ICOS has
+    already answered that question by serving its problem report page, the
+    price is not owed, so the flag has to reach the caller. It travels on the
+    exception because that is the only thing the caller gets.
+    """
+
+    def _bundle_failure(self, script):
+        client, _, _ = build(script, case_budget_seconds=20)
+        client.logged_in = True
+        with pytest.raises(IcosUnavailable) as caught:
+            client.case_bundle(CASE_ID)
+        return caught.value
+
+    def test_a_problem_report_page_reaches_the_caller_as_one(self):
+        failure = self._bundle_failure([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 50)
+        assert failure.court_site_down is True
+
+    def test_a_timeout_does_not_claim_ICOS_said_anything(self):
+        """It is the same outage from the outside and a different one to
+        anybody diagnosing it, which is the whole reason for the flag."""
+        failure = self._bundle_failure([FetchResult(TIMEOUT)] * 50)
+        assert failure.court_site_down is False
+
+    def test_nor_does_a_page_for_the_wrong_case(self):
+        failure = self._bundle_failure([FetchResult(OK, STUB_CASE_PAGE)] * 50)
+        assert failure.court_site_down is False
+
+    def test_a_search_carries_it_too(self):
+        """A refused name costs the 45 minute search budget rather than a
+        case's four, so this is worth more on the search side than the case
+        side."""
+        client, _, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 50,
+                             budget_seconds=20)
+        client.logged_in = True
+        with pytest.raises(IcosUnavailable) as caught:
+            client.search('PAT', '', 'DOE')
+        assert caught.value.court_site_down is True
+
+    def test_the_default_is_no_claim(self):
+        """Every other raise site in the app builds one of these by hand."""
+        assert IcosUnavailable('anything').court_site_down is False
