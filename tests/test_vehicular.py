@@ -16,6 +16,7 @@ column, the sheet goes quietly wrong again and these fail instead.
 import os
 import re
 import sys
+from decimal import Decimal
 
 import pytest
 from openpyxl import load_workbook
@@ -208,3 +209,138 @@ def test_the_sheet_only_asks_once_the_case_is_a_conviction_with_debt():
     """
     formula = _license_regis_formula(FULL)
     assert 'GTR' in formula and 'GPL' in formula and 'DEF' in formula
+
+
+# -- charged under a city ordinance -----------------------------------------
+
+# Nine of 90 captured cases are prosecuted under a local ordinance rather than
+# the state section, and Iowa Courts print the ordinance citation in the
+# adjudicated code. Every one of the nine is a motor vehicle matter and every one
+# of them used to answer "NO".
+#
+# The citations below keep the real shapes and drop the real numbers.
+
+ORDINANCE_WITH_THE_CHAPTER_IN_IT = [
+    ('SY/32-321.285(d)(3)', 'a city adopting the state speeding section'),
+    ('SY/9-7-321.285.D-C', 'the same city, a different ordinance numbering'),
+    ('SY/321.218', 'no intervening ordinance number at all'),
+]
+
+
+@pytest.mark.parametrize('statute,why', ORDINANCE_WITH_THE_CHAPTER_IN_IT)
+def test_an_ordinance_that_cites_the_state_section_is_read(statute, why):
+    """No judgement call in this one. The chapter is written in the code.
+
+    It only ever read "NO" because the test was anchored to the start of the
+    string and an ordinance citation puts two letters and a slash in front.
+    """
+    assert crs.is_vehicular(statute) == "YES", why
+
+
+BARE_ORDINANCE = [
+    ('SY/62.01(120)-0198', 'a municipal code section, seat belts in that city'),
+    ('SY/61.107', 'a municipal code section, parking'),
+    ('SY/51.013-0063', 'a municipal code section, no registration'),
+]
+
+
+@pytest.mark.parametrize('statute,why', BARE_ORDINANCE)
+def test_a_bare_ordinance_citation_is_not_answered_at_all(statute, why):
+    """Not "NO". There is no chapter in it to disagree with.
+
+    62.01 in one city's code has nothing to do with 62.01 in another's, and
+    neither has anything to do with the state chapters. Napier saying "NO" here
+    was the same confident answer it gives about a forgery statute, off a code
+    it cannot read.
+    """
+    assert crs.is_vehicular(statute) is None, why
+
+
+def test_an_ordinance_alongside_a_state_statute_still_answers():
+    """The unreadable code only withholds the answer when nothing else gives one."""
+    assert crs.is_vehicular('SY/62.01;321J.2') == "YES"
+
+
+def test_a_state_statute_that_is_not_vehicular_is_still_a_confident_no():
+    """The guard on the whole change.
+
+    Chapter 714 is theft in the state code and stays a "NO". Withholding an
+    answer is only for a citation Napier cannot read, not for every case that is
+    not a traffic case, or LICENSE-REGIS loses the distinction entirely.
+    """
+    assert crs.is_vehicular('714.2(3);714.2(3)') == "NO"
+
+
+def _ordinance_case(statute, costs):
+    """A conviction under an unreadable ordinance, owing `costs`."""
+    case = _case(statute, disposition='GUILTY')
+    case['summary_categories'] = [
+        {'label': label,
+         'original': Decimal(costs) if label == 'COSTS' else Decimal('0'),
+         'paid': Decimal('0'),
+         'due': Decimal(costs) if label == 'COSTS' else Decimal('0')}
+        for label in ('COSTS', 'FINE', 'SURCHARGE', 'RESTITUTION', 'OTHER')]
+    # ICOS states the balance on every financials page it serves, and the
+    # zero-balance case is the one that decides whether column V stays quiet.
+    case['total_due'] = '$' + costs
+    return case
+
+
+def _note(case):
+    sheet = load_workbook(FULL)['CASE DATA']
+    crs.process_case(case, sheet, crs.FIRST_CASE_ROW)
+    row = str(crs.FIRST_CASE_ROW)
+    return sheet['H' + row].value, sheet['V' + row].value or ''
+
+
+def test_a_blank_column_h_says_why_on_a_row_the_sheet_will_speak_about():
+    """A blank is honest and invisible, which is the problem with leaving it.
+
+    LICENSE-REGIS reads a blank exactly as it reads "NO" and prints
+    "Registration only", so the row that gets that sentence printed about it
+    carries the reason nobody could check it.
+    """
+    vehicular, note = _note(_ordinance_case('SY/62.01(120)-0198', '65.75'))
+    assert vehicular is None
+    assert 'SY/62.01(120)-0198' in note
+    assert 'Registration only' in note
+
+
+def test_a_case_that_owes_nothing_stays_quiet():
+    """LICENSE-REGIS prints "Z - no debt" and never looks at column H.
+
+    Seven of the nine captured ordinance cases are paid off. A caveat about a
+    sentence the sheet is not going to print is the same noise column V was
+    cleared of once already.
+    """
+    vehicular, note = _note(_ordinance_case('SY/62.01(120)-0198', '0'))
+    assert vehicular is None
+    assert 'Column H is blank' not in note, note
+
+
+def test_a_dismissed_ordinance_case_stays_quiet():
+    """No conviction, so the sheet says neither licence nor registration."""
+    case = _ordinance_case('SY/62.01(120)-0198', '65.75')
+    case['charges'][0]['disposition'] = ['DISMISSED']
+    vehicular, note = _note(case)
+    assert vehicular is None
+    assert 'Column H is blank' not in note, note
+
+
+def test_an_ordinance_napier_can_read_needs_no_caveat():
+    """It answered the question, so there is nothing to warn about."""
+    vehicular, note = _note(_ordinance_case('SY/32-321.285(d)(3)', '65.75'))
+    assert vehicular == 'YES'
+    assert 'Column H is blank' not in note, note
+
+
+def test_the_caveat_does_not_displace_what_the_money_left_in_column_v():
+    """Column V belongs to process_financials first. This joins, never replaces."""
+    case = _ordinance_case('SY/62.01(120)-0198', '65.75')
+    case['financials'] = [
+        {'detail': 'SYNTHETIC UNCATEGORISED LINE', 'amount': Decimal('10.00'),
+         'paid': None},
+    ]
+    _, note = _note(case)
+    assert 'MISCELLANEOUS' in note, note
+    assert 'SY/62.01(120)-0198' in note, note
