@@ -37,10 +37,12 @@ SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 3
 # When ICOS says it itself. A problem report page is the court site reporting
 # that its own data source is unreachable, so a request that spent its entire
 # budget being told that is not the ambiguous thing six exists to protect
-# against. On 2026-08-01 a run met one and burned four minutes per case
-# rediscovering what the very first response had already said; under today's
-# threshold the same outage would take twenty three minutes to confirm, or
-# ninety on the search side.
+# against. This is measured on the 2026-07-30 capture, where 45 case requests in
+# a row came back as that page, byte for byte the same, while ICOS was
+# degrading. A run that walks into that spends four minutes per case
+# rediscovering what the first response already said in words, so under the
+# ambiguous threshold it takes twenty three minutes to confirm, or ninety on the
+# search side.
 #
 # Two rather than one, because a court site can serve one of these and come
 # back, and the cost of being wrong is a clinic list that ends early. Sealed
