@@ -82,6 +82,8 @@
     </span>
   </div>
 
+  {% if atp %}{% include '_atp.html' %}{% endif %}
+
   {% if failed %}
     <div class="notice" role="alert">
       <p class="notice-title">

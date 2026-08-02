@@ -323,6 +323,7 @@ def _finish_page(job, error=None):
     if job.kind == 'batch_crs':
         return render_template('batch_done.html', job=job.to_dict(),
                                clients=result['clients'],
+                               months=crs.RECENT_MONTHS,
                                is_lite=result['is_lite'],
                                built=sum(1 for c in result['clients'] if c['file']),
                                written=result['written_cases'],
@@ -333,6 +334,7 @@ def _finish_page(job, error=None):
                                    max([c['written'] for c in result['clients']]
                                        or [0]), result['is_lite']))
     return render_template('done.html', job=job.to_dict(),
+                           atp=result.get('atp'),
                            def_name=result['def_name'],
                            is_lite=result['is_lite'],
                            written=result['written_cases'],

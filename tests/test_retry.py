@@ -141,7 +141,7 @@ def _fake_build(cases, name, dob, lite):
                         'test_retry_%s.xlsx' % name.split(',')[0].strip())
     with open(path, 'wb') as f:
         f.write(b'PK\x03\x04 stub workbook')
-    return path, dict(UNKNOWN)
+    return path, dict(UNKNOWN), {'balance': '$0.00', 'monthly': None, 'months': 12}
 
 
 @pytest.fixture(autouse=True)
