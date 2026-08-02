@@ -132,11 +132,46 @@ UNKNOWN_DISPOSITION_NOTE = (
 # the distinction the sheet is drawing. So the test is the chapter the statute
 # sits in, which Napier already has: it is the adjudicated statutory code in
 # column F.
-VEHICULAR_CHAPTER = re.compile(r'^\s*321[A-Z]?\.', re.I)
+# A city or county prosecuting a traffic offence under its own ordinance puts
+# the ordinance citation in the adjudicated code, and ICOS prints that instead of
+# the state section. Nine of 90 captured cases are charged that way and every one
+# of them is a motor vehicle matter: speeding, seat belts, parking, driving an
+# unregistered vehicle. The chapter test used to anchor at the start of the
+# string, so all nine read as not a chapter 321 matter at all.
+#
+# They come in two shapes and only one of them is answerable.
+#
+# DU/32-321.285(d)(3) is Dubuque adopting the state speeding section by number,
+# and the state section is right there in the code. So the chapter is looked for
+# at the start of the code or straight after an ordinance citation's / or -,
+# which finds it in both shapes and still will not match a chapter that merely
+# ends in those digits.
+VEHICULAR_CHAPTER = re.compile(r'(?:^\s*|[-/])321[A-Z]?\.', re.I)
+# MA/62.01(120)-0198 is the other shape: a bare municipal code section. 62.01 in
+# one city's code has nothing to do with 62.01 in another's and neither has
+# anything to do with the state chapters, so there is no chapter in it to read.
+ORDINANCE_CITATION = re.compile(r'^[A-Z]{2}/', re.I)
 # Homicide and serious injury by vehicle live in chapter 707 rather than 321 and
 # revoke a licence on conviction, so they are vehicular for this purpose even
 # though the chapter does not say so.
 VEHICULAR_SECTIONS = ('707.6A',)
+
+# The three codes LICENSE-REGIS treats as a conviction. On anything else it says
+# "Z - Neither license nor registration" and never looks at column H at all.
+LICENCE_DISPOSITIONS = frozenset({'GTR', 'GPL', 'DEF'})
+
+# Leaving column H blank is honest but it is not visible: LICENSE-REGIS reads a
+# blank exactly as it reads "NO" and prints "Registration only", which is a
+# sentence about the client's driving licence that nobody checked. So on the rows
+# where that sentence actually gets printed, the row says why.
+ORDINANCE_VEHICULAR_NOTE = (
+    "Column H is blank because Iowa Courts give the adjudicated charge as %s, a "
+    "city or county ordinance citation with no state chapter in it, so Napier "
+    "cannot tell whether this is a chapter 321 offence. LICENSE-REGIS reads the "
+    "blank as \"Registration only\". If the ordinance mirrors a chapter 321 "
+    "offence the licence is at stake too, so check this one before advising on "
+    "it."
+)
 
 
 def is_vehicular(statutes):
@@ -147,6 +182,10 @@ def is_vehicular(statutes):
     conviction for a licence to hang off. Saying "NO" there would be asserting
     something Napier does not know, and the sheet reads a blank and a "NO"
     identically anyway, so the honest answer costs nothing.
+
+    A bare municipal ordinance citation is the same situation and used to get a
+    confident "NO". It is a section number in one city's code and says nothing
+    about which state chapter, if any, the offence answers to.
 
     Any vehicular count carries the case. A client who pleaded to OWI and a
     drugs count has a licence problem regardless of which count the CRS picked
@@ -159,10 +198,12 @@ def is_vehicular(statutes):
     if not codes:
         return None
     for code in codes:
-        if VEHICULAR_CHAPTER.match(code):
+        if VEHICULAR_CHAPTER.search(code):
             return "YES"
         if any(code.upper().startswith(section) for section in VEHICULAR_SECTIONS):
             return "YES"
+    if any(ORDINANCE_CITATION.match(code) for code in codes):
+        return None
     return "NO"
 
 
@@ -888,6 +929,25 @@ def append_note(worksheet, row, text):
     cell.value = ("%s %s" % (cell.value, text)).strip() if cell.value else text
 
 
+def owes_money(worksheet, row):
+    """Whether this row's fee columns add up to anything, read back off the sheet.
+
+    The same SUM(J:S) the analysis sheets take, asked after process_financials
+    has written them, so a caveat about what one of those sheets will print only
+    goes on a row that sheet is going to print about.
+    """
+    total = Decimal(0)
+    for column in 'JKLMNOPQRS':
+        value = worksheet[column + str(row)].value
+        if value in (None, ''):
+            continue
+        try:
+            total += Decimal(str(value))
+        except InvalidOperation:
+            continue
+    return total > 0
+
+
 def process_case(case, worksheet, row, as_of=None):
     """Write one case into CASE DATA. Returns the dispositions it could not read.
 
@@ -905,7 +965,8 @@ def process_case(case, worksheet, row, as_of=None):
     worksheet['A' + i] = case['id']
     worksheet['B' + i] = case['county']
     charge = get_dominant_charge(case['charges'])
-    
+    ordinance_note = None
+
     cell_E = worksheet['E' + i] # Get cell E
 
     if charge is None:
@@ -971,6 +1032,11 @@ def process_case(case, worksheet, row, as_of=None):
         vehicular = is_vehicular(charge['charge'])
         if vehicular is not None:
             worksheet['H' + i] = vehicular
+        elif charge['charge'] and disposition in LICENCE_DISPOSITIONS:
+            # Held until the fees are in, because LICENSE-REGIS only prints its
+            # verdict on a case that owes something and this note is only worth
+            # reading where that verdict appears.
+            ordinance_note = ORDINANCE_VEHICULAR_NOTE % charge['charge']
 
     # Outside the charge branch on purpose. The sentence table is read off the
     # charges page whatever get_dominant_charge made of the adjudications, and a
@@ -1000,6 +1066,8 @@ def process_case(case, worksheet, row, as_of=None):
     # it wrote about the money rather than being overwritten by it.
     if supervision_note:
         append_note(worksheet, i, supervision_note)
+    if ordinance_note and owes_money(worksheet, i):
+        append_note(worksheet, i, ordinance_note)
     unknown = charge.get('unknown_dispositions') or []
     if unknown:
         append_note(worksheet, i,
