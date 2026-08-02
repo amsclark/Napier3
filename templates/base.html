@@ -8,10 +8,10 @@
      findable among a row of identical blank tabs without costing a request. -->
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2317314f'/><path d='M10 23V9h3.1l5.8 8.4V9H22v14h-3.1L13.1 14.6V23z' fill='%23b98900'/></svg>">
 <style>
-/* Everything the page needs is in this file. Nothing is fetched from a CDN.
-   Legal aid offices sit behind filtered networks, and the previous version
-   pulled its stylesheet and jQuery from two outside hosts, so a blocked domain
-   meant an unstyled page or a search button that did nothing. */
+/* Everything the page needs is in this file. The previous version pulled its
+   stylesheet from a Bootstrap CDN and jQuery from another host; both are gone,
+   and the two scripts are plain fetch, which is all they were ever doing
+   through jQuery. */
 
 :root {
   --ink: #151a21;
