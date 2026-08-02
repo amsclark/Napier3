@@ -204,13 +204,11 @@ def truncation_limit(soup):
 # NOT_ADJUDICATED below can be checked against it by a test.
 charge_code_dict = {
     "GUILTY": "GTR",
-    "DNU-GUILTY": "GTR",
     "GUILTY BY COURT": "GTR",
     "GUILTY - NEGOTIATED/VOLUN PLEA": "GPL",
     "CONVERT TO SIMPLE MISDEM": "GPL",
     "ACQUITTED": "ACQ",
     "DISMISSED": "DISM",
-    "DNU-DISMISSED": "DISM",
     "DISMISSED BY COURT": "DISM",
     "DISMISSED BY OTHER": "DISM",
     "DEFERRED": "DEF",
@@ -231,6 +229,25 @@ charge_code_dict = {
 # F alongside real convictions. One name, checked against the map by a test,
 # is the reason that cannot drift apart again.
 NOT_ADJUDICATED = frozenset({"WTHD", "DISM", "ACQ", "NOTF"})
+
+
+def disposition_code(wording):
+    """The CRS code for one ICOS disposition wording, or OTH if unrecognised.
+
+    ICOS prefixes some dispositions DNU-, and the wording after the prefix is
+    the outcome. crs.py has stripped it since the beginning. This map instead
+    carried DNU-GUILTY and DNU-DISMISSED as entries of their own, which held up
+    until Polk County served a DNU-ACQUITTED: no entry, so OTH, and OTH is not
+    in NOT_ADJUDICATED, so an acquitted domestic abuse assault kept 708.2A(2)(A)
+    in column F and reached the expungement sheet as an adjudicated charge. The
+    same page coded ACQ for column N, because crs.py stripped the prefix, so
+    the workbook disagreed with itself on one row.
+
+    Stripping it here instead of adding a third entry is the whole point. The
+    next wording Iowa prefixes is already handled, and the two maps cannot
+    answer differently about the same count again.
+    """
+    return charge_code_dict.get((wording or "").replace("DNU-", ""), "OTH")
 
 
 def parse_search(html):
@@ -422,8 +439,8 @@ def parse_case_charges(html, case):
             if len(texts) >= 4 and texts[0].startswith("Adjudication:"):
                 charge_list.insert(0, texts[1])
                 cur_charge['disposition'] = charge_list
-                prior_description = prior_description + "[" + charge_code_dict.get(texts[1], "OTH") + "];"
-                cur_charge['description'] = cur_charge['description'] + "[" + charge_code_dict.get(texts[1], "OTH") + "]"
+                prior_description = prior_description + "[" + disposition_code(texts[1]) + "];"
+                cur_charge['description'] = cur_charge['description'] + "[" + disposition_code(texts[1]) + "]"
                 if 'prior_dispositionDate' not in vars():
                     cur_charge['dispositionDate'] = texts[3]
                     prior_dispositionDate = cur_charge['dispositionDate']
@@ -434,8 +451,8 @@ def parse_case_charges(html, case):
     if cur_charge is not None:
         if ";" not in cur_charge['description']:
             cur_charge['description'] = cur_charge['description'][:cur_charge['description'].index("[")]
-            #print("Disposition: " + charge_code_dict.get(cur_charge['disposition'][0], "OTH"))
-            disp_code = charge_code_dict.get(cur_charge['disposition'][0], "OTH")
+            #print("Disposition: " + disposition_code(cur_charge['disposition'][0]))
+            disp_code = disposition_code(cur_charge['disposition'][0])
             if disp_code in NOT_ADJUDICATED:
                 cur_charge['charge'] = ""
         else:
