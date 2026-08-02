@@ -461,9 +461,11 @@ class TestWhatTheAlertSays:
 
     That is not a tidiness complaint. On 2026-08-01 a clinic batch stopped at
     1 of 67 cases and the only email about why said "unusable response, 0b",
-    which is what a timeout looks like. What actually stopped the run was ICOS
-    serving problem report pages, and no email said so. Working out which had
-    happened meant reading the source rather than the alert.
+    which is what a timeout looks like. The digest for the same run also listed
+    a 3407 byte reply carrying a 200, filed under that same subject line. Which
+    of the five that body was cannot be established from what was sent, and that
+    is the defect: the email that would have named it had gone out about
+    something else.
 
     A court site that is down and a session that has lost its place also look
     identical from outside, and only one of them is Iowa's fault.

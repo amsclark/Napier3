@@ -72,8 +72,10 @@ def _squashed(text):
 # reached it the same way with "0b", which reads as a page that arrived wrong
 # rather than one that never arrived. Five causes, one email, and since
 # alerts.record only sends the first of each class per run, whichever happened
-# first silenced the rest. On 2026-08-01 that meant one email about a timeout
-# and nothing about the problem report pages that actually stopped the run.
+# first silenced the rest. On 2026-08-01 that meant one email about a timeout,
+# while the digest for the same run listed a 3407 byte reply carrying a 200 that
+# had been filed under that same subject line. Which of the five that body was
+# cannot be established from anything that was sent, which is the defect itself.
 PROBLEM_REPORT_REASON = ("ICOS problem report page, meaning its own data source "
                          "was unreachable")
 WRONG_CASE_REASON = "a page for a different case than the one asked for"
