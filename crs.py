@@ -173,6 +173,18 @@ ORDINANCE_VEHICULAR_NOTE = (
     "it."
 )
 
+# The row has one disposition date and the case had several. Column D now holds
+# the one that goes with the code in column G, which is the pairing the sheets
+# assume, but the SOL sheet runs its twenty year test off that single date and
+# will apply it to every dollar on the row including debt from a count disposed
+# years earlier.
+DISPOSITION_SPREAD_NOTE = (
+    "Counts on this case were disposed on different dates (%s). Column D holds "
+    "%s, the date of the disposition in column G. The SOL sheet applies its "
+    "20 year test to that one date for the whole row, so if this case is near "
+    "the 20 year line check the counts separately."
+)
+
 
 def is_vehicular(statutes):
     """"YES", "NO", or None when there is nothing to judge from.
@@ -419,9 +431,13 @@ def get_dominant_charge(charges):
         return None
     delisted = dict(charges[0])
     raw_charge = delisted['disposition']
+    raw_dates = delisted.get('disposition_dates') or []
     charge_dict = {}
+    # Which counts produced each code, by date, so the winning code can be
+    # paired with the date of the count that actually produced it.
+    dates_by_code = {}
     unknown = set()
-    for disposition in raw_charge:
+    for index, disposition in enumerate(raw_charge):
         disposition = disposition.replace("DNU-", "")
         if not disposition:
             # ICOS printed no adjudication for this count. That is the absence
@@ -440,13 +456,44 @@ def get_dominant_charge(charges):
         elif disposition not in charge_code_map:
             charge_dict["OTH"] = OTH_RANK
             unknown.add(disposition)
+            charge_key = "OTH"
         else:
             charge_key, rank = next(iter(charge_code_map[disposition].items()))
             charge_dict[charge_key] = rank
+        if index < len(raw_dates) and raw_dates[index]:
+            dates_by_code.setdefault(charge_key, []).append(raw_dates[index])
     sorted_tuples = sorted(charge_dict.items(), reverse=True,
                            key=lambda item: item[1] if item[1] is not None else float('inf'))
     delisted['disposition'] = sorted_tuples[0][0] if sorted_tuples else ''
     delisted['unknown_dispositions'] = sorted(unknown)
+
+    # Column D is the date of the disposition column G names, and on a case
+    # where the counts were disposed on different days those two used to come
+    # from different counts. The parser handed over whichever date came first on
+    # the page and column G is chosen by rank, so a case pleaded out on one
+    # count and adjudicated on another more than a year later reported the later
+    # code against the earlier date.
+    #
+    # That pairing is not cosmetic. The SOL sheet asks IF(D+7300 < today) on
+    # every row, the twenty year limit on enforcing an Iowa judgment, and it
+    # sorts the row's debt into time barred or "NO ARGUMENT" on the answer.
+    # Taking the earliest date available makes a judgment look older than it is,
+    # so the error ran toward telling an attorney a debt had aged out when it
+    # had not.
+    #
+    # Where several counts share the winning code, the last of them is the day
+    # the case finished reaching that disposition, and it is also the reading
+    # that will not retire a debt early.
+    winning_dates = dates_by_code.get(delisted['disposition']) or []
+    if winning_dates:
+        delisted['dispositionDate'] = max(
+            winning_dates, key=lambda d: parse_us_date(d) or date.min)
+
+    # A row that compresses counts disposed on different days is saying less
+    # than the case does, and the sheet that reads the date cannot see the
+    # spread. Recorded here, said in column V by the caller.
+    spread = sorted({d for d in raw_dates if d})
+    delisted['disposition_date_spread'] = spread if len(spread) > 1 else []
     return delisted
 
 
@@ -1068,6 +1115,10 @@ def process_case(case, worksheet, row, as_of=None):
         append_note(worksheet, i, supervision_note)
     if ordinance_note and owes_money(worksheet, i):
         append_note(worksheet, i, ordinance_note)
+    spread = charge.get('disposition_date_spread') or []
+    if spread and owes_money(worksheet, i):
+        append_note(worksheet, i, DISPOSITION_SPREAD_NOTE
+                    % (", ".join(spread), disposition_date))
     unknown = charge.get('unknown_dispositions') or []
     if unknown:
         append_note(worksheet, i,
