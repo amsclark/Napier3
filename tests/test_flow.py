@@ -102,8 +102,15 @@ def fake_icos(monkeypatch):
     monkeypatch.setattr(tasks.case_parser, 'parse_case_financials',
                         lambda html, case: case.update(financials=[], total_due='$0.00'))
     monkeypatch.setattr(tasks, 'build_workbook',
-                        lambda cases, name, dob, lite: (_write_stub_workbook(), {}))
+                        lambda cases, name, dob, lite: (_write_stub_workbook(),
+                                                        {}, dict(ATP)))
     yield
+
+
+# Distinctive on purpose, so the finish-page test below is proving these
+# travelled from the workbook build rather than matching something the page
+# would have said anyway.
+ATP = {'balance': '$1,234.56', 'monthly': '$78.90', 'months': 12}
 
 
 def _write_stub_workbook():
@@ -226,6 +233,37 @@ def test_crs_job_pulls_cases_and_offers_a_download(client):
     download = client.get('/job/%s/download' % crs_job_id)
     assert download.status_code == 200
     assert 'TESTER' in download.headers['Content-Disposition']
+
+
+def test_the_finish_page_carries_the_ability_to_pay_figures(client):
+    """They are worked out while the workbook is built and are wanted on the
+    screen, which is two places for them to be lost between."""
+    search_job_id, _ = run_search(client)
+    client.get('/results/' + search_job_id)
+    crs_job_id = client.post('/crs-job', json={
+        'search_job_id': search_job_id,
+        'keys': ['1900-01-01 TESTER, PAT Q'],
+    }).get_json()['job_id']
+    await_job(client, crs_job_id)
+
+    page = client.get('/done/' + crs_job_id).get_data(as_text=True)
+    assert ATP['balance'] in page
+    assert ATP['monthly'] in page
+
+
+def test_but_the_progress_page_does_not(client):
+    """A run in flight is polled as JSON every two seconds, and what a client
+    owes has no business in a poll."""
+    search_job_id, _ = run_search(client)
+    client.get('/results/' + search_job_id)
+    crs_job_id = client.post('/crs-job', json={
+        'search_job_id': search_job_id,
+        'keys': ['1900-01-01 TESTER, PAT Q'],
+    }).get_json()['job_id']
+    state = await_job(client, crs_job_id)
+
+    assert ATP['balance'] not in str(state)
+    assert ATP['monthly'] not in str(state)
 
 
 def test_a_user_id_typed_on_a_phone_still_signs_in(client):

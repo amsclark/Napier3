@@ -119,7 +119,7 @@ def fake_icos(monkeypatch):
                         lambda html, case: case.update(financials=[],
                                                        total_due='$0.00'))
     monkeypatch.setattr(tasks, 'build_workbook',
-                        lambda cases, name, dob, lite: (_stub_workbook(name), {}))
+                        lambda cases, name, dob, lite: (_stub_workbook(name), {}, {'balance': '$0.00', 'monthly': None, 'months': 12}))
     yield
 
 

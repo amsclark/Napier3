@@ -100,6 +100,16 @@
             {{ "written" if client['written'] == client['requested']
                else "written, the rest would not come off Iowa Courts" }}
           </span>
+          {% if client['atp'] %}
+            <span class="atp-inline">
+              Ability to pay: <b>{{ client['atp']['balance'] }}</b> owed,
+              {% if client['atp']['monthly'] %}
+                <b>{{ client['atp']['monthly'] }}</b> a month
+              {% else %}
+                no payments itemized
+              {% endif %}
+            </span>
+          {% endif %}
           {% if client['failed'] %}
             <ul class="missing">
               {% for case_id in client['failed'] %}<li>{{ case_id }}</li>{% endfor %}
@@ -116,6 +126,15 @@
       {% endif %}
     </div>
   {% endfor %}
+
+  {% if clients | selectattr('atp') | list %}
+    <p class="atp-note" style="margin-top:.9rem">
+      The monthly figure is the average of what Iowa Courts recorded over the
+      last {{ months }} months, so it says what has been paid rather than what
+      was agreed, and a client with no itemized payments is not a client who
+      paid nothing. Every payment is on the payment sheet of their workbook.
+    </p>
+  {% endif %}
 
   {% if built != clients | length %}
     <div class="notice" role="alert" style="margin-top:1.2rem">

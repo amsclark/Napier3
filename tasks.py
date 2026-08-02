@@ -517,8 +517,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
                                    "for them.")
                 continue
             try:
-                path, unknown = build_workbook(cases, pick['def_name'],
-                                               pick['def_dob'], is_lite)
+                path, unknown, atp = build_workbook(cases, pick['def_name'],
+                                                    pick['def_dob'], is_lite)
             except Exception as e:
                 # The other clients' workbooks are already built or still to
                 # come, and neither should be lost to this one.
@@ -535,6 +535,7 @@ def batch_crs_task(job, session_token, picks, is_lite):
             report_unknown_dispositions(job, unknown)
             record['written'] = len(cases)
             record['file'] = path
+            record['atp'] = atp
 
         if not any(record['file'] for record in built):
             raise ValueError("no workbooks could be built")
@@ -620,10 +621,12 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
             raise ValueError("no cases could be read")
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
-        path, unknown_dispositions = build_workbook(cases, def_name, def_dob, is_lite)
+        path, unknown_dispositions, atp = build_workbook(cases, def_name,
+                                                         def_dob, is_lite)
         report_unknown_dispositions(job, unknown_dispositions)
         job.result = {
             "file": path,
+            "atp": atp,
             "def_name": def_name,
             "is_lite": is_lite,
             "written_cases": len(cases),
@@ -747,8 +750,8 @@ def retry_task(job, username, password, payload):
                                        "still no workbook for them.")
                 continue
             try:
-                path, unknown = build_workbook(cases, entry['def_name'],
-                                               entry['def_dob'], is_lite)
+                path, unknown, atp = build_workbook(cases, entry['def_name'],
+                                                    entry['def_dob'], is_lite)
             except Exception as e:
                 print("Workbook failed on retry for client %d: %r" % (index, e),
                       flush=True)
@@ -773,6 +776,7 @@ def retry_task(job, username, password, payload):
                 if any(case_id in fresh_ids for case_id in case_ids)})
             record['written'] = len(cases)
             record['file'] = path
+            record['atp'] = atp
 
         if not any(record['file'] for record in built):
             raise ValueError("no workbooks could be rebuilt")
@@ -801,6 +805,10 @@ def retry_task(job, username, password, payload):
         record = built[0]
         job.result = {
             "file": record['file'],
+            # Rebuilt from every case that has ever come back for this client,
+            # so a retry that recovered two cases raises the balance the
+            # calculator is about to be given.
+            "atp": record.get('atp'),
             "def_name": record['name'],
             "is_lite": is_lite,
             "written_cases": record['written'],
@@ -816,7 +824,8 @@ def retry_task(job, username, password, payload):
 
 
 def build_workbook(cases, def_name, def_dob, is_lite):
-    """Returns the path written, and the dispositions Napier could not read.
+    """Returns the path written, the dispositions Napier could not read, and
+    the two figures the ability-to-pay calculator asks for.
 
     The second value is a map of the ICOS wording to the case numbers it turned
     up on. Empty on almost every run. When it is not, those cases are on the
@@ -853,8 +862,8 @@ def build_workbook(cases, def_name, def_dob, is_lite):
 
     # Last, and only after BASIC INFO, because the action list reads CASE DATA
     # back rather than recomputing it and puts the client's name at the top.
-    actions.build_action_sheet(workbook, cases, row - 4, clinic_date,
-                               def_name.strip())
+    atp = actions.build_action_sheet(workbook, cases, row - 4, clinic_date,
+                                     def_name.strip())
 
     if not os.path.exists(tmp_dir):
         os.mkdir(tmp_dir)
@@ -865,7 +874,7 @@ def build_workbook(cases, def_name, def_dob, is_lite):
     suffix = "_Lite_CRS_" if is_lite else "_CRS_"
     path = tmp_dir + safe_name + suffix + stamp + ".xlsx"
     workbook.save(path)
-    return path, unknown
+    return path, unknown, atp
 
 
 def download_name(def_name, is_lite):
