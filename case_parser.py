@@ -409,6 +409,17 @@ def parse_case_charges(html, case):
 
 
         if cur_section == "Charge":
+            if len(texts) >= 4 and texts[0].startswith("Charge:"):
+                # The charge as filed, which ICOS prints above the adjudication
+                # in the same shape. Nothing read it until now, so a count with
+                # no adjudication yet reached the sheet with an empty
+                # description and staff could not tell what the case was even
+                # about. Kept apart from 'description' on purpose: this is what
+                # the State accused someone of rather than what a court decided,
+                # so it must never reach column F, which is the adjudicated
+                # statute the expungement sheet reads in 792 formulas.
+                cur_charge['original_charge'] = texts[1]
+                cur_charge['original_description'] = texts[3]
             if len(texts) >= 3 and texts[0].startswith("Offense Date:"):
                 if 'prior_offenseDate' not in vars():
                     cur_charge['offenseDate'] = texts[1]
