@@ -180,6 +180,18 @@ class IcosClient:
             else _env_seconds("CONCURRENT_WAIT_MIN", 16)
         self.logged_in = False
         self.username = None
+        # Which attempt each request finally landed on, and how many were given
+        # up on. Measured against the real site on 2026-08-01, a healthy ICOS
+        # answered 314 of 314 requests first time, with the slowest taking
+        # 1.31s against an 8 second timeout. So the case budget of four minutes
+        # is not there for a slow site, it is there for a sick one, and nobody
+        # has ever seen what a sick one does: whether a case that fails six
+        # times ever comes back on the seventh, or whether the four minutes are
+        # spent proving something that was decided in the first ten seconds.
+        # That is 23 minutes of a clinic during an outage, so it is worth
+        # knowing rather than guessing. This is the counting.
+        self.landed_on = {}
+        self.given_up = 0
         # The registry entry for the ESA account this client holds, so the next
         # staffer to collide with it can be told what is holding it.
         self._account_handle = None
@@ -240,6 +252,7 @@ class IcosClient:
             result = self.reader.fetch_once(url, data)
             if result.ok:
                 if validate is None or validate(result.body):
+                    self.landed_on[attempt + 1] = self.landed_on.get(attempt + 1, 0) + 1
                     if attempt >= SLOW_RECOVERY_ATTEMPTS:
                         # It worked, so staff see nothing. But ICOS needing this
                         # many tries is how a bad afternoon starts, and knowing
@@ -266,6 +279,7 @@ class IcosClient:
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)
             if elapsed + wait > budget:
+                self.given_up += 1
                 self._alert(alerts.RETRY_EXHAUSTED, endpoint=endpoint,
                             attempts=attempt + 1, elapsed=_describe(elapsed),
                             backoff=_timeline(waits),
@@ -428,6 +442,15 @@ class IcosClient:
 
         The three pages must be fetched in this order: ICOS keys the charges and
         financials views off the case selected by the summary request.
+
+        Which also settles whether cases could be pulled concurrently, and they
+        cannot. TViewCharges and TViewFinancials take no parameters at all, so
+        the only thing saying which case they answer about is server state.
+        Checked against the real site on 2026-08-01: selecting case A, then
+        case B, then reading charges returns B's charges. Two case pulls
+        sharing a session interleave into one wrong case, and a second session
+        means a second ESA account, which locks a colleague out. Threads and
+        aiohttp change nothing here.
         """
         summary = self._retry(
             "case", lambda: self.reader.case_summary_request(case_id),
@@ -446,6 +469,28 @@ class IcosClient:
             validate=lambda body: _is_page_for_case(body, case_id))
         return summary, charges, financials
 
+    def retry_summary(self):
+        """How hard this session had to work, or None if it did not have to.
+
+        Silent on a healthy run. "Everything answered first time" printed after
+        every run is how a log gets stopped being read, and this line is only
+        worth anything if it is unusual enough that somebody looks at it.
+
+        It goes in the progress log rather than only to stdout because the
+        progress log is what alert emails carry, so the one run that went badly
+        arrives already carrying the shape of how it went badly.
+        """
+        slow = sorted(n for n in self.landed_on if n > 1)
+        if not slow and not self.given_up:
+            return None
+        parts = ["%d first time" % self.landed_on.get(1, 0)]
+        for n in slow:
+            parts.append("%d on try %d" % (self.landed_on[n], n))
+        line = "Iowa Courts answered " + ", ".join(parts)
+        if self.given_up:
+            line += ", and never answered %d" % self.given_up
+        return line + "."
+
     def logoff(self):
         """Release the ESA session.
 
@@ -453,6 +498,12 @@ class IcosClient:
         best-effort but never skipped -- and never allowed to raise, since it
         runs in cleanup paths.
         """
+        # Before the early return, because a session that never got logged in
+        # is a session that spent its whole life retrying, which is exactly the
+        # run worth having the numbers from.
+        summary = self.retry_summary()
+        if summary:
+            self._log(summary)
         if not self.logged_in:
             return
         try:
