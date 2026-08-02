@@ -300,9 +300,48 @@ def test_third_party_fee_stays_out_of_the_partition(felony_case):
     ("IOWA DEPT OF REVENUE COLLECTIONS FEE", "OTHER"),
     ("", "OTHER"),
     (None, "OTHER"),
+    # Both of these read like OTHER. ICOS's own summary says otherwise, on
+    # pages where every other fee matched to the cent, so the only thing
+    # keeping those two rows from reconciling was this classification.
+    ("POSTAGE FEES", "COSTS"),
+    ("MISC FEES BY CITY/COUNTY", "COSTS"),
 ])
 def test_summary_bucket_classification(detail, bucket):
     assert crs.get_summary_bucket(detail) == bucket
+
+
+def test_a_misc_sounding_fee_does_not_cost_the_row_its_breakdown():
+    """The shape of a real Polk County page, with the amounts it carried.
+
+    ICOS put all four of these in COSTS and reported 227.00 assessed. Napier
+    read the city/county line as OTHER, so COSTS came up 37.00 short and OTHER
+    37.00 over, both failed the partition check, and every fee on the row
+    collapsed into one category total. Columns J and M are where the
+    statute-of-limitations and Polk room-and-board sheets look for indigent
+    defense and jail debt, and they came out empty on a case that had both.
+    """
+    case = {
+        'summary_categories': _five_buckets(
+            COSTS=(Decimal('227.00'), Decimal('0'))),
+        'financials': [
+            {'detail': 'FILING AND DOCKETING FEES CRIMINAL',
+             'amount': Decimal('100.00'), 'paid': None},
+            {'detail': 'SHERIFFS FEES - LOCAL',
+             'amount': Decimal('30.00'), 'paid': None},
+            {'detail': 'MISC FEES BY CITY/COUNTY',
+             'amount': Decimal('37.00'), 'paid': None},
+            {'detail': 'INDIGENT DEFENSE-MISDM-REIMBURSE STATE',
+             'amount': Decimal('60.00'), 'paid': None},
+        ],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert columns is not None, 'the row fell back to category totals'
+    assert note is None
+    assert columns['J'] == Decimal('60.00'), 'indigent defense'
+    assert columns['M'] == Decimal('30.00'), 'sheriff'
+    # Still lands on the balance ICOS reports, which is the check that says the
+    # breakdown was not bought by inventing money.
+    assert sum(columns.values()) == Decimal('227.00')
 
 
 @pytest.mark.parametrize("text,expected", [

@@ -457,6 +457,13 @@ COSTS_MARKERS = (
     'SHERIFF', 'INDIGENT DEFENSE', 'COURT COSTS', 'FILING', 'CLERK',
     'WITNESS', 'JURY', 'SERVICE', 'ROOM/BOARD', 'ATTORNEY FEE',
     'TRANSCRIPT', 'APPEAL FEES', 'DEPOSITION',
+    # Both of these read like OTHER and are not. Polk County put $5.27 of
+    # postage in COSTS and $37.00 of city/county misc fees in COSTS, in its own
+    # summary, on pages where the itemization was otherwise exact. Guessing
+    # wrong here is cheap and self-announcing: the bucket stops adding up and
+    # the row falls back to category totals, which is where both of these
+    # already were.
+    'POSTAGE', 'MISC FEES BY CITY/COUNTY',
 )
 
 FINE_MARKERS = (
@@ -663,10 +670,11 @@ def reconcile_financials(case):
 
     notes = []
     if unreconciled:
-        text = ("%s did not add up against the itemization, so %s balance is "
+        text = ("%s did not add up against the itemization, so %s "
                 "ICOS's category total rather than a per-fee breakdown"
                 % (_and_list(unreconciled),
-                   "those" if len(unreconciled) > 1 else "that"))
+                   "those balances are" if len(unreconciled) > 1
+                   else "that balance is"))
         if any(get_finance_column(summary[name]['label']) == 'O'
                for name in unreconciled):
             text += (", and those fees are in MISCELLANEOUS rather than in "
