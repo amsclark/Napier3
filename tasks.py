@@ -17,6 +17,7 @@ import actions
 import alerts
 import case_parser
 import crs
+import grid
 import icos_sessions
 import roster
 from icos import IcosClient, IcosError, IcosStopped, STOPPED_MESSAGE
@@ -924,6 +925,15 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
         for disposition in crs.process_case(case, sheet, row, clinic_date) or []:
             unknown.setdefault(disposition, []).append(case['id'])
         row += 1
+
+    # The templates were filled down by hand, each to a different depth, and
+    # nothing above stops the case list before it runs past them. A case on a
+    # row no derived sheet reaches is not reported as time barred, not reported
+    # as having no argument and not counted as a pending charge: it is simply
+    # absent, and the workbook says nothing. This fills the author's own last
+    # row down to the case list and widens the totals to match. It changes no
+    # formula's meaning, and does nothing at all to a workbook that fits.
+    grid.extend_formula_grid(workbook, row - 4)
 
     sheet = workbook['BASIC INFO']
     # Every date test in the workbook compares against B3, the clinic date: the
