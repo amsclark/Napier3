@@ -147,6 +147,64 @@ def test_a_collapsed_row_says_it_is_collapsed(felony_case):
     assert 'ICOS total is still right' in note
 
 
+def test_a_paid_off_case_does_not_warn_about_a_breakdown_of_nothing(felony_case):
+    """ICOS says $0.00 due, so every fee column is zero however it got there.
+
+    The caveat explains that sheriff and indigent defense debt is hiding inside
+    MISCELLANEOUS, and on this row there is no debt anywhere to hide. Of the 25
+    captured pages that carried one of these, 23 owed nothing. Column V is also
+    where the notes staff actually have to read go, the disposition Napier had
+    to guess at and the case Iowa Courts would not give up, so filling it with
+    warnings about paid off cases teaches people to skip the column.
+    """
+    felony_case['total_due'] = '$0.00'
+    felony_case['summary_categories'] = _five_buckets(
+        COSTS=(Decimal('100.00'), Decimal('100.00')))
+    felony_case['financials'] = [
+        {'detail': 'SHERIFFS FEES - LOCAL', 'amount': Decimal('50.00'),
+         'paid': None},
+    ]
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    assert sheet.value_of('U4') == Decimal('0.00')
+    assert sheet.value_of('V4') is None
+
+
+def test_the_same_collapsed_row_still_warns_when_money_is_owed(felony_case):
+    """What silences the caveat is the balance, not the fallback that wrote it.
+
+    Same page, same failure to reconcile, one hundred dollars outstanding. If
+    this row goes quiet too then the change has thrown the warning away rather
+    than aimed it.
+    """
+    felony_case['total_due'] = '$100.00'
+    felony_case['summary_categories'] = _five_buckets(
+        COSTS=(Decimal('100.00'), Decimal('0')))
+    felony_case['financials'] = [
+        {'detail': 'SHERIFFS FEES - LOCAL', 'amount': Decimal('50.00'),
+         'paid': None},
+    ]
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    assert 'MISCELLANEOUS' in sheet.value_of('V4')
+
+
+def test_a_zero_balance_does_not_silence_a_real_disagreement(felony_case):
+    """Fee columns adding up to money against a $0.00 balance is worth saying.
+
+    Only the caveat about where the columns came from goes quiet on a paid off
+    case. This note is not that. It is ICOS and the sheet contradicting each
+    other, which is the one thing on this row a staffer has to be told.
+    """
+    felony_case['summary_categories'] = []
+    felony_case['total_due'] = '$0.00'
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    assert sheet.cells['U4'].fill is not None
+    assert 'trust the ICOS total' in sheet.value_of('V4')
+    assert 'assessed rather than owed' not in sheet.value_of('V4')
+
+
 def test_the_itemized_fallback_says_the_figures_are_assessed(felony_case):
     del felony_case['summary_categories']
     sheet = FakeSheet()

@@ -806,7 +806,20 @@ def process_financials(case, worksheet, row):
     if total_due is not None:
         worksheet['U' + str(row)] = total_due
 
-    notes = [note] if note else []
+    # A caveat about where the fee columns came from is only worth reading if
+    # there are fees in them. ICOS reporting nothing due means every fee column
+    # on the row is zero however Napier arrived at it, so the caveat describes a
+    # breakdown of no money. That is not a rare shape: of the 25 captured pages
+    # that carried one of these, 23 owed nothing. Column V is also where the
+    # notes that matter go, a disposition Napier had to guess at and a case Iowa
+    # Courts would not give up, and a column staff have learned to skip past is
+    # worse than an empty one.
+    #
+    # Only this caveat goes quiet. The mismatch note below still fires on a paid
+    # off case, because fee columns adding up to something against a zero
+    # balance is a real disagreement and flagging it is that note's whole job.
+    nothing_owed = total_due is not None and total_due == 0
+    notes = [note] if note and not nothing_owed else []
 
     # If the per-category figures still don't add up to the balance ICOS
     # reports, the ICOS figure (column U) is the one to trust -- flag the row so
