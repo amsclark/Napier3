@@ -80,7 +80,7 @@ def fake_icos(monkeypatch, tmp_path):
                         lambda html, case: case.update(financials=[],
                                                        total_due='$0.00'))
     monkeypatch.setattr(tasks, 'build_workbook',
-                        lambda cases, name, dob, lite: (str(tmp_path / 'w.xlsx'), {}, {'balance': '$0.00', 'monthly': None, 'months': 12}))
+                        lambda cases, name, dob, lite, failed=(): (str(tmp_path / 'w.xlsx'), {}, {'balance': '$0.00', 'monthly': None, 'months': 12}))
     yield
 
 

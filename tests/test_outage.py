@@ -91,8 +91,9 @@ class StubClient:
 WRITTEN = []
 
 
-def _fake_build(cases, name, dob, lite):
-    WRITTEN.append({'name': name, 'ids': [case['id'] for case in cases]})
+def _fake_build(cases, name, dob, lite, failed=()):
+    WRITTEN.append({'name': name, 'ids': [case['id'] for case in cases],
+                   'failed': list(failed)})
     path = os.path.join(tasks.tmp_dir, 'test_outage.xlsx')
     with open(path, 'wb') as handle:
         handle.write(b'PK\x03\x04 stub workbook')
@@ -256,6 +257,17 @@ class TestAClinicListMeetingADeadSite:
                           dead_cases=dead)
 
         assert len(job.said('rest of the list')) == 1
+
+    def test_each_client_workbook_is_told_its_own_missing_cases(self, monkeypatch):
+        """A clinic list builds twenty files that go twenty different places.
+        Handing every one of them the whole run's missing cases would put
+        another client's case numbers in a workbook, and handing them none
+        leaves each file quietly short."""
+        doe, roe = ids('FECR', 3), ids('SRCR', 3)
+        job, _ = run_list(monkeypatch, [pick('DOE', doe), pick('ROE', roe)],
+                          dead_cases=[doe[1], roe[2]])
+
+        assert [entry['failed'] for entry in WRITTEN] == [[doe[1]], [roe[2]]]
 
     def test_a_bumpy_list_still_finishes(self, monkeypatch):
         """Two refusals apiece across four clients is eight failures and no
@@ -434,6 +446,23 @@ class TestARetryMeetingADeadSite:
         job, _ = run_retry(monkeypatch, entries, dead_cases=dead)
 
         assert [entry['ids'] for entry in WRITTEN] == [[entries[0]['case_ids'][0]]]
+
+    def test_the_rebuilt_workbook_is_told_what_is_still_missing(self, monkeypatch):
+        """A retry rebuilds the file from everything ever recovered, so the
+        line it carried from the first run is stale the moment it is rebuilt.
+        Recovering one of three has to leave the other two named, and a retry
+        that recovered everything has to stop saying anything is missing."""
+        entries = self.entries()
+        dead = entries[0]['failed'] + entries[1]['failed'] + entries[2]['failed']
+        run_retry(monkeypatch, entries, dead_cases=dead)
+
+        assert [entry['failed'] for entry in WRITTEN] == [entries[0]['failed']]
+
+    def test_and_says_nothing_is_missing_once_it_all_came_back(self, monkeypatch):
+        entries = self.entries()
+        run_retry(monkeypatch, entries[:1])
+
+        assert [entry['failed'] for entry in WRITTEN] == [[]]
 
     def test_the_skipped_ones_are_still_offered_a_third_go(self, monkeypatch):
         entries = self.entries()

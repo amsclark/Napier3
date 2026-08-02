@@ -135,8 +135,11 @@ def fake_icos(monkeypatch):
 WRITTEN = []
 
 
-def _fake_build(cases, name, dob, lite):
-    WRITTEN.append({'name': name, 'ids': [case['id'] for case in cases]})
+def _fake_build(cases, name, dob, lite, failed=()):
+    # failed is recorded because a rebuilt workbook that still does not name
+    # what is missing from it is the whole point of this going in.
+    WRITTEN.append({'name': name, 'ids': [case['id'] for case in cases],
+                   'failed': list(failed)})
     path = os.path.join(tasks.tmp_dir,
                         'test_retry_%s.xlsx' % name.split(',')[0].strip())
     with open(path, 'wb') as f:

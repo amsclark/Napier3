@@ -377,7 +377,11 @@ PAYMENT_HEADERS = [
     ("HOW PAID", 11),
 ]
 
-FIRST_ACTION_ROW = 9
+FIRST_ACTION_ROW = 10
+
+# The missing-case line is the one thing on this sheet that has to be read
+# rather than skimmed, so it gets the colour the caveat gets.
+MISSING_FONT = Font(bold=True, color='996600')
 
 
 def _headers(worksheet, row, spec):
@@ -424,12 +428,15 @@ def client_payments(cases, as_of):
     }
 
 
-def build_action_sheet(workbook, cases, written, as_of, def_name):
+def build_action_sheet(workbook, cases, written, as_of, def_name, failed=()):
     """Add ACTION LIST to a workbook Napier has finished writing.
 
     Called after CASE DATA is filled in, because it reads CASE DATA back.
     Returns the ability-to-pay figures, which are a by-product of what it had
     to work out anyway.
+
+    failed is the cases Iowa Courts would not give up. They get a line of their
+    own, because this file outlives the page that says so.
     """
     sheets = set(workbook.sheetnames)
     found = collect(workbook['CASE DATA'], written, as_of, sheets,
@@ -484,8 +491,28 @@ def build_action_sheet(workbook, cases, written, as_of, def_name):
     else:
         worksheet['B6'] = "none"
 
-    worksheet['A7'] = CAVEAT
-    worksheet['A7'].font = CAVEAT_FONT
+    # A workbook gets emailed to a colleague, saved to a shared drive and opened
+    # three weeks later by somebody who never watched it being built. Up to now
+    # the only place that said a run came back short was the finish page and the
+    # progress log, both of which are gone within two hours, so the file itself
+    # read as a complete criminal record when it was two cases shy of one.
+    worksheet['A7'] = 'Not in this file'
+    failed = list(failed)
+    if failed:
+        worksheet['B7'] = (
+            "%d case%s Iowa Courts would not give up: %s. %s on no sheet in "
+            "this workbook. Look %s up on Iowa Courts before relying on this "
+            "being the whole record."
+            % (len(failed), "" if len(failed) == 1 else "s",
+               ", ".join(failed),
+               "It is" if len(failed) == 1 else "They are",
+               "it" if len(failed) == 1 else "them"))
+        worksheet['B7'].font = MISSING_FONT
+    else:
+        worksheet['B7'] = "none. Every case the search turned up is here."
+
+    worksheet['A8'] = CAVEAT
+    worksheet['A8'].font = CAVEAT_FONT
 
     _headers(worksheet, FIRST_ACTION_ROW - 1, ACTION_HEADERS)
     row = FIRST_ACTION_ROW

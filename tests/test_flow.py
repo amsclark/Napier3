@@ -102,7 +102,7 @@ def fake_icos(monkeypatch):
     monkeypatch.setattr(tasks.case_parser, 'parse_case_financials',
                         lambda html, case: case.update(financials=[], total_due='$0.00'))
     monkeypatch.setattr(tasks, 'build_workbook',
-                        lambda cases, name, dob, lite: (_write_stub_workbook(),
+                        lambda cases, name, dob, lite, failed=(): (_write_stub_workbook(),
                                                         {}, dict(ATP)))
     yield
 
