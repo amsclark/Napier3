@@ -36,6 +36,16 @@ UNCOLLECTED_AFTER = 5 * 60
 # until a staffer has actually taken the file.
 BUILDS_A_WORKBOOK = ('crs', 'batch_crs')
 
+# How many finished units of work are timed to work out how much longer a run
+# has. Kept short so the estimate follows the site Napier is talking to now
+# rather than the one it was talking to ten minutes ago.
+UNITS_TIMED = 20
+
+# And how many of those it takes before saying anything. Two cases is not a
+# rate, and an estimate that lands wrong the first time staff see one teaches
+# them to ignore every one after it.
+UNITS_BEFORE_GUESSING = 3
+
 
 class Job:
     def __init__(self, kind):
@@ -51,6 +61,11 @@ class Job:
         # the page shows an unmeasured bar instead of inventing a number.
         self.count = None
         self.total = None
+        # When each of the last few units of work finished, oldest first. The
+        # page turns these into "about two minutes left", which is the question
+        # staff are actually asking when they watch a bar crawl: whether to wait
+        # or to go and do something else.
+        self.marks = []
         self.created_at = time.time()
         self.updated_at = self.created_at
         # Whether the file this job built ever reached the person who asked for
@@ -77,15 +92,48 @@ class Job:
 
     def log(self, message, count=None, total=None):
         with self._lock:
-            self.progress.append({"t": time.time(), "message": message})
+            now = time.time()
+            self.progress.append({"t": now, "message": message})
             if total is not None:
+                if count != self.count:
+                    self.marks = (self.marks + [now])[-UNITS_TIMED:]
                 self.count = count
                 self.total = total
-            self.updated_at = time.time()
+            self.updated_at = now
         print("JOB %s %s: %s" % (self.kind, self.id[:8], message), flush=True)
+
+    def _seconds_left(self):
+        """How much longer this has, or None when there is nothing honest to say.
+
+        Caller holds the lock.
+
+        The typical case is the middle one rather than the average, because a
+        single case that Iowa Courts stalls on for four minutes would otherwise
+        rewrite the estimate for the sixty behind it and leave staff reading
+        "about 45 minutes left" on a run that has two minutes to go.
+
+        Which leaves the stall itself unaccounted for, and a bar that has not
+        moved in three minutes under an estimate that has not moved either is
+        the page calling itself a liar. So whatever the case in hand has already
+        overrun by is added on. During a stall the estimate climbs, which is
+        both true and the thing worth knowing, and it drops back the moment the
+        case comes through instead of poisoning the rest of the run.
+        """
+        if not self.total or self.count is None:
+            return None
+        remaining = self.total - self.count
+        if remaining <= 0:
+            return None
+        gaps = sorted(b - a for a, b in zip(self.marks, self.marks[1:]))
+        if len(gaps) < UNITS_BEFORE_GUESSING:
+            return None
+        typical = gaps[len(gaps) // 2]
+        overrun = max(0.0, (time.time() - self.marks[-1]) - typical)
+        return typical * remaining + overrun
 
     def to_dict(self):
         with self._lock:
+            seconds_left = self._seconds_left()
             return {
                 "id": self.id,
                 "kind": self.kind,
@@ -95,6 +143,7 @@ class Job:
                 "error": self.error,
                 "count": self.count,
                 "total": self.total,
+                "seconds_left": None if seconds_left is None else round(seconds_left),
                 "next_url": self.next_url,
                 "cancelled": self.cancelled,
                 "done": self.status in (DONE, FAILED),

@@ -143,6 +143,20 @@ var GIVE_UP_AFTER = 12;
 var waiting = false;
 var next = null;
 var lostSince = null;
+// Whatever the server last said was left. Deliberately not counted down here
+// between polls: the number staff need is whether to wait or go and do
+// something else, and a stopwatch running against a court website that stalls
+// would be wrong in the one direction that matters.
+var secondsLeft = null;
+
+// Rounded hard on purpose. Napier knows this to the second and saying so would
+// be claiming to know what Iowa Courts is about to do.
+function leftText(secs) {
+  if (secs === null || secs === undefined) { return ""; }
+  if (secs < 45) { return ", less than a minute left"; }
+  var m = Math.round(secs / 60);
+  return ", about " + (m <= 1 ? "a minute" : m + " minutes") + " left";
+}
 
 function tick() {
   var s = Math.round((Date.now() - started) / 1000);
@@ -154,11 +168,14 @@ function tick() {
     var r = s % 60;
     text = m + (m === 1 ? " minute " : " minutes ") + r + "s";
   }
-  document.getElementById("elapsed").textContent = "Running for " + text;
+  document.getElementById("elapsed").textContent =
+    "Running for " + text + leftText(secondsLeft);
 }
 
 function render(state) {
   document.getElementById("status").textContent = state.message || "";
+  secondsLeft = state.seconds_left;
+  tick();
 
   // A CRS run is measurable and a search is not, so only claim a number when
   // the server gave one.
