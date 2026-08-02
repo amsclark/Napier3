@@ -9,10 +9,9 @@ This is a tool that collects court case data from Iowa's state court case inform
 The server is a [Flask app](https://flask.palletsprojects.com/) written in Python 3.13, served by gunicorn with threads (`--workers 1 --threads 12`, because the job store and the ICOS session store live in process memory).
 
 The front end is html, css and vanilla javascript, all of it inline in the
-templates. Nothing is fetched from an outside host. The earlier version pulled
-its stylesheet and jQuery from two CDNs, and legal aid offices sit behind
-filtered networks, so a blocked domain meant an unstyled page or a search button
-that did nothing.
+templates. The earlier version pulled its stylesheet from a Bootstrap CDN and
+jQuery from another host. Both are gone: the CSS is in the page and the scripts
+are plain fetch, which is all they were ever doing through jQuery.
 
 ## Flow
 
