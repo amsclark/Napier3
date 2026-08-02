@@ -375,6 +375,12 @@ def parse_case_charges(html, case):
     case['sentences'] = parse_sentences(soup)
     charges = []
     charge_list = list()
+    # The adjudication date of each count, in step with charge_list, so the one
+    # date the sheet has room for can be the date of the count it names. Built
+    # the same way charge_list is, newest first, because the two are read
+    # together and a list that is sorted differently from its partner is a
+    # subtle way to pair the wrong count with the wrong date.
+    charge_date_list = list()
     cur_charge = None
     prev_od_dd = prev_od_mm = prev_od_yyyy = None
     new_od_dd = new_od_mm = new_od_yyyy = None
@@ -450,6 +456,8 @@ def parse_case_charges(html, case):
             if len(texts) >= 4 and texts[0].startswith("Adjudication:"):
                 charge_list.insert(0, texts[1])
                 cur_charge['disposition'] = charge_list
+                charge_date_list.insert(0, texts[3])
+                cur_charge['disposition_dates'] = charge_date_list
                 prior_description = prior_description + "[" + disposition_code(texts[1]) + "];"
                 cur_charge['description'] = cur_charge['description'] + "[" + disposition_code(texts[1]) + "]"
                 if 'prior_dispositionDate' not in vars():
