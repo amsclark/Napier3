@@ -21,7 +21,7 @@ import time
 import accounts
 import alerts
 from opener import Opener
-from reader import Reader
+from reader import EMPTY, TIMEOUT, Reader
 
 # Attempts before a run that still succeeded is worth an early-warning email.
 SLOW_RECOVERY_ATTEMPTS = alerts.SLOW_RECOVERY_ATTEMPTS
@@ -64,8 +64,41 @@ def _squashed(text):
     return "".join(text.split()).upper()
 
 
-def _is_not_a_problem_report(body):
-    return PROBLEM_REPORT_MARKER not in _text(body)
+# Why a body was refused, in the words the alert carries. A validator answers
+# None when the page is good and one of these when it is not.
+#
+# There used to be no such answer. Every refusal reached the alert under one
+# subject line with a size field, and a request that never came back at all
+# reached it the same way with "0b", which reads as a page that arrived wrong
+# rather than one that never arrived. Five causes, one email, and since
+# alerts.record only sends the first of each class per run, whichever happened
+# first silenced the rest. On 2026-08-01 that meant one email about a timeout
+# and nothing about the problem report pages that actually stopped the run.
+PROBLEM_REPORT_REASON = ("ICOS problem report page, meaning its own data source "
+                         "was unreachable")
+WRONG_CASE_REASON = "a page for a different case than the one asked for"
+# Seen against the live site on 2026-08-01: ICOS answers a case request with a
+# 200 and nothing in it when the session has not selected that case through a
+# search first. Worth naming, because a session that has lost its place and a
+# court site that is down are the same event from the outside, and only one of
+# them is Iowa's fault.
+NO_BODY_REASON = "HTTP 200 with an empty body"
+NO_ANSWER_REASON = "no answer inside the request timeout"
+
+
+def _refusal_reason(result):
+    """Why a request that produced no usable body produced none."""
+    if result.outcome == TIMEOUT:
+        return NO_ANSWER_REASON
+    if result.outcome == EMPTY:
+        return NO_BODY_REASON
+    return result.detail or "the request failed before any body arrived"
+
+
+def _problem_report_reason(body):
+    if PROBLEM_REPORT_MARKER in _text(body):
+        return PROBLEM_REPORT_REASON
+    return None
 
 
 def _page_text(body, username=""):
@@ -84,11 +117,13 @@ def _page_text(body, username=""):
     return text[:400]
 
 
-def _is_page_for_case(body, case_id):
+def _case_page_reason(body, case_id):
     page = _text(body)
     if PROBLEM_REPORT_MARKER in page:
-        return False
-    return _squashed(case_id) in _squashed(page)
+        return PROBLEM_REPORT_REASON
+    if _squashed(case_id) not in _squashed(page):
+        return WRONG_CASE_REASON
+    return None
 
 
 def _env_seconds(name, default_minutes):
@@ -237,8 +272,10 @@ class IcosClient:
     def _retry(self, what, build_request, validate=None):
         """Issue a request until it succeeds or the budget runs out.
 
-        validate() may inspect a successful body and raise, or return False to
-        treat the response as a retryable failure.
+        validate() may inspect a successful body and raise, or return a short
+        reason to treat the response as a retryable failure. It returns None
+        when the body is good. The reason is what the alert carries, so it is
+        written to be read in an email at four in the afternoon.
         """
         started = self._monotonic()
         budget = self.budget if what == "search" else self.case_budget
@@ -251,7 +288,8 @@ class IcosClient:
             endpoint = url.rsplit("/", 1)[-1].split("?")[0] or "ESAWebApp"
             result = self.reader.fetch_once(url, data)
             if result.ok:
-                if validate is None or validate(result.body):
+                reason = validate(result.body) if validate is not None else None
+                if reason is None:
                     self.landed_on[attempt + 1] = self.landed_on.get(attempt + 1, 0) + 1
                     if attempt >= SLOW_RECOVERY_ATTEMPTS:
                         # It worked, so staff see nothing. But ICOS needing this
@@ -265,16 +303,27 @@ class IcosClient:
                             note="The search went through, so nobody was told. "
                                  "ICOS is degrading.")
                     return result.body
+                # ICOS answered and the answer was wrong. Kept apart from the
+                # case below all the way to the subject line, because the two
+                # call for opposite things: this one is the court site's data,
+                # that one is the path to it.
+                failure = alerts.BAD_RESPONSE
+                extra = {'response size': '%db' % len(result.body)}
                 last = "unusable response"
             else:
+                reason = _refusal_reason(result)
+                failure = alerts.NO_ANSWER
+                # No body arrived, so its length is not a fact about anything.
+                # Reporting it as 0b was the whole reason a timeout and a
+                # problem report page read identically in the inbox.
+                extra = {}
                 last = result.outcome.lower()
 
             # Only after login: before it, an unusable response is usually a
             # rejected credential working as designed, which is not news.
             if self.logged_in:
-                self._alert(alerts.BAD_RESPONSE, endpoint=endpoint,
-                            attempts=attempt + 1, status=result.status,
-                            **{'response size': '%db' % len(result.body)})
+                self._alert(failure, endpoint=endpoint, reason=reason,
+                            attempts=attempt + 1, status=result.status, **extra)
 
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)
@@ -282,9 +331,9 @@ class IcosClient:
                 self.given_up += 1
                 self._alert(alerts.RETRY_EXHAUSTED, endpoint=endpoint,
                             attempts=attempt + 1, elapsed=_describe(elapsed),
-                            backoff=_timeline(waits),
+                            backoff=_timeline(waits), reason=reason,
                             note="Last result: %s. Staff were told to try again "
-                                 "later." % last)
+                                 "later." % reason)
                 if what == "search":
                     raise IcosUnavailable(
                         "Iowa Courts Online did not respond after %d minutes of "
@@ -334,7 +383,7 @@ class IcosClient:
             # is down. They then retype credentials that were always correct.
             body = self._retry("search",
                                lambda: self.reader.login_request(username, password),
-                               validate=_is_not_a_problem_report)
+                               validate=_problem_report_reason)
             text = body.decode("utf-8", errors="ignore")
 
             if BAD_CREDS_MARKER in text:
@@ -435,7 +484,7 @@ class IcosClient:
         return self._retry(
             "search",
             lambda: self.reader.search_request(firstname, middlename, lastname),
-            validate=_is_not_a_problem_report)
+            validate=_problem_report_reason)
 
     def case_bundle(self, case_id):
         """Summary, charges and financials for one case.
@@ -454,7 +503,7 @@ class IcosClient:
         """
         summary = self._retry(
             "case", lambda: self.reader.case_summary_request(case_id),
-            validate=lambda body: _is_page_for_case(body, case_id))
+            validate=lambda body: _case_page_reason(body, case_id))
         # These two get the same proof of identity as the summary rather than
         # just the problem report check. When ICOS degrades partway through a
         # case it answers with a stub that carries no problem report wording,
@@ -463,10 +512,10 @@ class IcosClient:
         # and on a criminal record those two mean opposite things.
         charges = self._retry(
             "case", self.reader.case_charges_request,
-            validate=lambda body: _is_page_for_case(body, case_id))
+            validate=lambda body: _case_page_reason(body, case_id))
         financials = self._retry(
             "case", self.reader.case_financials_request,
-            validate=lambda body: _is_page_for_case(body, case_id))
+            validate=lambda body: _case_page_reason(body, case_id))
         return summary, charges, financials
 
     def retry_summary(self):

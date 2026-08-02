@@ -46,6 +46,11 @@ RETRY_EXHAUSTED = 'ICOS retry budget exhausted'
 CONCURRENT_EXHAUSTED = 'ESA account stayed locked'
 SLOW_RECOVERY = 'ICOS needed repeated retries'
 BAD_RESPONSE = 'unusable response from ICOS'
+# ICOS answering wrongly and ICOS not answering at all were one class, and
+# record() emails only the first of each class per run, so whichever came first
+# silenced the other. They also want opposite things looked at: a bad body is
+# the court site's data, and no body is the path to it.
+NO_ANSWER = 'no answer from ICOS'
 PARSE_FAILURE = 'case could not be read'
 CASE_UNAVAILABLE = 'case could not be retrieved from ICOS'
 JOB_FAILED = 'job failed'
@@ -136,7 +141,11 @@ def safe_traceback(exc):
 
 def _format(job_id, kind, failure, fields, progress):
     lines = ['%s job %s' % (kind, job_id), '']
-    ordered = ('classification', 'endpoint', 'attempts', 'elapsed',
+    # 'reason' leads because it is the sentence that decides whether anyone
+    # needs to do anything, and it used to not exist: an ICOS failure arrived
+    # as an endpoint, an attempt count and a size, and which of five things had
+    # gone wrong had to be worked out from the source.
+    ordered = ('reason', 'classification', 'endpoint', 'attempts', 'elapsed',
                'backoff', 'status', 'response size', 'account', 'case')
     for label in ordered:
         value = fields.get(label)
