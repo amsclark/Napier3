@@ -36,6 +36,7 @@ import re
 from copy import copy
 
 from openpyxl.formula.translate import Translator
+from openpyxl.worksheet.formula import ArrayFormula
 
 # The sheets that hold the case list itself, the clinic header and the static
 # statute lookup. None of them is a per-case analysis of CASE DATA.
@@ -61,9 +62,48 @@ CASE_RANGE = re.compile(
     r"('CASE DATA'!)(\$?[A-Z]{1,3}\$)(\d+):(\$?[A-Z]{1,3}\$)(\d+)")
 
 
+# A cell entered with ctrl-shift-enter is not a string. openpyxl hands it back
+# as an ArrayFormula object carrying the text and the range it was entered over,
+# and a formula read as a string is silently not one of these. The expungement
+# sheet keeps three of its columns this way, including the one that asks whether
+# there is a subsequent conviction, so treating them as blank drops those
+# columns off every row this module adds and leaves their ranges unwidened on
+# the rows that were already there.
+ARRAY_REF = re.compile(r'^([A-Z]{1,3})(\d+)(?::([A-Z]{1,3})(\d+))?$')
+
+
 def _formula(cell):
     value = cell.value
+    if isinstance(value, ArrayFormula):
+        return value.text
     return value if isinstance(value, str) and value.startswith('=') else None
+
+
+def _shift_ref(ref, row_delta):
+    """The range a copied array formula is entered over, moved down with it."""
+    match = ARRAY_REF.match(str(ref or ''))
+    if not match:
+        return ref
+    start_col, start_row, end_col, end_row = match.groups()
+    moved = '%s%d' % (start_col, int(start_row) + row_delta)
+    if end_col:
+        moved += ':%s%d' % (end_col, int(end_row) + row_delta)
+    return moved
+
+
+def _write(cell, formula, source=None, row_delta=0):
+    """Put a formula back the way it was entered.
+
+    An array formula written back as a plain string loses its ctrl-shift-enter
+    marking, and the ones here are all SUM(COUNTIF(range, range)) over a range,
+    which without that marking stops summing and answers about one cell.
+    """
+    original = (source or cell).value
+    if isinstance(original, ArrayFormula):
+        cell.value = ArrayFormula(
+            ref=_shift_ref(original.ref, row_delta), text=formula)
+    else:
+        cell.value = formula
 
 
 def _case_rows(formula):
@@ -165,9 +205,11 @@ def _extend_sheet(sheet, last_case_row):
     for step in range(1, added + 1):
         for cell in template:
             target = sheet.cell(row=deepest + step, column=cell.column)
-            target.value = Translator(
-                _formula(cell), origin=cell.coordinate).translate_formula(
-                    row_delta=step, col_delta=0)
+            _write(target,
+                   Translator(_formula(cell),
+                              origin=cell.coordinate).translate_formula(
+                                  row_delta=step, col_delta=0),
+                   source=cell, row_delta=step)
             # Without this the new rows lose the currency and date formats the
             # filled-down ones carry, and a dollar figure printed as a bare
             # number reads as a different kind of number.
@@ -214,7 +256,7 @@ def extend_formula_grid(workbook, case_count):
                     widened = _widen_local_ranges(
                         widened, first_case_row, deepest)
                 if widened != formula:
-                    cell.value = widened
+                    _write(cell, widened)
                     touched = touched or 1
         if touched:
             changed[sheet.title] = added
