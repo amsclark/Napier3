@@ -149,6 +149,85 @@ class TestJudgmentsAreNotPayments:
         assert not crs.is_judgment(None)
 
 
+class TestBondMoneyIsNotAPayment:
+    """An appearance bond is money put up so somebody can go home, usually by a
+    relative, and the clerk holds it and later gives it back or applies it to
+    the debt. Counting the line as a payment says the client paid it, and where
+    it was applied it says so twice, because ICOS bills the fees it covered on
+    their own lines and marks those paid.
+
+    Judgments were the version of this that lands on civil cases. This is the
+    version that lands on criminal ones, which is most of what the workbook is
+    for, and it does not wash out across a client with several cases. One
+    captured case owes nothing, has an escrowed bond as its only line, and was
+    reported as $4,000 paid at $333.33 a month.
+    """
+
+    def test_an_escrowed_bond_is_not_money_paid_on_the_case(self):
+        history = crs.payments(_case([
+            _row('BONDS - ESCROW', '4000.00', '01/01/1900', amount='4000.00'),
+        ]))
+        assert history == []
+
+    def test_a_refunded_bond_is_not_money_paid_either(self):
+        # It is the clerk paying the client, which is the opposite direction.
+        history = crs.payments(_case([
+            _row('APPEARANCE BOND REFUND', '2000.00', '01/01/1900',
+                 amount='2000.00'),
+            _row('FILING AND DOCKETING FEES CRIMINAL', '67.00', '02/01/1900'),
+        ]))
+        assert [payment['detail'] for payment in history] == [
+            'FILING AND DOCKETING FEES CRIMINAL']
+
+    def test_the_fees_a_bond_covered_are_still_the_client_paying(self):
+        """The bond going onto the debt is real, and it is already on the
+        sheet: the fees it settled are itemized and marked paid. Dropping the
+        bond line keeps that and drops only the second count of it."""
+        history = crs.payments(_case([
+            _row('APPEARANCE BOND REFUND', '2000.00', '01/01/1900',
+                 amount='2000.00'),
+            _row('CRIME SERVICES SURCHARGE', '128.25', '02/01/1900'),
+            _row('RESTITUTIONS', '83.12', '02/01/1900'),
+        ]))
+        assert sum(payment['amount'] for payment in history) == \
+            Decimal('211.37')
+
+    def test_a_continuation_of_a_bond_line_is_left_out_too(self):
+        history = crs.payments(_case([
+            _row('BONDS - ESCROW', '2000.00', '01/01/1900', amount='4000.00'),
+            _row('', '2000.00', '02/01/1900', amount='4000.00'),
+        ]))
+        assert history == []
+
+    def test_the_monthly_figure_a_court_reads_no_longer_carries_it(self):
+        """The reason this matters. recent_monthly is what gets typed into the
+        ability-to-pay calculator, and a one-off bond divided over twelve
+        months is a claim about what the client can pay every month."""
+        history = crs.payment_history(_case([
+            _row('BONDS - ESCROW', '4000.00', '01/01/2026', amount='4000.00'),
+            _row('FINE', '20.00', '02/01/2026'),
+        ]), date(2026, 7, 31))
+        assert history['total'] == Decimal('20.00')
+        assert history['recent_monthly'] == Decimal('1.67')
+
+    def test_a_bond_only_case_reports_no_record_rather_than_a_payment(self):
+        # None and zero are different answers, and either is better than a
+        # $4,000 payment the client never made.
+        assert crs.payment_history(_case([
+            _row('BONDS - ESCROW', '4000.00', '01/01/1900', amount='4000.00'),
+        ]), CLINIC) is None
+
+    def test_is_bond_principal_wants_the_whole_line(self):
+        # A bond assignment fee is court debt and a forfeiture is money the
+        # county keeps. Matching the word would have thrown both away.
+        assert crs.is_bond_principal('BONDS - ESCROW')
+        assert crs.is_bond_principal('  appearance bond refund  ')
+        assert not crs.is_bond_principal('BOND ASSIGNMENT FEE')
+        assert not crs.is_bond_principal('BOND FORFEITURE')
+        assert not crs.is_bond_principal('')
+        assert not crs.is_bond_principal(None)
+
+
 class TestJudgmentsAreStillReported:
     """Taking them out of the payment history must not throw them away. A
     client being garnished on a judgment has less money for court debt, which

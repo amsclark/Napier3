@@ -83,6 +83,13 @@ one the sheets want is a question about the sheets.
 Column I, "Under supervison?", is blank on all 210 cases. ICOS does not print
 it anywhere Napier can reach.
 
+Bond principal is kept out of the payment history by matching two whole
+wordings, `APPEARANCE BOND REFUND` and `BONDS - ESCROW`, which are the only two
+seen across 300 cases. A third wording for the same thing would go back to
+being counted as a payment. The match is deliberately not on the word `BOND`,
+because a bond assignment fee is court debt and a forfeited bond is money the
+county keeps.
+
 The workbook recognises a `TNSF` disposition code that the parser never
 produces. Either ICOS has a wording for it that has not been seen in 210
 cases, or the code is dead.
