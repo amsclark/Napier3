@@ -156,6 +156,17 @@ ORDINANCE_CITATION = re.compile(r'^[A-Z]{2}/', re.I)
 # though the chapter does not say so.
 VEHICULAR_SECTIONS = ('707.6A',)
 
+# Iowa Code 123.46(6) and 123.47(9) let a public intoxication or PAULA
+# conviction be expunged two years on, and 725.1(4) does the same for
+# prostitution. The EXPUNGEMENT sheet has a column for each, and both used to
+# ask whether column F was the string "123.46", "123.47" or "725.1" exactly.
+# Iowa Courts never write a section that bare. Across 300 captured cases the two
+# that carry one of these statutes read "123.47(4)" and "PO/123.47(2)", so both
+# columns answered NO on every case ever run and the two year clock they exist
+# to start was never mentioned to anybody.
+PUBLIC_INTOX_PAULA_SECTIONS = ('123.46', '123.47')
+PROSTITUTION_SECTIONS = ('725.1',)
+
 # The three codes LICENSE-REGIS treats as a conviction. On anything else it says
 # "Z - Neither license nor registration" and never looks at column H at all.
 LICENCE_DISPOSITIONS = frozenset({'GTR', 'GPL', 'DEF'})
@@ -228,6 +239,40 @@ def is_vehicular(statutes):
         if VEHICULAR_CHAPTER.search(code):
             return "YES"
         if any(code.upper().startswith(section) for section in VEHICULAR_SECTIONS):
+            return "YES"
+    if any(ORDINANCE_CITATION.match(code) for code in codes):
+        return None
+    return "NO"
+
+
+def cites_section(statutes, sections):
+    """"YES", "NO", or None: does any adjudicated count answer to one of these?
+
+    Same contract and the same three answers as is_vehicular, and for the same
+    reasons. A civil case's "n/a" and a case with no adjudicated statute give
+    None rather than a confident "NO", and so does a bare municipal ordinance
+    citation, which is a section number in one city's code with no state section
+    in it to compare.
+
+    A section is looked for at the start of a code or straight after an
+    ordinance citation's / or -, which is where is_vehicular looks for chapter
+    321 and finds it in PO/123.47(2) as readily as in 123.47(4). It has to be
+    followed by the end of the code or by something that is not another digit,
+    so 725.1 does not match 725.10 and 123.46 does not match 123.460.
+
+    Any count carries the case, because the client has the conviction whichever
+    count get_dominant_charge picked to speak for the case in column G.
+    """
+    if not statutes:
+        return None
+    codes = [code.strip() for code in str(statutes).split(';')]
+    codes = [code for code in codes if code and code.lower() != 'n/a']
+    if not codes:
+        return None
+    for section in sections:
+        pattern = re.compile(r'(?:^\s*|[-/])%s(?![\d.])' % re.escape(section),
+                             re.I)
+        if any(pattern.search(code) for code in codes):
             return "YES"
     if any(ORDINANCE_CITATION.match(code) for code in codes):
         return None
@@ -1232,6 +1277,25 @@ def process_case(case, worksheet, row, as_of=None):
             # verdict on a case that owes something and this note is only worth
             # reading where that verdict appears.
             ordinance_note = ORDINANCE_VEHICULAR_NOTE % charge['charge']
+
+        # The EXPUNGEMENT sheet's public intoxication, PAULA and prostitution
+        # columns read these two rather than picking column F apart themselves.
+        # Column F is a semicolon joined list of every count's statute and the
+        # statutes carry subsections and ordinance prefixes, so answering this
+        # in Excel meant string surgery on a list, which is how those columns
+        # came to be an equality test that never matched anything. Blank where
+        # Napier cannot tell, which those columns read as NO exactly as column H
+        # is read today.
+        #
+        # AJ and AK rather than AI, which is where both templates dragged a
+        # thirteenth splitter slot on row 9 that statutes._clear_strays exists
+        # to blank. A case landing on row 9 would have put a value there and
+        # left the stray in place.
+        for column, sections in (('AJ', PUBLIC_INTOX_PAULA_SECTIONS),
+                                 ('AK', PROSTITUTION_SECTIONS)):
+            answer = cites_section(charge['charge'], sections)
+            if answer is not None:
+                worksheet[column + i] = answer
 
     # Outside the charge branch on purpose. The sentence table is read off the
     # charges page whatever get_dominant_charge made of the adjudications, and a
