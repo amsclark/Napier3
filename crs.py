@@ -163,6 +163,26 @@ UNKNOWN_DISPOSITION_NOTE = (
     "conviction's. Check this case in ICOS before relying on any of them."
 )
 
+# The note above is for a count whose adjudication wording could not be read.
+# That row is still coded, as OTH, and the note describes what OTH does.
+#
+# A case where no count has been adjudicated at all is a different row. The only
+# wording it carries is the status ICOS prints for the case as a whole, and
+# case_level_code deliberately refuses to translate most of that vocabulary, so
+# column G is left empty. Until this, both rows got the OTH note, which told the
+# attorney the case was coded OTH and then described how each sheet reads OTH.
+# None of that is true of an empty column G, and the difference is not academic:
+# three sheets read an empty column G as an open charge.
+UNCODED_CASE_STATUS_NOTE = (
+    "No count on this case has been adjudicated in Iowa Courts. The only "
+    "disposition it carries is the status of the case as a whole (%s), which "
+    "Napier does not translate into a CRS code, so column G is empty. The "
+    "BANKRUPTCY, EXEMPTIONS and SOL sheets all read an empty column G as "
+    "\"open charge\", so this case appears on those three as a charge still "
+    "pending against the client. A case Iowa Courts has closed or transferred "
+    "is not that. Check this case in ICOS before relying on any of them."
+)
+
 
 # Column H of CASE DATA, headed "Vehicular?". LICENSE-REGIS reads it in 299
 # formulas and it is the whole of the difference between the two answers that
@@ -1539,6 +1559,13 @@ def process_case(case, worksheet, row, as_of=None):
         append_note(worksheet, i, ADULT_ADJUDICATION_NOTE)
     unknown = charge.get('unknown_dispositions') or []
     if unknown:
+        # Which of the two notes belongs here is decided by the cell the sheets
+        # actually read, not by which branch above collected the wording. A
+        # count Napier could not read still leaves a code in column G, and the
+        # OTH note describes what the sheets do with it. A case with nothing
+        # adjudicated leaves column G empty, and the sheets do something else
+        # entirely with that.
         append_note(worksheet, i,
-                    UNKNOWN_DISPOSITION_NOTE % ", ".join(unknown))
+                    (UNKNOWN_DISPOSITION_NOTE if worksheet['G' + i].value
+                     else UNCODED_CASE_STATUS_NOTE) % ", ".join(unknown))
     return unknown
