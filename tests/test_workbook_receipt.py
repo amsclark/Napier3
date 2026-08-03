@@ -39,6 +39,12 @@ FRESH = '01/01/2020'
 
 MISSING = ['00000  FECR000001', '00000  SRCR000002']
 
+# Ask the sheet where its own lines are. Hard-coding the rows here meant that
+# adding one line to the header broke nine tests that were not about the header.
+MISSING_LABEL = 'A%d' % actions.SUMMARY_ROWS['missing']
+MISSING_LINE = 'B%d' % actions.SUMMARY_ROWS['missing']
+CAVEAT_LINE = 'A%d' % actions.SUMMARY_ROWS['caveat']
+
 
 def built(failed=(), rows=({'J': 250},)):
     """A real CRS workbook, built knowing what would not come off ICOS."""
@@ -61,18 +67,18 @@ class TestWhatTheLineSays:
         never filled in, and the whole point is a reader who can tell the
         difference without asking whoever ran it."""
         sheet = built()
-        assert sheet['A7'].value == 'Not in this file'
-        assert sheet['B7'].value == "none. Every case the search turned up is here."
+        assert sheet[MISSING_LABEL].value == 'Not in this file'
+        assert sheet[MISSING_LINE].value == "none. Every case the search turned up is here."
 
     def test_a_short_run_names_every_case_it_could_not_get(self):
         sheet = built(failed=MISSING)
-        line = sheet['B7'].value
+        line = sheet[MISSING_LINE].value
         for case_id in MISSING:
             assert case_id in line
         assert line.startswith("2 cases")
 
     def test_one_missing_case_is_not_described_in_the_plural(self):
-        line = built(failed=MISSING[:1])['B7'].value
+        line = built(failed=MISSING[:1])[MISSING_LINE].value
         assert line.startswith("1 case Iowa Courts")
         assert "It is on no sheet" in line
         assert "Look it up" in line
@@ -81,7 +87,7 @@ class TestWhatTheLineSays:
         """Naming a case number without saying it has to be looked up leaves
         the reader to work out whether it matters, and the answer is that it
         always matters."""
-        line = built(failed=MISSING)['B7'].value
+        line = built(failed=MISSING)[MISSING_LINE].value
         assert "on no sheet in this workbook" in line
         assert "Look them up on Iowa Courts" in line
         assert "the whole record" in line
@@ -89,8 +95,8 @@ class TestWhatTheLineSays:
     def test_the_missing_line_is_not_set_in_the_same_type_as_the_rest(self):
         """A reader skimming a summary sheet reads the values, not the labels.
         This one has to stop them."""
-        quiet = built()['B7'].font
-        loud = built(failed=MISSING)['B7'].font
+        quiet = built()[MISSING_LINE].font
+        loud = built(failed=MISSING)[MISSING_LINE].font
         assert loud.bold and not quiet.bold
 
 
@@ -111,7 +117,7 @@ class TestWhereItSits:
         or the sheet writes the header over the caveat and the first action
         over the header."""
         sheet = built(failed=MISSING)
-        assert 'has been read by a lawyer' in sheet['A8'].value
+        assert 'has been read by a lawyer' in sheet[CAVEAT_LINE].value
         header = sheet.cell(actions.FIRST_ACTION_ROW - 1, 1)
         assert header.value == actions.ACTION_HEADERS[0][0]
         assert header.font.bold
@@ -145,8 +151,8 @@ class TestItSurvivesTheBuild:
             sheet = load_workbook(path)['ACTION LIST']
         finally:
             os.unlink(path)
-        assert MISSING[0] in sheet['B7'].value
-        assert MISSING[1] in sheet['B7'].value
+        assert MISSING[0] in sheet[MISSING_LINE].value
+        assert MISSING[1] in sheet[MISSING_LINE].value
 
     def test_the_lite_workbook_gets_it_too(self, tmp_path):
         """Lite is what most clinics actually hand out, and it is the one where
@@ -165,7 +171,7 @@ class TestItSurvivesTheBuild:
             sheet = load_workbook(path)['ACTION LIST']
         finally:
             os.unlink(path)
-        assert MISSING[0] in sheet['B7'].value
+        assert MISSING[0] in sheet[MISSING_LINE].value
 
 
 class TestWhatItMustNotCarry:
@@ -175,6 +181,6 @@ class TestWhatItMustNotCarry:
         account they were pulled with is half a credential and may not."""
         sheet = built(failed=MISSING)
         line = " ".join(str(sheet[cell].value) for cell in
-                        ('B2', 'B3', 'B5', 'B6', 'B7', 'A8'))
+                        ('B2', 'B3', 'B5', 'B6', MISSING_LINE, CAVEAT_LINE))
         for smell in ('ILA', 'drakelegalclinic', 'password', 'user ID'):
             assert smell not in line
