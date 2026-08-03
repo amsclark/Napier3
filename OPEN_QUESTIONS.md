@@ -80,8 +80,18 @@ disposed under a different code. Pairing the code with its own date and
 reporting the case as finished on its last day cannot both be true, and which
 one the sheets want is a question about the sheets.
 
-Column I, "Under supervison?", is blank on all 210 cases. ICOS does not print
-it anywhere Napier can reach.
+Column I, "Under supervison?", is answered off the sentence table on the
+charges page, and comes out YES on 4 of the 300 captured cases. It is blank on
+the rest, and blank covers two different things: a term that has run out, and a
+term nobody can put an end date on. Three cases are the second sort, where ICOS
+shows probation with a date and no duration.
+
+The expungement sheet reads that column in `=IF('CASE DATA'!I4="YES",
+SUM('CASE DATA'!J4:P4),"n/a")`, so a blank and a NO reach it identically and
+"Amount of debt subject to 910.7?" says n/a either way. On the three cases with
+an undated term that n/a is Napier not knowing rather than the answer being
+none, and nothing on the sheet distinguishes the two. Whether that column should
+be able to say so is a question about the sheet.
 
 Bond principal is kept out of the payment history by matching two whole
 wordings, `APPEARANCE BOND REFUND` and `BONDS - ESCROW`, which are the only two
