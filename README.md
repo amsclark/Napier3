@@ -133,6 +133,11 @@ summary is therefore what the CRS reports. If the categories still do not
 reconcile with the ICOS total, the row is flagged and column U (the ICOS total)
 is the figure to trust.
 
+Some fee wordings and some ICOS case statuses are deliberately left uncoded
+rather than guessed at, because what they mean is a question about Iowa
+practice. `OPEN_QUESTIONS.md` lists them with what each one is worth across
+210 real cases.
+
 ## What may leave the building
 
 The client's name and date of birth are privileged and never leave the machine
