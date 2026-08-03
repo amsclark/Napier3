@@ -116,12 +116,43 @@ def test_the_other_real_sentence_types_are_not_supervision(kind):
     assert answer is None
 
 
-@pytest.mark.parametrize('kind', ['PROBATION', 'DRUG COURT',
+@pytest.mark.parametrize('kind', ['PROBATION', 'PROBATION - OTHER THAN DCS',
+                                  'PROBATION EXTENDED', 'DRUG COURT',
                                   'RESIDENTIAL FACILITY'])
 def test_every_community_supervision_type_counts(kind):
     answer, _ = crs.is_under_supervision(
         [_sentence(kind, '01/01/2025', '3 Year(s)')], CLINIC)
     assert answer == "YES"
+
+
+def test_probation_someone_other_than_dcs_holds_is_still_probation():
+    """Two of the 300 captured cases are people on probation right now, and
+    both of them are this wording. 910.7 is petitionable during the period of
+    probation, and it does not ask who administers it."""
+    answer, term = crs.is_under_supervision(
+        [_sentence('PROBATION - OTHER THAN DCS', '12/22/2025', '2 Year(s)')],
+        CLINIC)
+    assert answer == "YES"
+    assert term[3] == date(2027, 12, 22)
+
+
+def test_an_extension_can_be_the_row_that_keeps_the_term_running():
+    """The one place the wording matters on its own. The original term is spent
+    and the extension is not, so reading only PROBATION says the person is off
+    supervision on the day they are not."""
+    sentences = [_sentence('PROBATION', '01/01/2023', '2 Year(s)'),
+                 _sentence('PROBATION EXTENDED', '01/01/2025', '3 Year(s)')]
+    answer, term = crs.is_under_supervision(sentences, CLINIC)
+    assert answer == "YES"
+    assert term[0] == 'PROBATION EXTENDED'
+    assert term[3] == date(2028, 1, 1)
+
+
+def test_icos_saying_there_is_no_supervision_is_not_supervision():
+    """A real wording, and the one type in the table that means the opposite."""
+    answer, _ = crs.is_under_supervision(
+        [_sentence('NO SUPERVISION', '01/01/2025', '12 Month(s)')], CLINIC)
+    assert answer is None
 
 
 def test_the_longest_running_term_is_the_one_reported():
@@ -264,6 +295,23 @@ def test_the_row_says_what_the_yes_rests_on():
     assert '3 Year(s)' in note
     assert '01/01/2025' in note
     assert '01/01/2028' in note
+
+
+def test_the_agency_keeps_its_capitals_in_the_note():
+    """The note lowercases the ICOS wording so it reads as a sentence, which
+    turned the Department of Correctional Services into "dcs" on a workbook
+    somebody files off."""
+    _, note = _row(_case([
+        _sentence('PROBATION - OTHER THAN DCS', '01/01/2025', '3 Year(s)')]))
+    assert 'probation - other than DCS term' in note
+
+
+def test_term_wording_only_shouts_where_icos_meant_to():
+    assert crs.term_wording('PROBATION') == 'probation'
+    assert crs.term_wording('DRUG COURT') == 'drug court'
+    assert crs.term_wording('PROBATION - OTHER THAN DCS') == \
+        'probation - other than DCS'
+    assert crs.term_wording('') == ''
 
 
 def test_the_note_admits_what_napier_cannot_see():
