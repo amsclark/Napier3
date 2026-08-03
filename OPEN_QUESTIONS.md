@@ -35,6 +35,24 @@ correct and the total is not supposed to reconcile. If it is meant to sort all
 the debt into barred and not barred, then "NO ARGUMENT" should be the balance
 after the two barred columns rather than zero on a barred row.
 
+## An undisposed case counted as time barred
+
+The SOL sheet asks whether the adjudication date plus 7300 days is in the past.
+A case ICOS has not disposed has no adjudication date, so CASE DATA column D is
+blank, and a blank date in Excel is the first of January 1900. Every undisposed
+case therefore answers yes and is filed as twenty years barred, which is the
+opposite of what it is.
+
+What that costs on the 300 captured cases is nothing. Six rows have a blank
+disposition date, they carry $89.50 between them, and none of that $89.50 sits
+in the three columns the barred rows claim from, so the sheet reports $0.00
+either way.
+
+It is left alone because the honest fix is not a date test. An undisposed case's
+debt is not barred and it is not arguable yet either, so putting it anywhere on
+the SOL sheet means deciding which column an open case belongs in, and that is
+the same question as the shortfall above.
+
 ## Room and board debt the appeal sheet cannot see
 
 ICOS has one wording for jail and room and board,
@@ -86,6 +104,39 @@ coincidence worth entertaining, so a match is treated as evidence. The absence
 of one is not, because an ordinance may number an offence anything at all, so
 `MA/62.01(120)-0198` gets no answer instead of a NO. The sheet reads the blank
 as NO, which is the same thing on the page with an honest reason behind it.
+
+## An ordinance prefix the misdemeanour columns step over
+
+The same prefix that the public intoxication column now reads properly is
+invisible to the two columns beside it. "MISDEMEANOR CONVICTION?" asks whether
+any of the twelve split statutes is on the CODE SECTIONS felony list, and
+"ELIGIBLE ADJ" asks whether any of them is on the misdemeanour exclusion list or
+starts with one of seven chapter numbers. Every one of those tests matches from
+the left, so a statute written `PO/123.46` is not `123.46` to any of them and
+the case walks past all eight tests.
+
+Probed one at a time against the sheet's own logic: `PO/123.46`, `MA-123.46`,
+`PO/123.47(2)`, `PO/719.1`, `PO/724.4`, `SP/321J.21` and `123.49;PO/726.6` all
+come back "eligible" where the same sections written bare come back
+"ineligible misd".
+
+On the 300 captured cases it changes no answer. Forty-three of them carry an
+ordinance prefixed statute somewhere, 139 cases reach the eligibility column at
+all, and 16 of those are ruled ineligible, so the tests are doing work. Only
+four ordinance cases reach the column, `BO/40.02`, `FD/934`, `AL/ 3.03` and
+`SL/716.8(2)`, and none of them is on an exclusion list under either reading.
+
+Stripping the prefix before the split would be a two line change and it is not
+being made, because the two columns read the same twelve slots and want
+opposite treatment. Iowa Code 364.3(2) caps a municipal ordinance at simple
+misdemeanour, so a conviction under one is a misdemeanour whatever section it
+copies, and "MISDEMEANOR CONVICTION?" answering YES on an ordinance case is
+right. It is right by accident, because the felony list missed the prefix, and
+stripping the prefix would make it wrong the first time a city legislates on
+something in chapters 708, 714, 716, 724 or 726. Which of the two answers an
+ordinance is entitled to is the question in the section above, and building a
+twelve column mechanism on a guess at it to move zero cases is worse than
+saying so here.
 
 ## Whether a registration hold needs a collection referral
 
