@@ -1012,9 +1012,13 @@ def reconcile_financials(case):
     buckets = {name: [] for name in ICOS_BUCKETS}
     last_detail = None
     current = None
+    # A third party collection fee is normally ICOS listing a debt it does not
+    # count, so it is dropped before the buckets are checked. When this case's
+    # summary does count it, dropping it would break the bucket it belongs to.
+    keep_third_party = summary_counts_third_party(case)
     for row in rows:
         detail = row.get('detail') or ''
-        if is_excluded_fee(detail):
+        if is_excluded_fee(detail) and not keep_third_party:
             last_detail = None
             current = None
             continue
@@ -1179,8 +1183,51 @@ def is_excluded_fee(detail):
     leaves it out of the case totals entirely -- summing the itemization at face
     value put money in the collection-costs column that the defendant is not
     shown as owing.
+
+    Usually. summary_counts_third_party is the case-by-case check, because on
+    four of the nine captured cases carrying one of these fees ICOS did count it.
     """
     return "THIRD PARTY" in (detail or "").upper()
+
+
+def summary_counts_third_party(case):
+    """Whether this case's ICOS summary already includes its third party fees.
+
+    Of the nine captured cases carrying a third party collection fee, five leave
+    it out of the five bucket summary, which is what is_excluded_fee describes.
+    On the other four the itemization and the summary agree to the cent, and
+    that is ICOS saying it did count the fee.
+
+    Excluding the line on one of those four costs the fee breakdown rather than
+    the money. The bucket then falls short of its summary original, so it stops
+    reconciling and the balance comes back as a category total, spread over
+    whatever columns the rest of the bucket uses. That takes collection costs
+    out of column K, which is one of the two columns Iowa Legal Aid treats as
+    surely dischargeable in a bankruptcy.
+
+    All four of those captured cases are paid off, so nothing on the corpus
+    moves either way. This is here so that the first one that is not paid off
+    keeps its collection costs in column K.
+    """
+    categories = case.get('summary_categories') or []
+    rows = case.get('financials') or []
+    if not categories or not rows:
+        return False
+    if not any(is_excluded_fee(row.get('detail')) for row in rows):
+        return False
+
+    assessed = Decimal(0)
+    for row in rows:
+        # Rows with no amount are continuation payments against the line above,
+        # which the summary counts under that line rather than separately.
+        if row.get('amount') is not None:
+            assessed += Decimal(str(row['amount']))
+    summarised = Decimal(0)
+    for category in categories:
+        if category.get('original') is None:
+            return False
+        summarised += category['original']
+    return abs(assessed - summarised) <= Decimal('0.01')
 
 
 def summary_financials(case):
