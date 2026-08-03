@@ -2,7 +2,7 @@ import re
 
 from calendar import monthrange
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
 from zoneinfo import ZoneInfo
@@ -801,6 +801,41 @@ FINE_MARKERS = (
     'NONSCHEDULED CHAPTER 321', 'SCHEDULED VIOLATION/NON-SCHEDULED',
 )
 
+# Fees whose wording says one bucket and whose own ICOS summary says another.
+# The markers above are a reading of the fee name; these are what the clerk
+# actually filed the fee under, which is the only thing the reconciliation
+# cares about, so they are checked first and they win.
+#
+# Every one of these was measured across 259 captured cases carrying both a
+# summary and an itemization. Each was applied on its own and none of them cost
+# a single bucket that was adding up before; together they take the buckets
+# that reconcile from 555 of 674 to 600 of 655, and the rows where the whole
+# itemization reconciles from 201 to 228 of 259.
+#
+# The stakes are not cosmetic. A bucket that does not add up used to surrender
+# the fee breakdown for everything in it, so two $100 probation revocation fees
+# filed under OTHER took a $60 indigent defense fee in the same case out of
+# INDIGENT DEFENSE and into MISCELLANEOUS, which is the difference between
+# having a 910.7 analysis and not having one.
+SUMMARY_BUCKET_OVERRIDES = (
+    # Filed under COSTS by the clerk, whatever the wording suggests.
+    ('PARKING VIOLATION PER COMPLAINT', 'COSTS'),
+    ('PROBATION REVOCATION FEE', 'COSTS'),
+    ('REFUNDABLES DUE TO PREPAID EXPENSES', 'COSTS'),
+    ('TITLE CHANGE REAL ESTATE', 'COSTS'),
+    ('PROBATE ENTERING ORDER', 'COSTS'),
+    ('CERTIFICATE AND SEAL (PROBATE)', 'COSTS'),
+    ('PROBATE FEES PAID TO PRIVATE REFEREE', 'COSTS'),
+    # These two carry fine wording and the clerk files them under COSTS. Only
+    # the reconciliation moves; the column the client reads is still FINES,
+    # which is a separate question this does not touch.
+    ('SCHEDULED VIOLATION/NON-SCHEDULED', 'COSTS'),
+    ('NONSCHEDULED CHAPTER 321', 'COSTS'),
+    # The county attorney's collection fee is charged against the fine and the
+    # summary counts it there, not in OTHER where its wording lands it.
+    ('COLLECTION BY CO ATTY', 'FINE'),
+)
+
 
 def get_summary_bucket(detail):
     """Which of the five ICOS summary buckets a line item rolls up into.
@@ -812,6 +847,9 @@ def get_summary_bucket(detail):
     nothing else.
     """
     text = (detail or '').upper()
+    for marker, bucket in SUMMARY_BUCKET_OVERRIDES:
+        if marker in text:
+            return bucket
     if 'SURCHARGE' in text:
         return 'SURCHARGE'
     if 'RESTITUTION' in text:
@@ -849,6 +887,88 @@ def _unique_paid_subset(amounts, target):
                 return None  # more than one explanation
             found = frozenset(combo)
     return found
+
+
+def spread_over_fee_columns(due, entries, paid=None):
+    """Split a category balance across the columns its own fees belong to.
+
+    A category whose balance cannot be pinned to particular fees still has a
+    composition the record does show: what each fee was assessed at. Sending the
+    whole balance to one column threw that away, and the column it usually
+    landed in was MISCELLANEOUS, because that is where a category label with no
+    fee name in it falls.
+
+    That is the one thing these sheets cannot survive. Bankruptcy treats columns
+    J and K as the debt that is surely dischargeable and everything else as
+    maybe; the 910.7 sheet reads J through P and no further; the statute of
+    limitations sheet is built on old attorney fee and jail debt by name. An
+    indigent defense fee that arrives as MISCELLANEOUS is a fee the hearing
+    cannot ask the court to remit, and nothing on the page says why.
+
+    So the balance is apportioned by assessment instead. It is an estimate and
+    the row says so. Returns None when there is nothing to apportion over, which
+    leaves the caller to fall back the old way. Every cent still comes out: the
+    largest column carries the rounding.
+
+    Apportioning is the last resort, not the first. A fee the record already
+    shows as settled must not draw a share of a balance it is no longer part of,
+    because the column that would collect that share is often K, and reporting
+    collection costs a client does not owe is the specific defect this module
+    was rewritten to stop. So anything the record can pin down is pinned down
+    first, and only what is genuinely unattributable gets spread.
+    """
+    if not entries:
+        return None
+    # What each fee still shows as owed on its own line, where ICOS bothered to
+    # fill the Paid column in. Most itemizations leave Paid blank, in which case
+    # this is the assessment and nothing is lost.
+    owed = [[get_finance_column(detail), max(amount - line_paid, Decimal(0))]
+            for detail, amount, line_paid in entries]
+
+    # A bucket paid down by more than its own lines admit to is the usual case,
+    # because ICOS records the payment against the category and leaves the lines
+    # alone. Where exactly one combination of those lines accounts for the
+    # difference, that combination is not a guess: no other set of fees can add
+    # up to what was paid. Those fees are settled and drop out of the split.
+    if paid is not None:
+        remainder = paid - sum((entry[2] for entry in entries), Decimal(0))
+        if remainder > 0:
+            settled = _unique_paid_subset([line[1] for line in owed], remainder)
+            for index in settled or ():
+                owed[index][1] = Decimal(0)
+
+    weights = {}
+    for column, amount in owed:
+        if amount > 0:
+            weights[column] = weights.get(column, Decimal(0)) + amount
+    if not weights:
+        # Every line reads as paid off and yet the category still owes. The
+        # lines are the only account of what this money is, so fall back to
+        # what each fee was assessed and let the note carry the doubt.
+        for detail, amount, _line_paid in entries:
+            if amount > 0:
+                column = get_finance_column(detail)
+                weights[column] = weights.get(column, Decimal(0)) + amount
+    if not weights:
+        return None
+    if len(weights) == 1:
+        return {next(iter(weights)): due}
+    total = sum(weights.values(), Decimal(0))
+    if total <= 0:
+        return None
+
+    # Largest first, so the column carrying the rounding is the one where a
+    # cent is least likely to be noticed.
+    order = sorted(weights, key=lambda column: (-weights[column], column))
+    shares = {}
+    running = Decimal(0)
+    for column in order[1:]:
+        share = (due * weights[column] / total).quantize(Decimal('0.01'),
+                                                         rounding=ROUND_HALF_UP)
+        shares[column] = share
+        running += share
+    shares[order[0]] = due - running
+    return shares
 
 
 def reconcile_financials(case):
@@ -930,6 +1050,7 @@ def reconcile_financials(case):
     columns = {}
     unresolved = []
     unreconciled = []
+    apportioned = []
     carrying = []
     for name in ICOS_BUCKETS:
         entries = buckets[name]
@@ -944,8 +1065,19 @@ def reconcile_financials(case):
             if due is None:
                 due = category['original'] - (category.get('paid') or Decimal(0))
             if due:
-                column = get_finance_column(category['label'])
-                columns[column] = columns.get(column, Decimal(0)) + due
+                # The total is the summary's, because the itemization did not
+                # agree with it and the summary is the side ICOS stands behind.
+                # Which columns it belongs in is still the itemization's to say.
+                shares = spread_over_fee_columns(due, entries,
+                                                 category.get('paid'))
+                if shares is None:
+                    shares = {get_finance_column(category['label']): due}
+                elif len(shares) > 1:
+                    # One column is not an estimate. The category total went
+                    # somewhere exact and the note has nothing to add.
+                    apportioned.append(name)
+                for column, share in shares.items():
+                    columns[column] = columns.get(column, Decimal(0)) + share
             continue
 
         if not entries:
@@ -980,9 +1112,13 @@ def reconcile_financials(case):
             due = summary[name].get('due')
             if due is None:
                 due = sum(amounts, Decimal(0)) - paid
-            shared = {get_finance_column(entry[0]) for entry in entries}
-            column = shared.pop() if len(shared) == 1 else 'O'
-            columns[column] = columns.get(column, Decimal(0)) + due
+            shares = spread_over_fee_columns(due, entries, paid)
+            if shares is None:
+                shares = {get_finance_column(summary[name]['label']): due}
+            elif len(shares) > 1:
+                apportioned.append(name)
+            for column, share in shares.items():
+                columns[column] = columns.get(column, Decimal(0)) + share
             continue
         for index, (detail, amount, _line_paid) in enumerate(entries):
             owed = Decimal(0) if index in settled else amount
@@ -1004,18 +1140,28 @@ def reconcile_financials(case):
                 % (_and_list(unreconciled),
                    "those balances are" if len(unreconciled) > 1
                    else "that balance is"))
-        if any(get_finance_column(summary[name]['label']) == 'O'
-               for name in unreconciled):
-            text += (", and those fees are in MISCELLANEOUS rather than in "
-                     "their own columns")
+        stranded = [name for name in unreconciled
+                    if name not in apportioned
+                    and get_finance_column(summary[name]['label']) == 'O']
+        if stranded:
+            text += (", and %s is in MISCELLANEOUS rather than in its own "
+                     "columns" % _and_list(stranded))
         notes.append(text + ". The rest of the row is fee by fee and the ICOS "
                             "total is still right.")
     if unresolved:
         notes.append(
             "ICOS records payments per category, not per fee. The payment "
-            "in %s could not be tied to a specific line, so that balance "
-            "is reported as a category total rather than per fee."
-            % ", ".join(unresolved))
+            "in %s could not be tied to a specific line, so that balance is "
+            "ICOS's category total." % _and_list(unresolved))
+    if apportioned:
+        # Named separately from the reason, because this is the part that
+        # changes how the number should be read. The column is right and the
+        # split inside it is an estimate.
+        notes.append(
+            "The %s balance is divided across its fee columns in proportion "
+            "to what those fees were assessed, so the column totals are "
+            "estimates. Request an accounting before relying on the split."
+            % _and_list(sorted(set(apportioned))))
     return columns, " ".join(notes) or None
 
 
