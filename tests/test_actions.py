@@ -329,8 +329,9 @@ class TestCollect:
 
 # -- the sheets themselves ---------------------------------------------------
 
-def payment_row(detail, paid, when, receipt='000001', tender='CSH'):
-    return {'detail': detail, 'amount': '100.00', 'paid': paid,
+def payment_row(detail, paid, when, receipt='000001', tender='CSH',
+                amount='100.00'):
+    return {'detail': detail, 'amount': amount, 'paid': paid,
             'paidDate': when, 'receipt': receipt, 'tender': tender}
 
 
@@ -383,6 +384,85 @@ class TestClientPayments:
         assert history['payments'][0]['case'] == '00000  FECR000007'
 
 
+def judgment_row(amount, paid='', when='01/01/1900', receipt='000001'):
+    return payment_row('JUDGMENTS', paid, when, receipt=receipt,
+                       tender='JRN', amount=amount)
+
+
+class TestClientJudgments:
+    def test_judgments_are_pooled_across_every_case(self):
+        judged = actions.client_judgments([
+            synthetic_case('00000  FECR000001', [judgment_row('5000.00')]),
+            synthetic_case('00000  FECR000002', [judgment_row('2500.00')]),
+        ])
+        assert judged['count'] == 2
+        assert judged['cases'] == 2
+        assert judged['total'] == Decimal('7500.00')
+
+    def test_no_judgment_anywhere_is_none(self):
+        assert actions.client_judgments([synthetic_case()]) is None
+
+    def test_what_has_been_satisfied_is_counted_separately(self):
+        judged = actions.client_judgments([
+            synthetic_case(rows=[judgment_row('5000.00', paid='1200.00')])])
+        assert judged['total'] == Decimal('5000.00')
+        assert judged['satisfied'] == Decimal('1200.00')
+
+    def test_a_judgment_listed_once_per_debtor_is_counted_once(self):
+        judged = actions.client_judgments([
+            synthetic_case(rows=[judgment_row('5000.00', receipt='8480%d' % n)
+                                 for n in range(1, 7)])])
+        assert judged['count'] == 1
+        assert judged['total'] == Decimal('5000.00')
+
+
+class TestJudgmentsOnTheSheet:
+    def test_a_client_with_none_is_told_which_kind_of_nothing(self):
+        workbook = written_workbook(FULL, [{'G': 'DISM', 'R': 100}])
+        cell = 'B%d' % actions.SUMMARY_ROWS['judgments']
+        assert workbook['ACTION LIST'][cell].value == 'none on these cases'
+
+    def test_the_judgment_line_names_the_money_and_says_it_is_not_court_debt(
+            self):
+        workbook = written_workbook(
+            FULL, [{'G': 'DISM', 'R': 100}],
+            [synthetic_case(rows=[judgment_row('5000.00', paid='1200.00')])])
+        line = workbook['ACTION LIST'][
+            'B%d' % actions.SUMMARY_ROWS['judgments']].value
+        assert '1 judgment on 1 case' in line
+        assert '$5,000.00' in line
+        assert '$1,200.00' in line
+        assert 'Not court debt' in line
+
+    def test_the_judgment_stays_out_of_the_payment_line(self):
+        # This is the defect. A $5,000 judgment settled between two private
+        # parties was reported as the client's record of paying the clerk,
+        # next to $25.00 of actual court debt.
+        workbook = written_workbook(
+            FULL, [{'G': 'DISM', 'R': 100}],
+            [synthetic_case(rows=[
+                judgment_row('5000.00', paid='5000.00'),
+                payment_row('FINE', '25.00', '01/02/1900')])])
+        line = workbook['ACTION LIST']['B%d' % actions.SUMMARY_ROWS[
+            'payments']].value
+        assert '$25.00 across 1 payment on 1 case' in line
+        assert '5,000' not in line
+
+    def test_it_stays_out_of_what_the_client_is_told_they_can_pay(self):
+        # ability_to_pay hands a monthly figure to the abilitytopay.org
+        # calculator. On the captured corpus a garnished civil judgment took a
+        # true $0.00 a month to $269.89, in the direction that says the client
+        # can afford it.
+        rows = [judgment_row('5000.00', paid='5000.00', when='01/15/2026')]
+        history = actions.client_payments([synthetic_case(rows=rows)], CLINIC)
+        assert history is None
+        assert actions.ability_to_pay(Decimal(100), history)['monthly'] is None
+
+        both = actions.client_payments([synthetic_case(rows=rows + [
+            payment_row('FINE', '24.00', '01/15/2026')])], CLINIC)
+        assert actions.ability_to_pay(Decimal(100), both)['monthly'] == '$2.00'
+
+
 class TestActionSheet:
     def test_the_action_list_is_the_first_sheet_staff_see(self):
         workbook = written_workbook(FULL, [{'G': 'DISM', 'R': 100}])
@@ -397,7 +477,9 @@ class TestActionSheet:
 
     def test_the_caveat_is_on_the_sheet_not_in_a_manual(self):
         workbook = written_workbook(FULL, [{'G': 'DISM', 'R': 100}])
-        assert 'has been read by a lawyer' in workbook['ACTION LIST']['A8'].value
+        caveat = workbook['ACTION LIST'].cell(
+            actions.SUMMARY_ROWS['caveat'], 1).value
+        assert 'has been read by a lawyer' in caveat
 
     def test_the_total_owed_adds_up_every_fee_column(self):
         workbook = written_workbook(

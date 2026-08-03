@@ -377,7 +377,21 @@ PAYMENT_HEADERS = [
     ("HOW PAID", 11),
 ]
 
-FIRST_ACTION_ROW = 10
+# The block above the ranked list, one line per row, named rather than counted.
+# Adding a line to it used to mean finding every place that had worked out the
+# row numbers by hand, and the row after the last of these is the header.
+SUMMARY_ROWS = {
+    'clinic': 2,
+    'cases': 3,
+    'owed': 4,
+    'payments': 5,
+    'hold': 6,
+    'judgments': 7,
+    'missing': 8,
+    'caveat': 9,
+}
+
+FIRST_ACTION_ROW = max(SUMMARY_ROWS.values()) + 2
 
 # The missing-case line is the one thing on this sheet that has to be read
 # rather than skimmed, so it gets the colour the caveat gets.
@@ -428,6 +442,30 @@ def client_payments(cases, as_of):
     }
 
 
+def client_judgments(cases):
+    """The civil judgments across every case, which are not court debt.
+
+    They are kept off the payment history and out of the balance on purpose,
+    and they still have to be said. A client being garnished on a judgment has
+    less money for court debt than the same client without one, which is the
+    whole of an ability-to-pay argument, and the number is usually an order of
+    magnitude above anything else on the page.
+    """
+    found = []
+    for case in cases:
+        for judgment in crs.judgments(case):
+            found.append(dict(judgment, case=case['id']))
+    if not found:
+        return None
+    return {
+        'count': len(found),
+        'cases': len({judgment['case'] for judgment in found}),
+        'total': sum((judgment['amount'] for judgment in found), Decimal(0)),
+        'satisfied': sum((judgment['satisfied'] for judgment in found),
+                         Decimal(0)),
+    }
+
+
 def build_action_sheet(workbook, cases, written, as_of, def_name, failed=()):
     """Add ACTION LIST to a workbook Napier has finished writing.
 
@@ -448,28 +486,31 @@ def build_action_sheet(workbook, cases, written, as_of, def_name, failed=()):
     worksheet['A1'].font = TITLE_FONT
     worksheet['D1'] = def_name
 
-    worksheet['A2'] = 'Clinic date'
-    worksheet['B2'] = as_of
-    worksheet['B2'].number_format = 'MM/DD/YYYY'
+    def line(name, label):
+        row = SUMMARY_ROWS[name]
+        worksheet.cell(row, 1, label)
+        return 'B%d' % row
 
-    worksheet['A3'] = 'Cases read'
-    worksheet['B3'] = written
+    worksheet[line('clinic', 'Clinic date')] = as_of
+    worksheet['B%d' % SUMMARY_ROWS['clinic']].number_format = 'MM/DD/YYYY'
 
-    worksheet['A4'] = 'Total owed'
+    worksheet[line('cases', 'Cases read')] = written
+
+    line('owed', 'Total owed')
     total_owed = sum(
         (_sum(row_facts(workbook['CASE DATA'], row), FEE_COLUMNS)
          for row in range(crs.FIRST_CASE_ROW, crs.FIRST_CASE_ROW + written)),
         Decimal(0))
-    _money_cell(worksheet, 4, 2, total_owed)
+    _money_cell(worksheet, SUMMARY_ROWS['owed'], 2, total_owed)
 
-    worksheet['A5'] = 'Payments on record'
+    payments_cell = line('payments', 'Payments on record')
     if history is None:
         # Not the same as nothing paid, and the difference decides whether an
         # ability-to-pay argument leans on a payment record or has to be made
         # without one.
-        worksheet['B5'] = "none in the ICOS itemization"
+        worksheet[payments_cell] = "none in the ICOS itemization"
     else:
-        worksheet['B5'] = (
+        worksheet[payments_cell] = (
             "%s across %d payment%s on %d case%s, %s to %s. Last 12 months: "
             "%s, about %s a month."
             % (_dollars(history['total']), history['count'],
@@ -480,26 +521,43 @@ def build_action_sheet(workbook, cases, written, as_of, def_name, failed=()):
                _dollars(history['recent']),
                _dollars(history['recent_monthly'])))
 
-    worksheet['A6'] = 'Registration hold'
+    hold_cell = line('hold', 'Registration hold')
     held, held_owed = registration_hold(workbook['CASE DATA'], written)
     if held:
-        worksheet['B6'] = (
+        worksheet[hold_cell] = (
             "%d convicted case%s carrying %s. The county treasurer can refuse "
             "to renew a registration over any of it (Iowa Code 321.40(6), "
             "602.8107(7))."
             % (held, "" if held == 1 else "s", _dollars(held_owed)))
     else:
-        worksheet['B6'] = "none"
+        worksheet[hold_cell] = "none"
+
+    # Not court debt, and kept out of every figure above on purpose. It is here
+    # because a judgment is the largest number on the page and the one most
+    # likely to be what is actually taking the client's money.
+    judgment_cell = line('judgments', 'Civil judgments')
+    judged = client_judgments(cases)
+    if judged is None:
+        worksheet[judgment_cell] = "none on these cases"
+    else:
+        worksheet[judgment_cell] = (
+            "%d judgment%s on %d case%s, %s, %s of it shown satisfied. Not "
+            "court debt, so none of it is in the figures above. A judgment "
+            "being collected on is money the client does not have for court "
+            "debt."
+            % (judged['count'], "" if judged['count'] == 1 else "s",
+               judged['cases'], "" if judged['cases'] == 1 else "s",
+               _dollars(judged['total']), _dollars(judged['satisfied'])))
 
     # A workbook gets emailed to a colleague, saved to a shared drive and opened
     # three weeks later by somebody who never watched it being built. Up to now
     # the only place that said a run came back short was the finish page and the
     # progress log, both of which are gone within two hours, so the file itself
     # read as a complete criminal record when it was two cases shy of one.
-    worksheet['A7'] = 'Not in this file'
+    missing_cell = line('missing', 'Not in this file')
     failed = list(failed)
     if failed:
-        worksheet['B7'] = (
+        worksheet[missing_cell] = (
             "%d case%s Iowa Courts would not give up: %s. %s on no sheet in "
             "this workbook. Look %s up on Iowa Courts before relying on this "
             "being the whole record."
@@ -507,12 +565,13 @@ def build_action_sheet(workbook, cases, written, as_of, def_name, failed=()):
                ", ".join(failed),
                "It is" if len(failed) == 1 else "They are",
                "it" if len(failed) == 1 else "them"))
-        worksheet['B7'].font = MISSING_FONT
+        worksheet[missing_cell].font = MISSING_FONT
     else:
-        worksheet['B7'] = "none. Every case the search turned up is here."
+        worksheet[missing_cell] = \
+            "none. Every case the search turned up is here."
 
-    worksheet['A8'] = CAVEAT
-    worksheet['A8'].font = CAVEAT_FONT
+    caveat = worksheet.cell(SUMMARY_ROWS['caveat'], 1, CAVEAT)
+    caveat.font = CAVEAT_FONT
 
     _headers(worksheet, FIRST_ACTION_ROW - 1, ACTION_HEADERS)
     row = FIRST_ACTION_ROW
