@@ -253,6 +253,24 @@ def _money(text):
         return None
 
 
+# The line a civil money judgment sits on in the same itemization table as the
+# court fees. It is what one private party owes another, not a fee owed to the
+# clerk, and it is settled by whatever the parties do rather than by the client
+# paying the court. ICOS records it satisfied with a journal entry, so it looks
+# from the table exactly like a fee that has been paid.
+#
+# The match has to be the whole line and not the word. CONFESSION OF JUDGMENT -
+# $5000 OR MORE A-R is the fee for filing one, and DEFERRED JUDGMENT CIVIL
+# PENALTY is a fine that get_finance_column already sends to column R. Both are
+# court debt and both carry the word.
+JUDGMENT_LINE = 'JUDGMENTS'
+
+
+def is_judgment(detail):
+    """Whether an itemization line is the judgment itself rather than a fee."""
+    return (detail or '').strip().upper() == JUDGMENT_LINE
+
+
 def payments(case):
     """Every payment ICOS records on a case, oldest first.
 
@@ -265,6 +283,14 @@ def payments(case):
     from the fee columns: ICOS lists them and does not count them in the case
     total, so counting a payment against one as money paid on the case would
     overstate what the client has actually put in.
+
+    A satisfied civil judgment is excluded for the same reason and at a very
+    different scale. Across the 210 captured cases ten judgment lines accounted
+    for $4,024,095.44 of the $4,045,517.55 this function reported, which is
+    99.5% of it, against $16,602.57 of actual court debt. One of them was a
+    single judgment listed six times, once per debtor. What is left after
+    taking them out is $21,422.11 across 488 payments, which is a person paying
+    the clerk.
     """
     history = []
     last_detail = None
@@ -272,7 +298,8 @@ def payments(case):
         detail = (row.get('detail') or '').strip()
         if detail:
             last_detail = detail
-        if is_excluded_fee(detail or last_detail or ''):
+        line = detail or last_detail or ''
+        if is_excluded_fee(line) or is_judgment(line):
             continue
         paid = _money(row.get('paid'))
         when = parse_us_date(row.get('paidDate'))
@@ -287,6 +314,42 @@ def payments(case):
         })
     history.sort(key=lambda payment: payment['date'])
     return history
+
+
+def judgments(case):
+    """The civil judgments on a case, so taking them out of the payment history
+    does not throw them away.
+
+    A judgment against the client is the largest number anywhere near them and
+    it decides whether they are being garnished, which is the first thing an
+    ability-to-pay argument runs into. It is not court debt and it does not
+    belong in the court debt figures, but it does belong on the page.
+
+    ICOS lists the same judgment once per debtor, so a judgment against six
+    people is six rows with six receipt numbers and one amount between them.
+    The captured corpus has exactly that: one judgment a little over $650,000
+    listed six times on one case, all on the same day. Rows agreeing on both
+    the amount and the date are treated as one judgment, because adding them up
+    is how that judgment came out six times its own size.
+    """
+    found = []
+    for row in case.get('financials') or []:
+        if not is_judgment(row.get('detail')):
+            continue
+        amount = _money(row.get('amount'))
+        if amount is None or amount <= 0:
+            continue
+        when = parse_us_date(row.get('paidDate'))
+        if any(seen['amount'] == amount and seen['date'] == when
+               for seen in found):
+            continue
+        found.append({
+            'amount': amount,
+            'satisfied': _money(row.get('paid')) or Decimal(0),
+            'date': when,
+            'receipt': row.get('receipt'),
+        })
+    return found
 
 
 def payment_history(case, as_of):

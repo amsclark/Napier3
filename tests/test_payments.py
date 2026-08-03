@@ -103,6 +103,101 @@ class TestPayments:
         assert history == []
 
 
+class TestJudgmentsAreNotPayments:
+    """A civil money judgment sits in the same itemization table as the court
+    fees, and ICOS marks it satisfied with a journal entry, so it read to
+    Napier exactly like a fee somebody had paid off. On the captured corpus
+    that was 99.5% of the payment history: money one private party owed
+    another, reported as the client's record of paying the clerk."""
+
+    def test_the_judgment_line_is_not_money_paid_on_the_case(self):
+        history = crs.payments(_case([
+            _row('JUDGMENTS', '5000.00', '01/01/1900', amount='5000.00'),
+            _row('FINE', '10.00', '02/01/1900'),
+        ]))
+        assert [payment['detail'] for payment in history] == ['FINE']
+
+    def test_a_continuation_of_a_judgment_is_left_out_too(self):
+        history = crs.payments(_case([
+            _row('JUDGMENTS', '2500.00', '01/01/1900', amount='5000.00'),
+            _row('', '2500.00', '02/01/1900', amount='5000.00'),
+        ]))
+        assert history == []
+
+    def test_the_filing_fee_for_one_is_still_a_fee(self):
+        # CONFESSION OF JUDGMENT - $5000 OR MORE A-R is what the clerk charges
+        # to file it. Matching the word rather than the line would have thrown
+        # away real court debt.
+        history = crs.payments(_case([
+            _row('CONFESSION OF JUDGMENT - $5000 OR MORE A-R', '185.00',
+                 '01/01/1900'),
+        ]))
+        assert len(history) == 1
+
+    def test_the_civil_penalty_is_still_a_fine(self):
+        history = crs.payments(_case([
+            _row('DEFERRED JUDGMENT CIVIL PENALTY', '65.00', '01/01/1900'),
+        ]))
+        assert len(history) == 1
+
+    def test_is_judgment_wants_the_whole_line(self):
+        assert crs.is_judgment('JUDGMENTS')
+        assert crs.is_judgment('  judgments  ')
+        assert not crs.is_judgment('CONFESSION OF JUDGMENT - $5000 OR MORE A-R')
+        assert not crs.is_judgment('DEFERRED JUDGMENT CIVIL PENALTY')
+        assert not crs.is_judgment('')
+        assert not crs.is_judgment(None)
+
+
+class TestJudgmentsAreStillReported:
+    """Taking them out of the payment history must not throw them away. A
+    client being garnished on a judgment has less money for court debt, which
+    is the whole of an ability-to-pay argument."""
+
+    def test_it_finds_the_judgment(self):
+        found = crs.judgments(_case([
+            _row('JUDGMENTS', '5000.00', '01/01/1900', amount='5000.00'),
+            _row('FINE', '10.00', '02/01/1900'),
+        ]))
+        assert len(found) == 1
+        assert found[0]['amount'] == Decimal('5000.00')
+        assert found[0]['satisfied'] == Decimal('5000.00')
+        assert found[0]['date'] == date(1900, 1, 1)
+
+    def test_the_amount_is_the_judgment_not_what_was_paid_on_it(self):
+        found = crs.judgments(_case([
+            _row('JUDGMENTS', '100.00', '01/01/1900', amount='5000.00')]))
+        assert found[0]['amount'] == Decimal('5000.00')
+        assert found[0]['satisfied'] == Decimal('100.00')
+
+    def test_one_judgment_against_six_people_is_one_judgment(self):
+        # ICOS lists it once per debtor: six rows, six receipt numbers, one
+        # amount between them. Adding them up is how a real $656,285.88
+        # judgment in the corpus became $3,937,715.28.
+        rows = [_row('JUDGMENTS', '', '01/01/1900', receipt='84800%d' % n,
+                     amount='5000.00')
+                for n in range(1, 7)]
+        found = crs.judgments(_case(rows))
+        assert len(found) == 1
+        assert found[0]['amount'] == Decimal('5000.00')
+
+    def test_two_judgments_on_different_days_are_two_judgments(self):
+        found = crs.judgments(_case([
+            _row('JUDGMENTS', '', '01/01/1900', amount='5000.00'),
+            _row('JUDGMENTS', '', '02/01/1900', amount='5000.00'),
+        ]))
+        assert len(found) == 2
+
+    def test_an_unsatisfied_judgment_still_counts(self):
+        found = crs.judgments(_case([
+            _row('JUDGMENTS', '', '01/01/1900', amount='5000.00')]))
+        assert len(found) == 1
+        assert found[0]['satisfied'] == Decimal(0)
+
+    def test_a_case_with_no_judgment_has_none(self):
+        assert crs.judgments(_case([_row('FINE', '10.00', '01/01/1900')])) == []
+
+
 class TestPaymentHistory:
     def test_no_itemization_is_none_not_zero(self):
         # A case ICOS publishes no itemization for cannot tell us the client
