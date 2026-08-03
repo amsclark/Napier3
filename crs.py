@@ -492,62 +492,26 @@ def _months_between(start, end):
     return max(0, months)
 
 
-# Sentence types ICOS uses that put somebody under supervision in the community.
-# All of them are court-ordered, run for a stated term, and appear in the
-# sentence table with that term, which is what makes them answerable from ICOS
-# at all.
+# CASE DATA column I, "Under supervison?" [sic], is deliberately not written
+# here, and a future reader should know it was tried rather than overlooked.
 #
-# PRISON, JAIL and the suspended variants are deliberately not here. Somebody in
-# custody is not what the expungement sheet's 910.7 column is asking about, and
-# the day they get out is not on this page.
+# The charges page does carry a sentence table with the type, the date and the
+# duration, so Napier can work out whether a probation term is still running on
+# paper, and a build that did exactly that went to Iowa Legal Aid on 3 August
+# 2026. They turned it down, and the reason is not one more parsing rule can
+# fix: ICOS does not record an early discharge, records an extension only
+# sometimes, and never carries parole at all, because parole is corrections
+# rather than the court. Their words were that ICOS "is not going to be
+# reliable because sometime they don't update if probation was pushed out or
+# ended early", and that they establish this per client against the Department
+# of Corrections website instead.
 #
-# The two probation wordings after the first are the ones this set was missing.
-# ICOS writes PROBATION - OTHER THAN DCS when somebody other than the Department
-# of Correctional Services holds the supervision, and 910.7 turns on the period
-# of probation rather than on who administers it. PROBATION EXTENDED is the
-# wording for an extension, which is the thing is_under_supervision says below
-# that ICOS records inconsistently: inconsistently is not never, and where ICOS
-# does record one it is the row that decides whether the term is still running.
+# A wrong YES here puts debt in the expungement sheet's 910.7 restitution
+# column, so the column stays with the staff who can answer it. It reads as
+# "n/a" when blank, which is what it has always read and is the honest answer.
 #
-# Between them they are 6 rows across 300 captured cases, and two of those are
-# people on probation today whose column I was blank. Both come off the same
-# page Napier already has.
-#
-# NO SUPERVISION is a real ICOS wording too and is deliberately absent. It is
-# the court saying the opposite, and is_under_supervision has nothing to do with
-# it, since it never writes a NO.
-SUPERVISION_SENTENCES = frozenset({
-    'PROBATION',
-    'PROBATION - OTHER THAN DCS',
-    'PROBATION EXTENDED',
-    'DRUG COURT',
-    'RESIDENTIAL FACILITY',
-})
-
-# ICOS writes a term as a count and a unit, and has used only two units across
-# every case we have looked at. The others are here so a term Napier has not
-# seen is measured rather than ignored.
-DURATION = re.compile(r'^\s*(\d+)\s*(Year|Month|Week|Day)', re.I)
-
-SUPERVISION_NOTE = (
-    "Column I says YES because ICOS shows a %s term of %s imposed %s, which on "
-    "paper runs to %s. Napier reads the sentence table and cannot see a term "
-    "discharged early, a term extended, or anyone on parole, so confirm this "
-    "before relying on it."
-)
-
-# The note reads "a probation term of 2 Year(s)", so the ICOS wording is
-# lowercased to sit inside the sentence. DCS is the Department of Correctional
-# Services, and "other than dcs" in a workbook somebody files off is a typo
-# rather than a house style.
-TERM_ACRONYMS = frozenset({'DCS'})
-
-
-def term_wording(kind):
-    """The ICOS sentence type as it reads in the middle of a sentence."""
-    return ' '.join(
-        word.upper() if word.upper() in TERM_ACRONYMS else word
-        for word in (kind or '').lower().split(' '))
+# case_parser still records the sentence table on the case, because that is a
+# faithful reading of the page and costs nothing. Nothing acts on it.
 
 
 def _add_term(start, count, unit):
@@ -580,46 +544,6 @@ def parse_us_date(text):
         return datetime.strptime(str(text).strip(), '%m/%d/%Y').date()
     except ValueError:
         return None
-
-
-def supervision_term(sentences):
-    """The supervision term that runs longest, as (type, duration, start, end).
-
-    None when the case has no supervision sentence, or has one with no date or
-    no stated term, because a term nobody can put an end date on cannot answer
-    the question the column is asking.
-    """
-    longest = None
-    for sentence in sentences or []:
-        if (sentence.get('type') or '').strip().upper() not in SUPERVISION_SENTENCES:
-            continue
-        start = parse_us_date(sentence.get('date'))
-        if start is None:
-            continue
-        match = DURATION.match(str(sentence.get('duration') or ''))
-        if not match:
-            continue
-        end = _add_term(start, int(match.group(1)), match.group(2))
-        if longest is None or end > longest[3]:
-            longest = (sentence['type'].strip().upper(),
-                       sentence['duration'].strip(), start, end)
-    return longest
-
-
-def is_under_supervision(sentences, as_of):
-    """("YES", term) when a supervision term is still running, else (None, None).
-
-    Never "NO". A blank and a "NO" read the same to the expungement sheet, so
-    writing "NO" would buy nothing and would claim something Napier cannot know:
-    ICOS records no discharge when probation ends early, records an extension
-    inconsistently, and does not carry parole at all, since parole is corrections
-    rather than the court. So this answers the one direction it can evidence,
-    which is that a term was imposed and has not run out yet.
-    """
-    term = supervision_term(sentences)
-    if term is None or term[3] < as_of:
-        return None, None
-    return "YES", term
 
 
 def get_dominant_charge(charges):
@@ -1459,34 +1383,17 @@ def process_case(case, worksheet, row, as_of=None):
             if answer is not None:
                 worksheet[column + i] = answer
 
-    # Outside the charge branch on purpose. The sentence table is read off the
-    # charges page whatever get_dominant_charge made of the adjudications, and a
-    # case can carry a supervision term that Napier coded as something other
-    # than a plain conviction.
-    supervised, term = is_under_supervision(case.get('sentences'), as_of)
-    if supervised is not None:
-        worksheet['I' + i] = supervised
-        supervision_note = SUPERVISION_NOTE % (
-            term_wording(term[0]), term[1], term[2].strftime('%m/%d/%Y'),
-            term[3].strftime('%m/%d/%Y'))
-    else:
-        supervision_note = None
-
     cell_E.alignment = Alignment(wrap_text=True) # Apply text wrapping
 
     # If charge was None, we still need to process financials if it wasn't returned early
     if charge is None:
         # process_financials(case, worksheet, i) # Already called above if charge is None
-        if supervision_note:
-            append_note(worksheet, i, supervision_note)
         return [] # Now we can return
 
     process_financials(case, worksheet, i)
 
-    # After process_financials, which owns column V, so the note joins whatever
-    # it wrote about the money rather than being overwritten by it.
-    if supervision_note:
-        append_note(worksheet, i, supervision_note)
+    # After process_financials, which owns column V, so a note joins whatever it
+    # wrote about the money rather than being overwritten by it.
     if ordinance_note and owes_money(worksheet, i):
         append_note(worksheet, i, ordinance_note)
     spread = charge.get('disposition_date_spread') or []
