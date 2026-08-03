@@ -178,9 +178,26 @@ class TestWhatItMustNotCarry:
     def test_no_credential_reaches_the_file(self):
         """Workbooks get emailed by staff, which puts them outside the ESA
         agreement's reach. Case numbers are public record and may travel. The
-        account they were pulled with is half a credential and may not."""
+        account they were pulled with is half a credential and may not.
+
+        Every line the header writes, taken from the sheet's own row map rather
+        than listed here. The list version covered six of the eight rows, and
+        the two it missed were the two added after it was written, which is how
+        a scan like this stops covering the thing it is for.
+        """
         sheet = built(failed=MISSING)
-        line = " ".join(str(sheet[cell].value) for cell in
-                        ('B2', 'B3', 'B5', 'B6', MISSING_LINE, CAVEAT_LINE))
+        cells = [prefix + str(row) for row in actions.SUMMARY_ROWS.values()
+                 for prefix in ('A', 'B')]
+        assert len(cells) == 2 * len(actions.SUMMARY_ROWS)
+        line = " ".join(str(sheet[cell].value) for cell in cells)
         for smell in ('ILA', 'drakelegalclinic', 'password', 'user ID'):
             assert smell not in line
+
+    def test_the_scan_covers_every_line_the_header_writes(self):
+        """The scan above is only worth its runtime if it reads the whole
+        header. A line added to SUMMARY_ROWS and not written is the other way
+        this goes quiet."""
+        sheet = built(failed=MISSING)
+        for name, row in actions.SUMMARY_ROWS.items():
+            assert sheet.cell(row, 1).value, \
+                '%s (row %d) writes no label' % (name, row)
