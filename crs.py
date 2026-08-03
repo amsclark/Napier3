@@ -88,7 +88,14 @@ charge_code_map = {
     "ADJUDICATED": {"JUV":1},
     "WITHDRAWN": {"WTHD":0},
     "NOT FILED": {"NOTF":0},
-    "CIVIL": {"CIV":0}
+    "CIVIL": {"CIV":0},
+    # A real run on 3 August 2026 alerted on this wording, which nothing in
+    # 300 captured cases had shown. The charge moved to another county and was
+    # decided there, so this record carries no outcome, and TNSF is the code
+    # the expungement sheet has always cleared without anything ever producing
+    # it. Ranked with the other non-convictions, so a case that also carries a
+    # guilty count still reads as guilty.
+    "CHANGE OF VENUE": {"TNSF":0}
 }
 
 # The rank for a disposition string charge_code_map has never seen. It sits
@@ -96,9 +103,8 @@ charge_code_map = {
 #
 # It used to be 3, above everything else here. So one unrecognised word on one
 # count of a case demoted the whole case to OTH, and OTH is not GTR, GPL or DEF,
-# which is the test four analysis sheets run before they say anything:
-# LICENSE-REGIS in 897 formulas, BANKRUPTCY in 396, EXEMPTIONS in 394, SOL in
-# 294. A client with a conviction and one stray code came out of all four
+# which is the test the licence sheet runs in 299 formulas and the expungement
+# sheet in 396. A client with a conviction and one stray code came out of both
 # looking like a client with no conviction at all, and the workbook gave no sign
 # of it.
 #
@@ -107,6 +113,15 @@ charge_code_map = {
 # unrecognised reads as OTH rather than passing itself off as dismissed. Both
 # are guesses, which is why an unrecognised code is also named on its own row
 # and mailed out while the run is happening instead of being absorbed quietly.
+#
+# The two money sheets ask the question the other way round. BANKRUPTCY in 792
+# formulas and EXEMPTIONS in 394 list the codes that mean no conviction and
+# treat everything else as one, and OTH is not on that list either. So an
+# unreadable disposition comes out of the workbook as no conviction on two
+# sheets and as a conviction on the other two. That is the safer way for it to
+# be wrong, because the alternative is telling a client that debt is
+# dischargeable on the strength of a word nobody could read, but it does mean
+# the note below cannot claim the sheets agree.
 OTH_RANK = 0.5
 
 # What column V says about that row. The workbook outlives the alert and gets
@@ -114,9 +129,10 @@ OTH_RANK = 0.5
 # visible in the file itself and not only in Alex's inbox.
 UNKNOWN_DISPOSITION_NOTE = (
     "Iowa Courts recorded a disposition Napier does not recognise (%s), so this "
-    "case is coded OTH. The expungement, bankruptcy, exemption and licence "
-    "sheets treat OTH as no conviction. Check this case in ICOS before relying "
-    "on what they say about it."
+    "case is coded OTH, and the sheets do not agree on what that means. The "
+    "licence sheet reads OTH as no conviction and the expungement sheet answers "
+    "n/a, but the bankruptcy and exemption sheets sort this case's debt as a "
+    "conviction's. Check this case in ICOS before relying on any of them."
 )
 
 

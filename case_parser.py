@@ -217,7 +217,8 @@ charge_code_dict = {
     "ADJUDICATED": "JUV",
     "WITHDRAWN": "WTHD",
     "NOT FILED": "NOTF",
-    "CIVIL": "CIV"
+    "CIVIL": "CIV",
+    "CHANGE OF VENUE": "TNSF"
 }
 
 # The outcomes that mean no adjudicated charge, so the statutory code is not
@@ -228,7 +229,11 @@ charge_code_dict = {
 # so withdrawn counts were never filtered and their statute rode into column
 # F alongside real convictions. One name, checked against the map by a test,
 # is the reason that cannot drift apart again.
-NOT_ADJUDICATED = frozenset({"WTHD", "DISM", "ACQ", "NOTF"})
+#
+# TNSF is here for the same reason the others are. A charge disposed CHANGE OF
+# VENUE was decided on the receiving county's case and not on this one, so its
+# statute is not the client's to carry off this record.
+NOT_ADJUDICATED = frozenset({"WTHD", "DISM", "ACQ", "NOTF", "TNSF"})
 
 
 def disposition_code(wording):
