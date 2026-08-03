@@ -52,10 +52,18 @@ county attorney fee is rather than about what the page says.
 
 `REFUNDABLES DUE TO PREPAID EXPENSES` shows up on 14 lines worth $681.69, and
 Napier counts every one of them as money the client paid toward court debt.
-A prepaid expense being refunded is probably not that. It is left alone because
-the wording does not say clearly enough which way it runs, and because ICOS's
-own totals treat it as a payment, so changing it would put Napier's arithmetic
-at odds with the court's.
+A prepaid expense being refunded is probably not that.
+
+The original reason for leaving it alone was that ICOS's own totals treat it as
+a payment, so changing it would put Napier's arithmetic at odds with the
+court's. That has been measured since and is not true: taking these lines out
+of the payment history moves no fee column on the 300 case corpus, which totals
+$46,147.49 either way. What is left is weaker but still enough to hold. The
+wording does not say which direction the money ran. It sits on civil cases
+rather than the criminal ones the workbook is mostly for. It is $299.44 on the
+cases that own it, against $9,274.25 for the bare `REFUNDABLE` that was
+excluded. And three of its lines are part paid, where every held-money wording
+that was excluded is assessed and paid at the same amount on every line.
 
 ## ICOS case statuses with no CRS code
 
@@ -83,12 +91,14 @@ one the sheets want is a question about the sheets.
 Column I, "Under supervison?", is blank on all 210 cases. ICOS does not print
 it anywhere Napier can reach.
 
-Bond principal is kept out of the payment history by matching two whole
-wordings, `APPEARANCE BOND REFUND` and `BONDS - ESCROW`, which are the only two
-seen across 300 cases. A third wording for the same thing would go back to
-being counted as a payment. The match is deliberately not on the word `BOND`,
-because a bond assignment fee is court debt and a forfeited bond is money the
-county keeps.
+Money the clerk is holding on somebody's behalf is kept out of the payment
+history by matching three whole wordings, `APPEARANCE BOND REFUND`,
+`BONDS - ESCROW` and `REFUNDABLE`, which are the only three of their kind seen
+across 300 cases. A fourth wording for the same thing would go back to being
+counted as a payment. The match is deliberately not on the word `BOND`, because
+a bond assignment fee is court debt and a forfeited bond is money the county
+keeps, and deliberately not on the word `REFUNDABLE`, for the reason in the
+prepaid expenses section above.
 
 The workbook recognises a `TNSF` disposition code that the parser never
 produces. Either ICOS has a wording for it that has not been seen in 210
