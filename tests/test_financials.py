@@ -366,6 +366,86 @@ def test_third_party_fee_stays_out_of_the_partition(felony_case):
     assert Decimal('304.75') not in columns.values()
 
 
+def _third_party_case(other_original, other_paid):
+    """A case owing one ordinary OTHER fee and one third party collection fee.
+
+    other_original is what the ICOS summary says the OTHER bucket was assessed.
+    Set it to 40 and the summary has left the collection fee out, which is the
+    common shape. Set it to 100 and the summary has counted it.
+    """
+    def zero(label):
+        return {'label': label, 'original': Decimal('0'),
+                'paid': Decimal('0'), 'due': Decimal('0')}
+
+    original = Decimal(other_original)
+    paid = Decimal(other_paid)
+    return {
+        'total_due': '$%s' % (original - paid),
+        'summary_categories': [
+            zero('COSTS'), zero('FINE'), zero('SURCHARGE'), zero('RESTITUTION'),
+            {'label': 'OTHER', 'original': original, 'paid': paid,
+             'due': original - paid},
+        ],
+        'financials': [
+            {'detail': 'DELINQUENT REVOLVING FUND OBLIGATION',
+             'amount': '40.00', 'paid': None, 'paidDate': None},
+            {'detail': 'THIRD PARTY DEBT COLLECTION FEE',
+             'amount': '60.00', 'paid': None, 'paidDate': None},
+        ],
+    }
+
+
+def test_a_summary_that_leaves_the_third_party_fee_out_still_drops_it():
+    """The five captured cases of this shape, and the reason the rule exists.
+
+    The itemisation assesses 100 and the summary only 40, which is ICOS saying
+    the collection agency's 60 is not part of what it will collect. Column K
+    stays empty and the row reports the 40 ICOS stands behind.
+    """
+    columns, _ = crs.reconcile_financials(_third_party_case('40.00', '0'))
+    assert columns == {'P': Decimal('40.00')}
+
+
+def test_a_summary_that_counts_the_third_party_fee_keeps_it_in_column_k():
+    """The other four captured cases.
+
+    Here the itemisation and the summary both say 100, so ICOS did count the
+    collection fee. Dropping it would leave the bucket 60 short of its own
+    summary, and the whole balance would come back as a category total in
+    column P instead of splitting into the two fees that make it up.
+
+    Column K is one of the two columns Iowa Legal Aid treats as surely
+    dischargeable, so losing 60 out of it is not cosmetic.
+    """
+    columns, note = crs.reconcile_financials(_third_party_case('100.00', '0'))
+    assert columns == {'P': Decimal('40.00'), 'K': Decimal('60.00')}
+    assert note is None
+
+
+def test_the_check_is_the_summary_total_not_the_wording():
+    crs_case = _third_party_case('100.00', '0')
+    assert crs.summary_counts_third_party(crs_case) is True
+    assert crs.summary_counts_third_party(_third_party_case('40.00', '0')) is False
+
+
+def test_a_case_with_no_third_party_fee_is_not_affected():
+    """The check only ever answers a question about a fee that is there."""
+    case = _third_party_case('40.00', '0')
+    case['financials'] = [case['financials'][0]]
+    assert crs.summary_counts_third_party(case) is False
+
+
+def test_a_counted_third_party_fee_that_was_paid_off_owes_nothing():
+    """All four captured cases of this shape are paid in full.
+
+    The bucket reconciles, the payment is attributed to the lines that account
+    for it, and nothing is owed. This is the corpus today, and it is why the
+    change above moves no captured row.
+    """
+    columns, _ = crs.reconcile_financials(_third_party_case('100.00', '100.00'))
+    assert not columns or sum(columns.values()) == Decimal('0')
+
+
 @pytest.mark.parametrize("detail,bucket", [
     ("SHERIFFS FEES - LOCAL", "COSTS"),
     ("INDIGENT DEFENSE-FELONY-REIMBURSE STATE", "COSTS"),
