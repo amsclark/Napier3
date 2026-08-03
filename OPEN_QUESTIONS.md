@@ -33,9 +33,32 @@ correct and the total is not supposed to reconcile. If it is meant to sort all
 the debt into barred and not barred, then "NO ARGUMENT" should be the balance
 after the two barred columns rather than zero on a barred row.
 
-Related: SOL column D is $0.00 across all 210 cases, because jail and room and
-board debt reaches column L only on rows whose itemization reconciled fee by
-fee. Offer to look at this is open and unanswered.
+## Room and board debt the appeal sheet cannot see
+
+ICOS has one wording for jail and room and board,
+`REIMBURSE-SHERIFF-ROOM/BOARD/MEDICAL`, and it appears on 11 lines worth
+$18,907.56 across 10 of the 300 captured cases. Napier sends every one of them
+to CASE DATA column L,
+which is where the SOL sheet's column D reads from and where the whole POLK
+R&B APPEAL sheet reads from. The money only gets that far on cases whose
+itemization reconciled against ICOS's own category totals fee by fee. Where a
+category did not add up, the balance goes in as that category's total, and
+room and board is inside COSTS, so it lands in MISC with everything else.
+
+Five of the ten cases still owe money. Two of them reconcile, and their
+$3,060.00 of unpaid room and board reads off the appeal sheet the way an
+attorney would expect. The other three owe $11,080.66 between them, their
+itemizations show $8,420.23 of room and board unpaid, and the appeal sheet
+reports $0.00 for each.
+
+Napier does say so. CASE DATA column V carries the note naming which category
+totals did not add up. The appeal sheet has four columns and does not carry
+that note, so what a reader sees there is a zero that means Napier could not
+break the number out, printed identically to a zero that means the case has no
+room and board on it. Whether that sheet should be able to say which one it
+means is a question about the sheet.
+
+Offer to look at the reconciliation itself is open and unanswered.
 
 ## Fees Napier will not classify
 

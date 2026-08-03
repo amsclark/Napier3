@@ -507,6 +507,24 @@ def test_old_fee_debt_survives_a_broken_category_elsewhere():
     assert 'OTHER' in note
 
 
+def test_the_wording_icos_actually_uses_for_room_and_board_reaches_column_l():
+    """The one above uses `JAIL FEES-ROOM/BOARD`, which ICOS does not write.
+
+    What it writes is `REIMBURSE-SHERIFF-ROOM/BOARD/MEDICAL`, on 11 lines worth
+    $18,907.56 across the 300 captured cases, and that wording carries the word
+    SHERIFF as well. get_finance_column tests ROOM/BOARD first and sheriff fees
+    are column M, so the order of those two branches is the only thing keeping
+    this out of the sheriff column. Nothing said so, and a wording invented for
+    a fixture cannot say it, because it does not contain the word.
+
+    Getting it wrong empties the POLK R&B APPEAL sheet and the SOL sheet's
+    column D, which are the two places an attorney goes looking for room and
+    board to argue about.
+    """
+    assert crs.get_finance_column('REIMBURSE-SHERIFF-ROOM/BOARD/MEDICAL') == 'L'
+    assert crs.get_finance_column('SHERIFFS FEES - LOCAL') == 'M'
+
+
 def test_an_unattributable_payment_across_different_fees_still_falls_to_misc():
     """The old behaviour, kept for the case that actually warrants it.
 
