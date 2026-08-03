@@ -124,6 +124,34 @@ charge_code_map = {
 # the note below cannot claim the sheets agree.
 OTH_RANK = 0.5
 
+# What "ADJUDICATED" is worth on a case whose number is not JVJV.
+#
+# The word is supposed to be the juvenile court's, and charge_code_map maps it
+# to JUV at the rank of a conviction, which is right on a JVJV case. Iowa Legal
+# Aid says the clerks also enter it on probation violation and contempt counts,
+# and there it is not the case's disposition at all: the disposition is the
+# conviction that put the client on probation in the first place.
+#
+# At equal rank the adjudication was winning. Two of the three captured cases
+# carrying an ADJUDICATED count are felonies that also carry a negotiated plea,
+# and both came out as JUV. Iowa Legal Aid switches those by hand today, on the
+# old Napier as well as this one.
+#
+# It is not only column G. The count that wins also dates column D, so the row
+# carried the day the probation violation was found rather than the day of the
+# conviction, which is the other half of what they reported. And BANKRUPTCY and
+# EXEMPTIONS both list JUV among the codes that mean no conviction, so a felony
+# reading JUV came out of two sheets with its debt marked dischargeable.
+#
+# So on anything but a JVJV, an adjudication now loses to any real conviction.
+# It stays above OTH rather than being struck out, because a case whose only
+# disposition is an adjudication has to say something, and refusing to name it
+# would render as "open charge" on three sheets, which is worse than a code with
+# a caveat next to it. Nothing in the 300 captured cases takes that path: there
+# is no non-JVJV case where an adjudication is the only disposition. If one
+# turns up, ADULT_ADJUDICATION_NOTE says so in column V.
+JUV_RANK_ADULT_CASE = 0.75
+
 # What column V says about that row. The workbook outlives the alert and gets
 # read by whoever has the client in front of them, so the guess has to be
 # visible in the file itself and not only in Alex's inbox.
@@ -206,10 +234,26 @@ ORDINANCE_VEHICULAR_NOTE = (
 # will apply it to every dollar on the row including debt from a count disposed
 # years earlier.
 DISPOSITION_SPREAD_NOTE = (
-    "Counts on this case were disposed on different dates (%s). Column D holds "
-    "%s, the date of the disposition in column G. The SOL sheet applies its "
-    "20 year test to that one date for the whole row, so if this case is near "
-    "the 20 year line check the counts separately."
+    "Counts on this case were disposed on different dates (%s). Column G is the "
+    "disposition code and column D is a date: %s, the day the count behind that "
+    "code was disposed. The SOL sheet applies its 20 year test to that one date "
+    "for the whole row, so if this case is near the 20 year line check the "
+    "counts separately."
+)
+
+# The wording above used to be "Column D holds X, the date of the disposition in
+# column G", which Iowa Legal Aid read as a claim that column G holds a date.
+# It does not and never did. Both halves are named now.
+
+# What column V says when a case that is not a JVJV still comes out as JUV. See
+# JUV_RANK_ADULT_CASE for why that is now rare and why it is still possible.
+ADULT_ADJUDICATION_NOTE = (
+    "The only disposition Iowa Courts show on this case is an adjudication, and "
+    "this is not a juvenile case number, so column G reads JUV. Clerks enter "
+    "\"Adjudicated\" on probation violation and contempt counts as well as on "
+    "juvenile ones. If that is what this is, the case's real disposition is not "
+    "on the page and JUV is wrong: BANKRUPTCY and EXEMPTIONS both read JUV as "
+    "no conviction and will treat this debt as dischargeable. Check it."
 )
 
 # Column D is blank on a case no court has ruled on yet, and it has to stay
@@ -546,12 +590,43 @@ def parse_us_date(text):
         return None
 
 
-def get_dominant_charge(charges):
+def case_type(case_id):
+    """The four character docket type out of an ICOS case number, or ''.
+
+    ICOS writes a case number as a five character county code, two spaces, then
+    the type and the sequence: "00000  FECR000000". Everything that reads the
+    type reads those same four characters, so the slice lives here rather than
+    in each caller.
+    """
+    case_id = (case_id or '').strip()
+    return case_id[7:11].upper() if len(case_id) >= 11 else ''
+
+
+def is_juvenile_case(case_id):
+    """Whether this docket is the juvenile court's.
+
+    Iowa Legal Aid asked for JUV to be possible only on a "JVJV" case number.
+    The whole JV family is accepted rather than that one type, because the
+    juvenile docket also carries JVCV and JVDV numbers and the cost of being
+    wrong runs one way: a genuine juvenile case that Napier failed to recognise
+    would have its adjudication demoted, which is the outcome this is here to
+    prevent. Nothing but JV reaches it.
+    """
+    return case_type(case_id).startswith('JV')
+
+
+def get_dominant_charge(charges, case_id=None):
     """Pick the one disposition code that represents the whole case.
 
     ICOS lists a disposition per count, so a plea deal shows up as a guilty
     alongside several dismissals. The CRS has one column for it, and the
     ranking in charge_code_map decides which count speaks for the case.
+
+    case_id is the ICOS case number, which carries the case type in characters
+    7 to 11. The only thing read off it is whether this is a juvenile case, for
+    JUV_RANK_ADULT_CASE. Omitting it reads as not juvenile, which is the way
+    round that cannot invent a JUV on an adult case. process_case, the only
+    caller that matters, always has the number and always passes it.
 
     Returns a copy. The caller's charge keeps its list of dispositions, so
     calling this twice on the same case gives the same answer both times.
@@ -592,6 +667,8 @@ def get_dominant_charge(charges):
             charge_key = "OTH"
         else:
             charge_key, rank = next(iter(charge_code_map[disposition].items()))
+            if charge_key == "JUV" and not is_juvenile_case(case_id):
+                rank = JUV_RANK_ADULT_CASE
             charge_dict[charge_key] = rank
         if index < len(raw_dates) and raw_dates[index]:
             dates_by_code.setdefault(charge_key, []).append(raw_dates[index])
@@ -1281,16 +1358,17 @@ def process_case(case, worksheet, row, as_of=None):
     Napier guessed at, and the return value is how the run gets to say so.
 
     as_of is the clinic date, the same one build_workbook puts in BASIC INFO B3.
-    Whether a probation term is still running is only answerable against a day,
-    and it has to be that day rather than today, so that reopening a workbook
-    next year does not silently change what column I said.
+    Nothing here reads it since column I went back to the staff. It is kept
+    because every caller passes it and because a date-sensitive cell landing in
+    this row again should be answered against the day of the clinic rather than
+    the day the file is reopened.
     """
     if as_of is None:
         as_of = iowa_today()
     i = str(row)
     worksheet['A' + i] = case['id']
     worksheet['B' + i] = case['county']
-    charge = get_dominant_charge(case['charges'])
+    charge = get_dominant_charge(case['charges'], case['id'])
     ordinance_note = None
 
     cell_E = worksheet['E' + i] # Get cell E
@@ -1405,6 +1483,13 @@ def process_case(case, worksheet, row, as_of=None):
     # column D says, and a caveat there describes a decision nobody is making.
     if not disposition_date and owes_money(worksheet, i):
         append_note(worksheet, i, PENDING_CASE_NOTE)
+    # JUV survived on a case that is not the juvenile court's, which means an
+    # adjudication was the only disposition on the page. Unlike the spread and
+    # ordinance notes this one is not conditional on the row owing anything,
+    # because the code itself is what may be wrong and it is read by the licence
+    # and expungement sheets whether or not there is a dollar on the row.
+    if charge.get('disposition') == 'JUV' and not is_juvenile_case(case['id']):
+        append_note(worksheet, i, ADULT_ADJUDICATION_NOTE)
     unknown = charge.get('unknown_dispositions') or []
     if unknown:
         append_note(worksheet, i,

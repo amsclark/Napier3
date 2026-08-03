@@ -8,9 +8,14 @@ ICOS printed first.
 
 On three of the nine captured multi-count cases the counts really were disposed
 on different days, and one of them shows the pairing coming apart. A count
-pleaded out, a second count dismissed some months later, and last of all an
-adjudication that outranks both. The row reported that adjudication's code
-against the date of the plea, more than a year earlier.
+dismissed, and a second count pleaded out some months later. The row reported
+the plea against the date of the dismissal.
+
+That case used to be written here with an adjudication on top, which is how
+ICOS records a probation violation and which used to outrank the plea. It no
+longer does, on anything but a juvenile case number, because Iowa Legal Aid
+reported that the row then carried both the wrong code and the wrong date. See
+test_adult_adjudication.py.
 
 The date is the part that costs something. The SOL sheet asks
 
@@ -131,16 +136,22 @@ def test_the_dates_line_up_with_the_dispositions_they_belong_to():
 def test_column_d_is_the_date_of_the_count_column_g_names():
     """The captured shape: a plea, then a dismissal, then an adjudication.
 
-    Column G takes the adjudication because it outranks the rest. Column D used
-    to take the first count's date, from well over a year before.
+    Column G takes the plea. The adjudication is 908.11, violation of probation,
+    and on a felony case number that is the clerk writing "Adjudicated" where
+    the juvenile court's word does not belong, so it no longer outranks the
+    conviction it is a violation of. Column D follows the count column G names,
+    which is the plea in 1900 rather than the violation three years later.
+
+    This test asserted JUV and 03/03/1903 until Iowa Legal Aid reported both as
+    wrong on 3 August 2026.
     """
     cells = _row([
         ('715A.2(2)(A)', 'SYNTHETIC FORGERY', 'GUILTY', '01/01/1900'),
         ('908.11', 'SYNTHETIC VIOLATION', 'DISMISSED BY COURT', '02/02/1901'),
         ('715A.2(2)(A)', 'SYNTHETIC FORGERY', 'ADJUDICATED', '03/03/1903'),
     ])
-    assert cells['G'] == 'JUV'
-    assert cells['D'] == '03/03/1903'
+    assert cells['G'] == 'GTR'
+    assert cells['D'] == '01/01/1900'
 
 
 def test_a_dismissal_printed_first_does_not_date_the_conviction():
