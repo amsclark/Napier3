@@ -5,8 +5,10 @@ confirm or overrule. None of these are bugs as far as the code is concerned.
 They are places where the right answer is a legal judgement rather than a
 parsing one, so the code takes the conservative reading and says so.
 
-Numbers here come from replaying 210 real ICOS cases through the shipping
-path. No client data, names or case numbers appear in this repository.
+Numbers here come from replaying real ICOS cases through the shipping path. The
+corpus was 210 cases when the older sections below were measured and is 300 now,
+and each section says which. No client data, names or case numbers appear in
+this repository.
 
 ## The SOL sheet does not account for all the debt
 
@@ -59,6 +61,55 @@ room and board on it. Whether that sheet should be able to say which one it
 means is a question about the sheet.
 
 Offer to look at the reconciliation itself is open and unanswered.
+
+## An ordinance conviction the expungement sheet cannot rule out
+
+The public intoxication, PAULA and prostitution columns used to ask whether the
+adjudicated statute was `123.46`, `123.47` or `725.1` exactly, and Iowa Courts
+never writes a section that bare, so they answered NO on every case. They read
+the statute properly now. The one real conviction among the 300 captured cases
+is a guilty plea to possession of alcohol by a person under the legal age,
+charged under a city ordinance and printed as `PO/123.47(2)`, and it says YES.
+
+Reading it that way is a decision, and it is the same one Napier already makes
+for the licence column: an ordinance citation carrying a state section number is
+treated as that state offence. It could be wrong in a specific way. Iowa Code
+123.47(9) expunges a conviction "for a violation of this section", and a
+conviction under a city ordinance is not that, however exactly the ordinance
+copies the statute. If Iowa practice is that an ordinance conviction cannot be
+expunged under 123.47, this column should say NO on `PO/123.47(2)` and the
+licence column is probably reading ordinances too generously as well.
+
+The reverse case is left blank rather than answered. A city numbering its own
+code 123.47 and prosecuting somebody for supplying alcohol under it is not a
+coincidence worth entertaining, so a match is treated as evidence. The absence
+of one is not, because an ordinance may number an offence anything at all, so
+`MA/62.01(120)-0198` gets no answer instead of a NO. The sheet reads the blank
+as NO, which is the same thing on the page with an honest reason behind it.
+
+## Whether a registration hold needs a collection referral
+
+The ACTION LIST says how many convicted cases carry a balance the county
+treasurer can refuse to renew a registration over, citing Iowa Code 321.40(6)
+and 602.8107(7). Both of those turn on the debt being delinquent, and Napier
+counts every conviction carrying a balance without asking.
+
+Measured across the 300 captured cases: 52 convicted cases carry a balance,
+$42,757.66 in total. Nineteen of them, $19,999.86, show a collection referral in
+ICOS by wording, mostly `DELINQUENT REVOLVING FUND`, with
+`IOWA DEPT OF REVENUE COLLECTIONS`, `THIRD PARTY` and `COLLECTION BY CO ATTY`
+making up the rest. The other 33, $22,757.80, show none.
+
+That gap looked like over-reporting until the payment records were read against
+it. Fifty-one of the 52 have taken no payment in the last twelve months. One
+case, $1,157.50, is being paid. Under 602.8107(2) court debt is delinquent 30
+days after assessment unless there is a plan, so 51 of 52 are delinquent on the
+face of it whether or not a referral has been recorded, and the count Napier
+prints is either right or one case high.
+
+Whether the absence of a referral marker on those 33 cases means anything under
+321.40(6) is the question, and it is a question about Iowa collection practice
+rather than about the code. Napier's rule is left as it is.
 
 ## Fees Napier will not classify
 
