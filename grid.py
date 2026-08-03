@@ -180,10 +180,11 @@ def _extend_sheet(sheet, last_case_row):
 
     The sheets do not agree on where a case lands. SOL row 4 reads case row 4;
     the expungement sheet starts a row higher, its row 3 reading case row 4;
-    LICENSE-REGIS reads them out of order, its row 2 pointing at case row 6
-    while case row 4 sits down at row 57. So the offset is measured from the
-    sheet's own last row rather than assumed. Order does not matter to any of
-    these sheets, because nothing on them reads a neighbouring row.
+    LICENSE-REGIS and POLK R&B APPEAL start at row 2. So the offset is measured
+    from the sheet's own last row rather than assumed. Order does not matter to
+    any of these sheets, because nothing on them reads a neighbouring row,
+    which is why LICENSE-REGIS could ship reading the case list shuffled and
+    still add up.
     """
     rows, deepest, furthest = _survey(sheet)
     if deepest is None:

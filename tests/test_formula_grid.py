@@ -122,8 +122,9 @@ def test_a_case_past_the_sol_grid_gets_a_row_on_it():
 
 
 def test_every_case_row_is_read_exactly_once_afterwards():
-    """LICENSE-REGIS reads the case rows out of order, case row 4 sitting at
-    sheet row 57. Filling down must not repeat one or drop one."""
+    """Filling down must not repeat a case row or drop one. LICENSE-REGIS
+    shipped reading them shuffled, case row 4 sitting at sheet row 57, and the
+    thing that made that survivable is what this guards."""
     count = 320
     workbook, _ = extended(count)
     last = 3 + count
