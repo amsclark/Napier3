@@ -17,6 +17,7 @@ from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import case_parser
 import crs
 
 
@@ -45,9 +46,24 @@ def test_a_count_with_no_disposition_does_not_outrank_one_with_a_disposition():
 
 
 def test_a_disposition_icos_uses_that_we_do_not_map_reads_as_other():
-    """CHANGE OF VENUE is real and is not in the map. It must not crash."""
+    """CLOSED is real and is deliberately not in the map.
+
+    It arrived with CHANGE OF VENUE in the same run on 3 August 2026. That one
+    could be read: the charge went to another county, so this record carries no
+    outcome, and it is mapped. CLOSED cannot. A case closes after a conviction
+    and after a dismissal alike, and guessing which would put a number in a
+    bankruptcy column on the strength of a word that does not say. So it stays
+    OTH, which is the code that means Napier does not know, and it stays
+    something the run emails out while it is happening.
+    """
+    assert crs.get_dominant_charge(_charge('CLOSED'))['disposition'] == 'OTH'
+
+
+def test_a_charge_moved_to_another_county_carries_no_outcome():
+    """CHANGE OF VENUE, from the same run. The charge was decided elsewhere."""
     assert crs.get_dominant_charge(
-        _charge('CHANGE OF VENUE'))['disposition'] == 'OTH'
+        _charge('CHANGE OF VENUE'))['disposition'] == 'TNSF'
+    assert 'TNSF' in case_parser.NOT_ADJUDICATED
 
 
 def test_a_case_with_no_charges_is_not_a_criminal_case():

@@ -53,6 +53,47 @@ debt is not barred and it is not arguable yet either, so putting it anywhere on
 the SOL sheet means deciding which column an open case belongs in, and that is
 the same question as the shortfall above.
 
+## An open charge sorted as though it were a conviction
+
+The bankruptcy and exemption sheets ask whether a case carries a conviction
+before deciding which column its debt belongs in. As of the fix that added the
+acquitted, withdrawn, not filed and transferred codes to that question, every
+disposition Napier writes is answered correctly except two, and one of them is
+a case with no disposition at all.
+
+A case ICOS has not disposed leaves column G empty, and column B on both sheets
+turns that into the words "open charge". "open charge" is not on the list of
+codes that mean no conviction, so the sheet sorts the debt as a convicted
+client's: out of the fully dischargeable column, and out of "all exemptions
+apply" into "federal only".
+
+On the 300 captured cases this is 8 cases carrying $286.93 between them, of
+which 2 have any debt at all. Every dollar is still on the sheet and the case
+totals are right; what changes is which column a staffer reads it in.
+
+It is left alone because an open case has not been convicted and has not been
+cleared either, and neither existing column says that. The same question is
+open on the SOL sheet above, and the answer should probably be the same on
+both. Worth asking whether these sheets want a column for a case that is still
+running, or whether an open case should simply be left out of the sorting.
+
+## A disposition that says only that the case is over
+
+A production run on 3 August 2026 met two dispositions Napier could not read.
+CHANGE OF VENUE is now mapped: the charge went to another county and was
+decided there, so this record carries no outcome, which is what the transfer
+code has always meant. Two of the 300 captured cases carry it and were reading
+as unrecognised until then.
+
+CLOSED is deliberately not mapped. A case closes after a conviction and after a
+dismissal alike, and the word does not say which. Mapping it either way would
+put a number in a bankruptcy column on the strength of a guess, so it stays
+OTH, which is the code that means Napier does not know, and it keeps being
+emailed out while the run is happening.
+
+Worth asking Iowa Legal Aid whether CLOSED means something specific in ICOS
+practice, because if it does, it is one line to map.
+
 ## Room and board debt the appeal sheet cannot see
 
 ICOS has one wording for jail and room and board,
