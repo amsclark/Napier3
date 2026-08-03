@@ -271,23 +271,31 @@ def is_judgment(detail):
     return (detail or '').strip().upper() == JUDGMENT_LINE
 
 
-# Bond principal moving through the clerk's account. A defendant, or more often
-# somebody standing behind them, puts up an appearance bond, and the clerk holds
-# it and later gives it back or applies it. Either way the line records the
-# money moving, not the defendant paying down what they owe. Where a bond is
-# applied to the debt, ICOS bills the fees it covered on their own lines and
-# marks those paid, so counting the bond line as well counts the same money
-# twice.
+# Money sitting with the clerk on somebody's behalf, rather than money applied
+# to what the client owes. A defendant, or more often somebody standing behind
+# them, puts up an appearance bond, and the clerk holds it and later gives it
+# back or applies it. Either way the line records the money moving, not the
+# defendant paying down their debt. Where it is applied, ICOS bills the fees it
+# covered on their own lines and marks those paid, so counting the deposit as
+# well counts the same money twice.
+#
+# Every one of these in the captured corpus is assessed and paid at the same
+# amount, so none of them contributes anything to what ICOS says is owed, and
+# taking them out of the payment history cannot put Napier's arithmetic at odds
+# with the court's. That is the test to apply to any wording added here.
 #
 # Whole lines again, for the reason JUDGMENT_LINE is. A bond assignment fee or a
 # forfeiture is court debt and carries the word, and forfeited bond money is
-# money the county keeps rather than money that comes back.
-BOND_LINES = ('APPEARANCE BOND REFUND', 'BONDS - ESCROW')
+# money the county keeps rather than money that comes back. REFUNDABLE is a
+# whole line for a second reason: REFUNDABLES DUE TO PREPAID EXPENSES is a
+# different thing on civil cases and is deliberately still counted, for the
+# reasons in OPEN_QUESTIONS.md.
+DEPOSIT_LINES = ('APPEARANCE BOND REFUND', 'BONDS - ESCROW', 'REFUNDABLE')
 
 
-def is_bond_principal(detail):
-    """Whether an itemization line is bond money rather than a payment."""
-    return (detail or '').strip().upper() in BOND_LINES
+def is_clerk_deposit(detail):
+    """Whether a line is money held for the client rather than money paid."""
+    return (detail or '').strip().upper() in DEPOSIT_LINES
 
 
 def payments(case):
@@ -311,14 +319,15 @@ def payments(case):
     taking them out is $21,422.11 across 488 payments, which is a person paying
     the clerk.
 
-    Bond principal is excluded for the third time on the same grounds. It is the
-    one that reaches criminal cases, which is what most of this workbook is for,
-    and it is the one that lands on a single client rather than washing out
-    across a pooled figure. One captured case owes nothing and has a $4,000
+    Money the clerk is holding is excluded for the third time on the same
+    grounds. It is the one that reaches criminal cases, which is what most of
+    this workbook is for, and it lands on a single client rather than washing
+    out across a pooled figure. One captured case owes nothing and has a $4,000
     escrowed bond as its only line, and this reported it as $4,000 paid and
-    $333.33 a month. Another had $100 in fees and reported $2,100 paid at $350 a
-    month. Those monthly figures are what an ability-to-pay argument is built
-    out of, so the error runs against the client every time.
+    $333.33 a month. Another owes nothing, has a $2,490 REFUNDABLE against $155
+    of real fees, and reported $2,645 a month. Those monthly figures are what an
+    ability-to-pay argument is built out of, so the error runs against the
+    client every time.
     """
     history = []
     last_detail = None
@@ -328,7 +337,7 @@ def payments(case):
             last_detail = detail
         line = detail or last_detail or ''
         if (is_excluded_fee(line) or is_judgment(line)
-                or is_bond_principal(line)):
+                or is_clerk_deposit(line)):
             continue
         paid = _money(row.get('paid'))
         when = parse_us_date(row.get('paidDate'))

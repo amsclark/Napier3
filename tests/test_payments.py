@@ -149,18 +149,22 @@ class TestJudgmentsAreNotPayments:
         assert not crs.is_judgment(None)
 
 
-class TestBondMoneyIsNotAPayment:
+class TestMoneyTheClerkIsHoldingIsNotAPayment:
     """An appearance bond is money put up so somebody can go home, usually by a
     relative, and the clerk holds it and later gives it back or applies it to
     the debt. Counting the line as a payment says the client paid it, and where
     it was applied it says so twice, because ICOS bills the fees it covered on
-    their own lines and marks those paid.
+    their own lines and marks those paid. A bare `REFUNDABLE` is the same shape:
+    round, bond-sized, dated apart from the fee payments, and on cases that owe
+    nothing.
 
     Judgments were the version of this that lands on civil cases. This is the
     version that lands on criminal ones, which is most of what the workbook is
     for, and it does not wash out across a client with several cases. One
     captured case owes nothing, has an escrowed bond as its only line, and was
-    reported as $4,000 paid at $333.33 a month.
+    reported as $4,000 paid at $333.33 a month. Another owes nothing, has $2,490
+    of `REFUNDABLE` against $155 of real fees, and was reported at $2,645 a
+    month.
     """
 
     def test_an_escrowed_bond_is_not_money_paid_on_the_case(self):
@@ -217,15 +221,47 @@ class TestBondMoneyIsNotAPayment:
             _row('BONDS - ESCROW', '4000.00', '01/01/1900', amount='4000.00'),
         ]), CLINIC) is None
 
-    def test_is_bond_principal_wants_the_whole_line(self):
+    def test_a_bare_refundable_is_held_money_too(self):
+        """$9,274.25 across 8 lines in the captured corpus, second only to
+        the bonds. Seven of the eight sit on cases that owe nothing."""
+        history = crs.payments(_case([
+            _row('REFUNDABLE', '2490.00', '01/01/1900', amount='2490.00'),
+            _row('COURT COSTS', '155.00', '02/01/1900'),
+        ]))
+        assert [payment['detail'] for payment in history] == ['COURT COSTS']
+
+    def test_the_refundable_case_that_read_as_2645_a_month(self):
+        # The real one, with the amounts kept and the case number thrown away.
+        history = crs.payment_history(_case([
+            _row('REFUNDABLE', '2490.00', '01/01/2026', amount='2490.00'),
+            _row('COURT COSTS', '155.00', '02/01/2026'),
+        ]), date(2026, 7, 31))
+        assert history['total'] == Decimal('155.00')
+        assert history['recent_monthly'] == Decimal('12.92')
+
+    def test_a_prepaid_expense_refund_is_still_counted(self):
+        """The whole-line match is the whole point of the distinction.
+        REFUNDABLES DUE TO PREPAID EXPENSES is a different thing, it sits on
+        civil cases, and three of its lines are part paid, so it is a question
+        for Iowa Legal Aid rather than a fix. Matching on the word would have
+        decided it silently."""
+        assert not crs.is_clerk_deposit('REFUNDABLES DUE TO PREPAID EXPENSES')
+        history = crs.payments(_case([
+            _row('REFUNDABLES DUE TO PREPAID EXPENSES', '48.69', '01/01/1900'),
+        ]))
+        assert [payment['detail'] for payment in history] == [
+            'REFUNDABLES DUE TO PREPAID EXPENSES']
+
+    def test_is_clerk_deposit_wants_the_whole_line(self):
         # A bond assignment fee is court debt and a forfeiture is money the
         # county keeps. Matching the word would have thrown both away.
-        assert crs.is_bond_principal('BONDS - ESCROW')
-        assert crs.is_bond_principal('  appearance bond refund  ')
-        assert not crs.is_bond_principal('BOND ASSIGNMENT FEE')
-        assert not crs.is_bond_principal('BOND FORFEITURE')
-        assert not crs.is_bond_principal('')
-        assert not crs.is_bond_principal(None)
+        assert crs.is_clerk_deposit('BONDS - ESCROW')
+        assert crs.is_clerk_deposit('  appearance bond refund  ')
+        assert crs.is_clerk_deposit('refundable')
+        assert not crs.is_clerk_deposit('BOND ASSIGNMENT FEE')
+        assert not crs.is_clerk_deposit('BOND FORFEITURE')
+        assert not crs.is_clerk_deposit('')
+        assert not crs.is_clerk_deposit(None)
 
 
 class TestJudgmentsAreStillReported:
