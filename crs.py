@@ -432,14 +432,33 @@ def _months_between(start, end):
 
 
 # Sentence types ICOS uses that put somebody under supervision in the community.
-# All three are court-ordered, run for a stated term, and appear in the sentence
-# table with that term, which is what makes them answerable from ICOS at all.
+# All of them are court-ordered, run for a stated term, and appear in the
+# sentence table with that term, which is what makes them answerable from ICOS
+# at all.
 #
 # PRISON, JAIL and the suspended variants are deliberately not here. Somebody in
 # custody is not what the expungement sheet's 910.7 column is asking about, and
 # the day they get out is not on this page.
+#
+# The two probation wordings after the first are the ones this set was missing.
+# ICOS writes PROBATION - OTHER THAN DCS when somebody other than the Department
+# of Correctional Services holds the supervision, and 910.7 turns on the period
+# of probation rather than on who administers it. PROBATION EXTENDED is the
+# wording for an extension, which is the thing is_under_supervision says below
+# that ICOS records inconsistently: inconsistently is not never, and where ICOS
+# does record one it is the row that decides whether the term is still running.
+#
+# Between them they are 6 rows across 300 captured cases, and two of those are
+# people on probation today whose column I was blank. Both come off the same
+# page Napier already has.
+#
+# NO SUPERVISION is a real ICOS wording too and is deliberately absent. It is
+# the court saying the opposite, and is_under_supervision has nothing to do with
+# it, since it never writes a NO.
 SUPERVISION_SENTENCES = frozenset({
     'PROBATION',
+    'PROBATION - OTHER THAN DCS',
+    'PROBATION EXTENDED',
     'DRUG COURT',
     'RESIDENTIAL FACILITY',
 })
@@ -455,6 +474,19 @@ SUPERVISION_NOTE = (
     "discharged early, a term extended, or anyone on parole, so confirm this "
     "before relying on it."
 )
+
+# The note reads "a probation term of 2 Year(s)", so the ICOS wording is
+# lowercased to sit inside the sentence. DCS is the Department of Correctional
+# Services, and "other than dcs" in a workbook somebody files off is a typo
+# rather than a house style.
+TERM_ACRONYMS = frozenset({'DCS'})
+
+
+def term_wording(kind):
+    """The ICOS sentence type as it reads in the middle of a sentence."""
+    return ' '.join(
+        word.upper() if word.upper() in TERM_ACRONYMS else word
+        for word in (kind or '').lower().split(' '))
 
 
 def _add_term(start, count, unit):
@@ -1209,7 +1241,7 @@ def process_case(case, worksheet, row, as_of=None):
     if supervised is not None:
         worksheet['I' + i] = supervised
         supervision_note = SUPERVISION_NOTE % (
-            term[0].lower(), term[1], term[2].strftime('%m/%d/%Y'),
+            term_wording(term[0]), term[1], term[2].strftime('%m/%d/%Y'),
             term[3].strftime('%m/%d/%Y'))
     else:
         supervision_note = None
