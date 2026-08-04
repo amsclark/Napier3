@@ -730,11 +730,14 @@ def get_dominant_charge(charges, case_id=None):
 def case_level_code(status):
     """The CRS code for ICOS's case-level status, or None if it is not one.
 
-    The status ICOS prints on the case summary is its own vocabulary. Across 90
+    The status ICOS prints on the case summary is its own vocabulary. Across 300
     captured pages it reads GUILTY PLEA/DEFAULT, VIOLATIONS HANDLED BY CLERK,
-    DISMISSED, BY TRIAL TO COURT, OTHER JUDGMENT, CLOSED, TRANSFERRED and SMALL
-    CLAIM-DISPOSED BY CLERK, and it overlaps the per-count adjudication wordings
-    at DISMISSED and nowhere else.
+    DISMISSED, BY TRIAL TO COURT, CLOSED, OTHER JUDGMENT, TRANSFERRED, SMALL
+    CLAIM-DISPOSED BY CLERK, DEFAULTED, DEFERRED JUDGEMENT, DISCHARGE and
+    CONVERTED TO SIMPLE MISDEMEANR, and it overlaps the per-count adjudication
+    wordings at DISMISSED and nowhere else. The last four appeared only after the
+    corpus passed 90 pages, which is the reason for reading it this way: the
+    vocabulary is still growing and a guess made now would be wrong later.
 
     Only the overlap is read. The rest are not translated here, because whether
     VIOLATIONS HANDLED BY CLERK is a guilty plea is a question about Iowa

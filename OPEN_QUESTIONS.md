@@ -12,8 +12,16 @@ this repository.
 
 ## The SOL sheet does not account for all the debt
 
-On the 210 case workbook the SOL sheet totals $8,720.48 against $16,602.57
-owed. The missing $7,882.09 sits on 17 time-barred rows.
+On the 300 case workbook the SOL sheet totals $35,326.37 against $46,785.31
+owed. The missing $11,458.94 sits on 22 time-barred rows.
+
+Measured differently from the sections below, and the method is the point. The
+workbook was built through the shipping path and then recalculated by
+LibreOffice, so these are the numbers the formulas produce rather than numbers
+Python computed from the same inputs. The same run says the workbook carries no
+error value in any cell on any sheet, and that every one of the 300 cases
+reaches all nine sheets. BANKRUPTCY and EXEMPTIONS each total $46,785.31 and
+reconcile to CASE DATA exactly. SOL is the only sheet that does not.
 
 The formulas are the reason. A row past twenty years claims columns J and K in
 "STRANGE-BARRED" and column L in "20 year old Jail / Room & Board", and the
@@ -23,10 +31,10 @@ all. What falls out:
 
 | falls outside every SOL column | amount |
 |---|---|
-| sheriff fees | $794.15 |
-| miscellaneous | $340.93 |
-| unknown | $1,915.76 |
-| surcharges | $660.78 |
+| sheriff fees | $854.15 |
+| miscellaneous | $239.00 |
+| unknown | $4,582.92 |
+| surcharges | $1,612.40 |
 | fines | $442.50 |
 | victim restitution | $3,727.97 |
 
@@ -239,10 +247,24 @@ uncoded, and the case goes onto the sheet with the wording in column V so it is
 visibly uncoded rather than quietly miscoded:
 
 GUILTY PLEA/DEFAULT, VIOLATIONS HANDLED BY CLERK, BY TRIAL TO COURT, OTHER
-JUDGMENT, TRANSFERRED, SMALL CLAIM-DISPOSED BY CLERK, CHANGE OF VENUE, CLOSED.
+JUDGMENT, TRANSFERRED, SMALL CLAIM-DISPOSED BY CLERK, CHANGE OF VENUE, CLOSED,
+DEFAULTED, DEFERRED JUDGEMENT, DISCHARGE, CONVERTED TO SIMPLE MISDEMEANR.
 
 Whether VIOLATIONS HANDLED BY CLERK is a guilty plea decides what five sheets
 compute, which is why the code will not guess.
+
+The last four turned up only once the corpus passed 90 pages, so the list should
+be read as still growing rather than as finished. DEFERRED JUDGEMENT is the one
+worth answering first. It looks like a plain DEF, which is a code the licence and
+expungement sheets both test for, and it is the only wording here that names a
+CRS code outright.
+
+On the 300 case corpus this costs almost nothing, because a case-level status is
+only consulted where no count was adjudicated, and that is 8 cases. Two carry a
+status Napier cannot code, CLOSED with $197.43 and TRANSFERRED with none. The
+other six have no disposition of any kind and are genuinely pending. Both of the
+uncoded rows leave column G empty, which BANKRUPTCY, EXEMPTIONS and SOL all read
+as "open charge", and the row says so in column V.
 
 ## Smaller ones
 
