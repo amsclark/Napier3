@@ -1095,6 +1095,10 @@ def reconcile_financials(case):
     unreconciled = []
     apportioned = []
     carrying = []
+    # Which columns each category's balance actually reached. The note below
+    # describes where the money went, and the only way to describe that
+    # correctly is to have watched it land.
+    landed = {}
     for name in ICOS_BUCKETS:
         entries = buckets[name]
         category = summary[name]
@@ -1121,6 +1125,8 @@ def reconcile_financials(case):
                     apportioned.append(name)
                 for column, share in shares.items():
                     columns[column] = columns.get(column, Decimal(0)) + share
+                landed[name] = {column for column, share in shares.items()
+                                if share}
             continue
 
         if not entries:
@@ -1183,12 +1189,22 @@ def reconcile_financials(case):
                 % (_and_list(unreconciled),
                    "those balances are" if len(unreconciled) > 1
                    else "that balance is"))
+        # Only the categories whose balance really did end up in MISCELLANEOUS.
+        # Deciding this from the category's label instead said MISCELLANEOUS
+        # about any unreconciled COSTS, including the ones whose fees all
+        # pointed at one real column and were broken out there exactly. On the
+        # captured corpus that put a four figure jail debt in JAIL / ROOM &
+        # BOARD and then told the attorney it was a lump sum, which is the
+        # reading that loses a room-and-board appeal. A category that placed no
+        # money anywhere is not named at all: there is no cell to go look at.
         stranded = [name for name in unreconciled
-                    if name not in apportioned
-                    and get_finance_column(summary[name]['label']) == 'O']
-        if stranded:
-            text += (", and %s is in MISCELLANEOUS rather than in its own "
+                    if name not in apportioned and landed.get(name) == {'O'}]
+        if len(stranded) > 1:
+            text += (", and %s are in MISCELLANEOUS rather than in their own "
                      "columns" % _and_list(stranded))
+        elif stranded:
+            text += (", and %s is in MISCELLANEOUS rather than in its own "
+                     "columns" % stranded[0])
         notes.append(text + ". The rest of the row is fee by fee and the ICOS "
                             "total is still right.")
     if unresolved:
