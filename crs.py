@@ -855,6 +855,19 @@ COSTS_MARKERS = (
     # the row falls back to category totals, which is where both of these
     # already were.
     'POSTAGE', 'MISC FEES BY CITY/COUNTY',
+    # Same class as the two above, found the same way and carrying the same
+    # safety net. 36 of the 400 captured cases fail the partition check, and on
+    # 27 of them COSTS runs short of its summary while OTHER runs over by the
+    # same amount to the cent, which is a fee filed under COSTS being read as
+    # OTHER. On every one of the 27 the difference is exactly these wordings:
+    # ten of them alone, and one Linn case where a $500.00 REFUNDABLE and a
+    # $500.00 bond refund cover the $1,000.00 together. REFUNDABLE also covers
+    # REFUNDABLES DUE TO PREPAID EXPENSES, which the overrides below already
+    # file under COSTS, so held money reads consistently.
+    'REFUNDABLE', 'APPEARANCE BOND REFUND', 'LIENS, ENTERING/ENDORSEMENT',
+    'FINAL DECREE OF DISSOLUTION', 'COPY/BINDER FEES',
+    'SCHEDULED VIOLATION REQU CT APPEAR', 'SMALL ESTATE ADMINISTRATION',
+    'CONFESSION OF JUDGMENT', 'PRAECIPE', 'OTHER SIMPLE MISDEMEANORS',
 )
 
 FINE_MARKERS = (
