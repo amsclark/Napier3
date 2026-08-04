@@ -102,6 +102,32 @@ emailed out while the run is happening.
 Worth asking Iowa Legal Aid whether CLOSED means something specific in ICOS
 practice, because if it does, it is one line to map.
 
+## A guilty finding that does not say how it was arrived at
+
+Widening the corpus to 400 cases across 68 counties turned up GUILTY - OTHER,
+which none of the first 300 had shown. One case carries it on both counts, two
+simple misdemeanours from 2014, with $640.00 still owed.
+
+It is mapped to GTR. That is a decision worth stating plainly, because the
+usual rule here is that Napier does not guess a code. This is not much of a
+guess: the word is GUILTY. What "- OTHER" leaves open is only how the finding
+was arrived at, and GTR and GPL are the two codes that would say. Choosing
+between them changes nothing anyone can read off the workbook, because all 299
+formulas in both templates that name either one name both, and none names one
+without the other. A test fails if a formula is ever added that tells them
+apart, and then this needs a real answer rather than a convenient one.
+
+Leaving it OTH was the alternative and it was worse. OTH means Napier could not
+read the word, LICENSE-REGIS reads that as no conviction, and the sheet was
+answering "Z - Neither license nor registration" about a client with a
+conviction and $640.00 of court debt, which is the pair of facts that puts a
+registration hold in play in the first place. The row said so in column V. The
+sheet still gave the wrong answer to whoever was reading the sheet.
+
+Worth asking Iowa Legal Aid what GUILTY - OTHER means in ICOS practice, because
+if it means something specific, the mapping should say so rather than lean on
+nothing computing a difference.
+
 ## Room and board debt the appeal sheet cannot see
 
 ICOS has one wording for jail and room and board,
