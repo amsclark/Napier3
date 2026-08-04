@@ -123,7 +123,14 @@ def test_one_broken_category_does_not_cost_the_others(felony_case):
     felony_case['financials'][0]['amount'] = '31.00'   # an OTHER line
     sheet = FakeSheet()
     crs.process_financials(felony_case, sheet, 4)
-    assert sheet.value_of('O4') == Decimal('90.00')    # OTHER, as a total
+    # The category total is ICOS's, because the itemization disagreed with it.
+    # Which column it belongs in is still the itemization's to say, and every
+    # fee in this bucket is a revolving fund fee, so it is column P and not
+    # MISCELLANEOUS. Iowa Legal Aid asked for this in August 2026 after a
+    # workbook moved a $60 attorney fee out of INDIGENT DEFENSE over a
+    # discrepancy in a different category.
+    assert sheet.value_of('P4') == Decimal('90.00')    # OTHER, as a total
+    assert sheet.value_of('O4') is None
     assert sheet.value_of('M4') == Decimal('579.00')   # sheriff fees survive
     assert sheet.value_of('J4') == Decimal('50.00')    # indigent defense too
     assert sheet.value_of('S4') == Decimal('500.00')
@@ -138,12 +145,17 @@ def test_a_collapsed_row_says_it_is_collapsed(felony_case):
     Folded into MISCELLANEOUS looks exactly like never charged. The row that
     cannot be reconciled has to say so on its face, since nothing else about it
     is different.
+
+    The word MISCELLANEOUS is no longer what says it, because the balance no
+    longer goes there when the itemization can name a better column. What has
+    to survive is the row admitting that this category came off the summary.
     """
     felony_case['financials'][0]['amount'] = '31.00'
     sheet = FakeSheet()
     crs.process_financials(felony_case, sheet, 4)
     note = sheet.value_of('V4')
-    assert 'MISCELLANEOUS' in note
+    assert 'OTHER did not add up' in note
+    assert 'category total' in note
     assert 'ICOS total is still right' in note
 
 
@@ -282,16 +294,19 @@ def test_reconciliation_needs_both_halves(felony_case):
 
 def test_reconciliation_refuses_a_partition_that_does_not_add_up(felony_case):
     # If a fee lands in the wrong bucket the bucket stops matching its summary
-    # original. That must cost us that bucket's split, not produce a wrong one.
+    # original. That must cost us the per-fee split inside that bucket, not the
+    # knowledge of which columns the bucket's fees belong to. Here every fee in
+    # the broken bucket is a revolving fund fee, so there is one column and the
+    # answer is exact even though the split is given up.
     felony_case['financials'][0]['amount'] = '31.00'
     columns, note = crs.reconcile_financials(felony_case)
     assert columns == {
         'M': Decimal('579.00'),
         'J': Decimal('50.00'),
-        'O': Decimal('90.00'),    # OTHER, off the summary rather than by fee
+        'P': Decimal('90.00'),    # OTHER, off the summary rather than by fee
         'S': Decimal('500.00'),
     }
-    assert 'P' not in columns     # no guessed split of the broken bucket
+    assert 'O' not in columns
     assert 'OTHER' in note
 
 
@@ -310,7 +325,9 @@ def test_a_row_where_nothing_reconciles_falls_back_whole(felony_case):
 
 def test_ambiguous_payment_is_flagged_not_guessed():
     # Two lines of the same amount in one bucket, one of them paid. Nothing on
-    # the page says which, so the balance goes to MISC and the row gets a note.
+    # the page says which, so the balance is apportioned across the two columns
+    # those fees belong to and the row says the split is an estimate. It used to
+    # go to MISCELLANEOUS whole, which reads as neither fee having been charged.
     case = {
         'total_due': '$25.00',
         'summary_categories': [
@@ -333,8 +350,10 @@ def test_ambiguous_payment_is_flagged_not_guessed():
         ],
     }
     columns, note = crs.reconcile_financials(case)
-    assert columns == {'O': Decimal('25.00')}
+    assert columns == {'P': Decimal('12.50'), 'K': Decimal('12.50')}
+    assert sum(columns.values()) == Decimal('25.00')
     assert note is not None and 'OTHER' in note
+    assert 'estimates' in note
 
 
 def test_third_party_fee_stays_out_of_the_partition(felony_case):
@@ -347,13 +366,109 @@ def test_third_party_fee_stays_out_of_the_partition(felony_case):
     assert Decimal('304.75') not in columns.values()
 
 
+def _third_party_case(other_original, other_paid):
+    """A case owing one ordinary OTHER fee and one third party collection fee.
+
+    other_original is what the ICOS summary says the OTHER bucket was assessed.
+    Set it to 40 and the summary has left the collection fee out, which is the
+    common shape. Set it to 100 and the summary has counted it.
+    """
+    def zero(label):
+        return {'label': label, 'original': Decimal('0'),
+                'paid': Decimal('0'), 'due': Decimal('0')}
+
+    original = Decimal(other_original)
+    paid = Decimal(other_paid)
+    return {
+        'total_due': '$%s' % (original - paid),
+        'summary_categories': [
+            zero('COSTS'), zero('FINE'), zero('SURCHARGE'), zero('RESTITUTION'),
+            {'label': 'OTHER', 'original': original, 'paid': paid,
+             'due': original - paid},
+        ],
+        'financials': [
+            {'detail': 'DELINQUENT REVOLVING FUND OBLIGATION',
+             'amount': '40.00', 'paid': None, 'paidDate': None},
+            {'detail': 'THIRD PARTY DEBT COLLECTION FEE',
+             'amount': '60.00', 'paid': None, 'paidDate': None},
+        ],
+    }
+
+
+def test_a_summary_that_leaves_the_third_party_fee_out_still_drops_it():
+    """The five captured cases of this shape, and the reason the rule exists.
+
+    The itemisation assesses 100 and the summary only 40, which is ICOS saying
+    the collection agency's 60 is not part of what it will collect. Column K
+    stays empty and the row reports the 40 ICOS stands behind.
+    """
+    columns, _ = crs.reconcile_financials(_third_party_case('40.00', '0'))
+    assert columns == {'P': Decimal('40.00')}
+
+
+def test_a_summary_that_counts_the_third_party_fee_keeps_it_in_column_k():
+    """The other four captured cases.
+
+    Here the itemisation and the summary both say 100, so ICOS did count the
+    collection fee. Dropping it would leave the bucket 60 short of its own
+    summary, and the whole balance would come back as a category total in
+    column P instead of splitting into the two fees that make it up.
+
+    Column K is one of the two columns Iowa Legal Aid treats as surely
+    dischargeable, so losing 60 out of it is not cosmetic.
+    """
+    columns, note = crs.reconcile_financials(_third_party_case('100.00', '0'))
+    assert columns == {'P': Decimal('40.00'), 'K': Decimal('60.00')}
+    assert note is None
+
+
+def test_the_check_is_the_summary_total_not_the_wording():
+    crs_case = _third_party_case('100.00', '0')
+    assert crs.summary_counts_third_party(crs_case) is True
+    assert crs.summary_counts_third_party(_third_party_case('40.00', '0')) is False
+
+
+def test_a_case_with_no_third_party_fee_is_not_affected():
+    """The check only ever answers a question about a fee that is there."""
+    case = _third_party_case('40.00', '0')
+    case['financials'] = [case['financials'][0]]
+    assert crs.summary_counts_third_party(case) is False
+
+
+def test_a_counted_third_party_fee_that_was_paid_off_owes_nothing():
+    """All four captured cases of this shape are paid in full.
+
+    The bucket reconciles, the payment is attributed to the lines that account
+    for it, and nothing is owed. This is the corpus today, and it is why the
+    change above moves no captured row.
+    """
+    columns, _ = crs.reconcile_financials(_third_party_case('100.00', '100.00'))
+    assert not columns or sum(columns.values()) == Decimal('0')
+
+
 @pytest.mark.parametrize("detail,bucket", [
     ("SHERIFFS FEES - LOCAL", "COSTS"),
     ("INDIGENT DEFENSE-FELONY-REIMBURSE STATE", "COSTS"),
     ("RESTITUTIONS", "RESTITUTION"),
     ("CRIMINAL PENALTY SURCHARGE", "SURCHARGE"),
     ("FINE", "FINE"),
-    ("NONSCHEDULED CHAPTER 321", "FINE"),
+    # Fine wording, filed under COSTS by the clerk. Measured across 259
+    # captured cases carrying both halves: moving it gained two buckets and
+    # cost none, and there is no case in the corpus where the summary counts it
+    # as a fine. Thin evidence, so it is worth revisiting, but it is one sided,
+    # and this decides only the reconciliation. The column the client reads is
+    # still FINES.
+    ("NONSCHEDULED CHAPTER 321", "COSTS"),
+    ("SCHEDULED VIOLATION/NON-SCHEDULED", "COSTS"),
+    # The county attorney's collection fee is charged against the fine and the
+    # summary counts it there. Six buckets and three whole rows, no losses.
+    ("COLLECTION BY CO ATTY (THRESHOLD MET)", "FINE"),
+    # Filed under COSTS despite the wording. Probation revocation was the
+    # single biggest cause of a broken partition in the corpus, at thirteen
+    # buckets, and it broke the bucket that holds indigent defense fees.
+    ("PROBATION REVOCATION FEE", "COSTS"),
+    ("PARKING VIOLATION PER COMPLAINT", "COSTS"),
+    ("REFUNDABLES DUE TO PREPAID EXPENSES", "COSTS"),
     ("DNU-DELINQUENT REVOLVING FUND OBLIGATION", "OTHER"),
     ("IOWA DEPT OF REVENUE COLLECTIONS FEE", "OTHER"),
     ("", "OTHER"),
@@ -503,7 +618,8 @@ def test_old_fee_debt_survives_a_broken_category_elsewhere():
     columns, note = crs.reconcile_financials(case)
     assert columns['J'] == Decimal('150.00')
     assert columns['L'] == Decimal('250.00')
-    assert columns['O'] == Decimal('25.00')
+    assert columns['P'] == Decimal('25.00')   # the revolving fund's own column
+    assert 'O' not in columns
     assert 'OTHER' in note
 
 
@@ -525,11 +641,19 @@ def test_the_wording_icos_actually_uses_for_room_and_board_reaches_column_l():
     assert crs.get_finance_column('SHERIFFS FEES - LOCAL') == 'M'
 
 
-def test_an_unattributable_payment_across_different_fees_still_falls_to_misc():
-    """The old behaviour, kept for the case that actually warrants it.
+def test_an_unattributable_payment_is_apportioned_not_dumped():
+    """What happens when the lines in an unsplittable bucket disagree.
 
-    When the lines in an unsplittable bucket map to different columns there is
-    no honest column to put the balance in, so MISC it is.
+    This used to be the case that went to MISCELLANEOUS whole, on the reasoning
+    that no single column was honest. Iowa Legal Aid's answer in August 2026 was
+    that MISCELLANEOUS is the least honest column of the lot: the bankruptcy
+    sheet treats J and K as surely dischargeable and everything else as maybe,
+    and the 910.7 sheet stops reading at P, so a fee that arrives in
+    MISCELLANEOUS is a fee no sheet can reason about.
+
+    So the balance is split by what the fees were assessed at, and the row says
+    the split is an estimate. Half of a $50 bucket was paid, and each of the two
+    $25 fees carries half the remainder.
     """
     case = {
         'total_due': '$25.00',
@@ -543,5 +667,5 @@ def test_an_unattributable_payment_across_different_fees_still_falls_to_misc():
         ],
     }
     columns, note = crs.reconcile_financials(case)
-    assert columns == {'O': Decimal('25.00')}
-    assert note is not None
+    assert columns == {'P': Decimal('12.50'), 'K': Decimal('12.50')}
+    assert note is not None and 'estimates' in note
