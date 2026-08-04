@@ -264,6 +264,39 @@ collection cost, which would put it in column K where the statute of
 limitations sheet can see it, but calling it that is a decision about what the
 county attorney fee is rather than about what the page says.
 
+## What a structured fine is made of
+
+A structured fine is the instalment arrangement, not the debt. A clerk
+itemizing one writes each component fee with the arrangement's name attached,
+so the itemization carries `INDIGENT DEFENSE-STRUC FINES-REIMB STATE`,
+`COURT REPORTER SERVICES STRUC FINE`, `TIME PAYMENT FEES-STRUCTURED FINES` and
+`DOCKET PROC - STRUCT FINE ABOVE SIMP` alongside the fine itself. Napier read
+all four as fines, because it tested for the word FINE before it tested for
+anything more specific.
+
+The clerk settled this rather than us. On two Polk cases the itemization ran
+$79.00 over the summary's FINE and $79.00 under its COSTS, and $79.00 is
+exactly those four fees, twice, to the cent. That is the shortfall and matching
+excess the partition check exists to catch, so it caught it, and both rows told
+the staffer their balances could not be broken down fee by fee. Only
+`FINES AND FORFEITED BAIL-STRUCTURED FINES` matched the summary's FINE on the
+nose. They are court costs collected under a fine arrangement, and they are
+filed that way now.
+
+Worth confirming with Iowa Legal Aid all the same, because two cases from one
+county is thin evidence for a rule, even when both are exact. If some other
+county's clerk files them the other way, the partition check will say so by
+failing rather than by being quietly wrong, which is the reason to leave the
+check alone rather than loosen it.
+
+The same change fixed a surcharge that was missing its category by two letters.
+ICOS abbreviates the word when the wording runs long, and
+`DOMESTIC/SEXUAL ABUSE, STALKING, HUMAN TRAFF VICTIM SURCH` runs long. Napier
+now reads SURCH. Nothing in 400 captured cases contains those letters and is
+not a surcharge, and a test pins the wordings that were checked, but the
+abbreviation is a guess about ICOS's habits rather than something the page
+states.
+
 ## Refundables counted as a payment
 
 `REFUNDABLES DUE TO PREPAID EXPENSES` shows up on 14 lines worth $681.69, and
