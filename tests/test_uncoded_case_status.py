@@ -136,6 +136,36 @@ def test_the_case_status_is_not_reached_when_a_count_was_adjudicated():
     assert not cells['V'] or 'open charge' not in cells['V']
 
 
+# -- the vocabulary the refusal is built on ----------------------------------
+
+# Every case level status the 300 captured pages carry. The four at the end
+# appeared only after the corpus passed 90, which is why case_level_code will
+# not guess: the list is still growing.
+CASE_LEVEL_STATUSES = [
+    'GUILTY PLEA/DEFAULT', 'VIOLATIONS HANDLED BY CLERK', 'DISMISSED',
+    'BY TRIAL TO COURT', 'CLOSED', 'OTHER JUDGMENT', 'TRANSFERRED',
+    'SMALL CLAIM-DISPOSED BY CLERK', 'DEFAULTED', 'DEFERRED JUDGEMENT',
+    'DISCHARGE', 'CONVERTED TO SIMPLE MISDEMEANR',
+]
+
+
+def test_dismissed_is_the_only_wording_that_translates():
+    """The claim case_level_code's docstring makes, enforced rather than
+    asserted. A later change to the code map that starts translating one of
+    these silently changes what five sheets compute."""
+    translated = {s: crs.case_level_code(s) for s in CASE_LEVEL_STATUSES}
+    assert translated.pop('DISMISSED') == 'DISM'
+    assert set(translated.values()) == {None}, translated
+
+
+def test_deferred_judgement_at_case_level_is_still_not_a_code():
+    """The one most likely to be answered first, since it names a CRS code
+    outright and both the licence and expungement sheets test for DEF. Until
+    Iowa Legal Aid says so it stays uncoded, and this fails if that changes
+    without the open question being closed."""
+    assert crs.case_level_code('DEFERRED JUDGEMENT') is None
+
+
 # -- the wording, checked against the template it describes ------------------
 
 def test_the_three_sheets_really_do_read_an_empty_column_g_that_way():
