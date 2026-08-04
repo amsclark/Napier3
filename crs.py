@@ -770,7 +770,36 @@ def get_finance_column(detail):
         return "P" # UNKNOWN
     if "DELINQUENT REVOLVING FUND" in detail:
         return "P" # UNKNOWN
-        
+
+    # These four are read before the word FINE is looked for, and that order is
+    # the whole point of them.
+    #
+    # A structured fine is Iowa's instalment arrangement, and a clerk itemizing
+    # one writes each component fee with the arrangement's name attached:
+    # "INDIGENT DEFENSE-STRUC FINES-REIMB STATE", "COURT REPORTER SERVICES
+    # STRUC FINE", "TIME PAYMENT FEES-STRUCTURED FINES", "DOCKET PROC - STRUCT
+    # FINE ABOVE SIMP". The trailing words say how the money is being
+    # collected. The leading words say what it is, and what it is decides the
+    # column. Matching on FINE anywhere in the string read all four as fines,
+    # so a reimbursement to the state public defender came out in FINES, where
+    # the expungement sheet cannot see it at all and the bankruptcy sheet calls
+    # it not dischargeable.
+    #
+    # SURCH rather than SURCHARGE because ICOS abbreviates it when the wording
+    # runs long, and "DOMESTIC/SEXUAL ABUSE, STALKING, HUMAN TRAFF VICTIM
+    # SURCH" runs long. Missing it by those two letters put a victim surcharge
+    # in MISCELLANEOUS, which the bankruptcy sheet calls possibly dischargeable
+    # and the exemption sheet covers with every exemption, when a surcharge is
+    # neither. Nothing in 400 captured cases contains SURCH and is not one.
+    if "INDIGENT DEFENSE" in detail:
+        return "J" # INDIGENT DEFENSE
+    if "SURCH" in detail:
+        return "Q" # SURCHARGE
+    if "COURT REPORTER" in detail:
+        return "O" # MISC, as the fee reads without the qualifier
+    if "TIME PAYMENT" in detail or "DOCKET PROC" in detail:
+        return "O" # MISC, as the fee reads without the qualifier
+
     if "FINE" in detail:
         return "R" # FINE
     if "DEFERRED JUDGMENT CIVIL PENALTY" in detail:
@@ -790,12 +819,6 @@ def get_finance_column(detail):
     #    return "J" # FILING
     #if "OTHER SIMPLE MISDEMEANORS" in detail:
     #    return "J" # FILING
-
-    if "INDIGENT DEFENSE" in detail:
-        return "J" # INDIGENT DEFENSE
-
-    if "SURCHARGE" in detail:
-        return "Q" # SURCHARGE
 
     if "ROOM/BOARD" in detail:
         return "L" # JAIL / ROOM & BOARD
@@ -873,6 +896,18 @@ SUMMARY_BUCKET_OVERRIDES = (
     # The county attorney's collection fee is charged against the fine and the
     # summary counts it there, not in OTHER where its wording lands it.
     ('COLLECTION BY CO ATTY', 'FINE'),
+    # A structured fine is Iowa's instalment arrangement, and a clerk itemizing
+    # one writes each component fee with the arrangement's name attached. These
+    # four are court costs collected under that arrangement, and the word FINE
+    # in their wording describes how they are being collected rather than what
+    # they are. The clerk agrees: on two Polk cases the itemization ran $79.00
+    # over the summary's FINE and $79.00 under its COSTS, and $79.00 is exactly
+    # these four fees, twice, to the cent. Only the fine itself, FINES AND
+    # FORFEITED BAIL-STRUCTURED FINES, matched the summary's FINE on the nose.
+    ('INDIGENT DEFENSE-STRUC FINES', 'COSTS'),
+    ('COURT REPORTER SERVICES STRUC FINE', 'COSTS'),
+    ('TIME PAYMENT FEES-STRUCTURED FINES', 'COSTS'),
+    ('DOCKET PROC - STRUCT FINE', 'COSTS'),
 )
 
 
@@ -889,7 +924,14 @@ def get_summary_bucket(detail):
     for marker, bucket in SUMMARY_BUCKET_OVERRIDES:
         if marker in text:
             return bucket
-    if 'SURCHARGE' in text:
+    # SURCH, not SURCHARGE, for the same reason get_finance_column reads it that
+    # way: ICOS abbreviates the word when the wording runs long. Missing it here
+    # is not a cosmetic miss. A surcharge read into OTHER leaves the SURCHARGE
+    # bucket short by exactly that amount and OTHER over by exactly that amount,
+    # which is the shortfall-and-matching-excess this partition check is built to
+    # catch, so both buckets fail and the row tells the staffer two categories
+    # could not be broken down when the only thing wrong was two missing letters.
+    if 'SURCH' in text:
         return 'SURCHARGE'
     if 'RESTITUTION' in text:
         return 'RESTITUTION'
