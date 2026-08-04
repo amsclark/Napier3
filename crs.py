@@ -2,7 +2,7 @@ import re
 
 from calendar import monthrange
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
 from zoneinfo import ZoneInfo
@@ -124,6 +124,34 @@ charge_code_map = {
 # the note below cannot claim the sheets agree.
 OTH_RANK = 0.5
 
+# What "ADJUDICATED" is worth on a case whose number is not JVJV.
+#
+# The word is supposed to be the juvenile court's, and charge_code_map maps it
+# to JUV at the rank of a conviction, which is right on a JVJV case. Iowa Legal
+# Aid says the clerks also enter it on probation violation and contempt counts,
+# and there it is not the case's disposition at all: the disposition is the
+# conviction that put the client on probation in the first place.
+#
+# At equal rank the adjudication was winning. Two of the three captured cases
+# carrying an ADJUDICATED count are felonies that also carry a negotiated plea,
+# and both came out as JUV. Iowa Legal Aid switches those by hand today, on the
+# old Napier as well as this one.
+#
+# It is not only column G. The count that wins also dates column D, so the row
+# carried the day the probation violation was found rather than the day of the
+# conviction, which is the other half of what they reported. And BANKRUPTCY and
+# EXEMPTIONS both list JUV among the codes that mean no conviction, so a felony
+# reading JUV came out of two sheets with its debt marked dischargeable.
+#
+# So on anything but a JVJV, an adjudication now loses to any real conviction.
+# It stays above OTH rather than being struck out, because a case whose only
+# disposition is an adjudication has to say something, and refusing to name it
+# would render as "open charge" on three sheets, which is worse than a code with
+# a caveat next to it. Nothing in the 300 captured cases takes that path: there
+# is no non-JVJV case where an adjudication is the only disposition. If one
+# turns up, ADULT_ADJUDICATION_NOTE says so in column V.
+JUV_RANK_ADULT_CASE = 0.75
+
 # What column V says about that row. The workbook outlives the alert and gets
 # read by whoever has the client in front of them, so the guess has to be
 # visible in the file itself and not only in Alex's inbox.
@@ -133,6 +161,26 @@ UNKNOWN_DISPOSITION_NOTE = (
     "licence sheet reads OTH as no conviction and the expungement sheet answers "
     "n/a, but the bankruptcy and exemption sheets sort this case's debt as a "
     "conviction's. Check this case in ICOS before relying on any of them."
+)
+
+# The note above is for a count whose adjudication wording could not be read.
+# That row is still coded, as OTH, and the note describes what OTH does.
+#
+# A case where no count has been adjudicated at all is a different row. The only
+# wording it carries is the status ICOS prints for the case as a whole, and
+# case_level_code deliberately refuses to translate most of that vocabulary, so
+# column G is left empty. Until this, both rows got the OTH note, which told the
+# attorney the case was coded OTH and then described how each sheet reads OTH.
+# None of that is true of an empty column G, and the difference is not academic:
+# three sheets read an empty column G as an open charge.
+UNCODED_CASE_STATUS_NOTE = (
+    "No count on this case has been adjudicated in Iowa Courts. The only "
+    "disposition it carries is the status of the case as a whole (%s), which "
+    "Napier does not translate into a CRS code, so column G is empty. The "
+    "BANKRUPTCY, EXEMPTIONS and SOL sheets all read an empty column G as "
+    "\"open charge\", so this case appears on those three as a charge still "
+    "pending against the client. A case Iowa Courts has closed or transferred "
+    "is not that. Check this case in ICOS before relying on any of them."
 )
 
 
@@ -206,10 +254,26 @@ ORDINANCE_VEHICULAR_NOTE = (
 # will apply it to every dollar on the row including debt from a count disposed
 # years earlier.
 DISPOSITION_SPREAD_NOTE = (
-    "Counts on this case were disposed on different dates (%s). Column D holds "
-    "%s, the date of the disposition in column G. The SOL sheet applies its "
-    "20 year test to that one date for the whole row, so if this case is near "
-    "the 20 year line check the counts separately."
+    "Counts on this case were disposed on different dates (%s). Column G is the "
+    "disposition code and column D is a date: %s, the day the count behind that "
+    "code was disposed. The SOL sheet applies its 20 year test to that one date "
+    "for the whole row, so if this case is near the 20 year line check the "
+    "counts separately."
+)
+
+# The wording above used to be "Column D holds X, the date of the disposition in
+# column G", which Iowa Legal Aid read as a claim that column G holds a date.
+# It does not and never did. Both halves are named now.
+
+# What column V says when a case that is not a JVJV still comes out as JUV. See
+# JUV_RANK_ADULT_CASE for why that is now rare and why it is still possible.
+ADULT_ADJUDICATION_NOTE = (
+    "The only disposition Iowa Courts show on this case is an adjudication, and "
+    "this is not a juvenile case number, so column G reads JUV. Clerks enter "
+    "\"Adjudicated\" on probation violation and contempt counts as well as on "
+    "juvenile ones. If that is what this is, the case's real disposition is not "
+    "on the page and JUV is wrong: BANKRUPTCY and EXEMPTIONS both read JUV as "
+    "no conviction and will treat this debt as dischargeable. Check it."
 )
 
 # Column D is blank on a case no court has ruled on yet, and it has to stay
@@ -492,62 +556,26 @@ def _months_between(start, end):
     return max(0, months)
 
 
-# Sentence types ICOS uses that put somebody under supervision in the community.
-# All of them are court-ordered, run for a stated term, and appear in the
-# sentence table with that term, which is what makes them answerable from ICOS
-# at all.
+# CASE DATA column I, "Under supervison?" [sic], is deliberately not written
+# here, and a future reader should know it was tried rather than overlooked.
 #
-# PRISON, JAIL and the suspended variants are deliberately not here. Somebody in
-# custody is not what the expungement sheet's 910.7 column is asking about, and
-# the day they get out is not on this page.
+# The charges page does carry a sentence table with the type, the date and the
+# duration, so Napier can work out whether a probation term is still running on
+# paper, and a build that did exactly that went to Iowa Legal Aid on 3 August
+# 2026. They turned it down, and the reason is not one more parsing rule can
+# fix: ICOS does not record an early discharge, records an extension only
+# sometimes, and never carries parole at all, because parole is corrections
+# rather than the court. Their words were that ICOS "is not going to be
+# reliable because sometime they don't update if probation was pushed out or
+# ended early", and that they establish this per client against the Department
+# of Corrections website instead.
 #
-# The two probation wordings after the first are the ones this set was missing.
-# ICOS writes PROBATION - OTHER THAN DCS when somebody other than the Department
-# of Correctional Services holds the supervision, and 910.7 turns on the period
-# of probation rather than on who administers it. PROBATION EXTENDED is the
-# wording for an extension, which is the thing is_under_supervision says below
-# that ICOS records inconsistently: inconsistently is not never, and where ICOS
-# does record one it is the row that decides whether the term is still running.
+# A wrong YES here puts debt in the expungement sheet's 910.7 restitution
+# column, so the column stays with the staff who can answer it. It reads as
+# "n/a" when blank, which is what it has always read and is the honest answer.
 #
-# Between them they are 6 rows across 300 captured cases, and two of those are
-# people on probation today whose column I was blank. Both come off the same
-# page Napier already has.
-#
-# NO SUPERVISION is a real ICOS wording too and is deliberately absent. It is
-# the court saying the opposite, and is_under_supervision has nothing to do with
-# it, since it never writes a NO.
-SUPERVISION_SENTENCES = frozenset({
-    'PROBATION',
-    'PROBATION - OTHER THAN DCS',
-    'PROBATION EXTENDED',
-    'DRUG COURT',
-    'RESIDENTIAL FACILITY',
-})
-
-# ICOS writes a term as a count and a unit, and has used only two units across
-# every case we have looked at. The others are here so a term Napier has not
-# seen is measured rather than ignored.
-DURATION = re.compile(r'^\s*(\d+)\s*(Year|Month|Week|Day)', re.I)
-
-SUPERVISION_NOTE = (
-    "Column I says YES because ICOS shows a %s term of %s imposed %s, which on "
-    "paper runs to %s. Napier reads the sentence table and cannot see a term "
-    "discharged early, a term extended, or anyone on parole, so confirm this "
-    "before relying on it."
-)
-
-# The note reads "a probation term of 2 Year(s)", so the ICOS wording is
-# lowercased to sit inside the sentence. DCS is the Department of Correctional
-# Services, and "other than dcs" in a workbook somebody files off is a typo
-# rather than a house style.
-TERM_ACRONYMS = frozenset({'DCS'})
-
-
-def term_wording(kind):
-    """The ICOS sentence type as it reads in the middle of a sentence."""
-    return ' '.join(
-        word.upper() if word.upper() in TERM_ACRONYMS else word
-        for word in (kind or '').lower().split(' '))
+# case_parser still records the sentence table on the case, because that is a
+# faithful reading of the page and costs nothing. Nothing acts on it.
 
 
 def _add_term(start, count, unit):
@@ -582,52 +610,43 @@ def parse_us_date(text):
         return None
 
 
-def supervision_term(sentences):
-    """The supervision term that runs longest, as (type, duration, start, end).
+def case_type(case_id):
+    """The four character docket type out of an ICOS case number, or ''.
 
-    None when the case has no supervision sentence, or has one with no date or
-    no stated term, because a term nobody can put an end date on cannot answer
-    the question the column is asking.
+    ICOS writes a case number as a five character county code, two spaces, then
+    the type and the sequence: "00000  FECR000000". Everything that reads the
+    type reads those same four characters, so the slice lives here rather than
+    in each caller.
     """
-    longest = None
-    for sentence in sentences or []:
-        if (sentence.get('type') or '').strip().upper() not in SUPERVISION_SENTENCES:
-            continue
-        start = parse_us_date(sentence.get('date'))
-        if start is None:
-            continue
-        match = DURATION.match(str(sentence.get('duration') or ''))
-        if not match:
-            continue
-        end = _add_term(start, int(match.group(1)), match.group(2))
-        if longest is None or end > longest[3]:
-            longest = (sentence['type'].strip().upper(),
-                       sentence['duration'].strip(), start, end)
-    return longest
+    case_id = (case_id or '').strip()
+    return case_id[7:11].upper() if len(case_id) >= 11 else ''
 
 
-def is_under_supervision(sentences, as_of):
-    """("YES", term) when a supervision term is still running, else (None, None).
+def is_juvenile_case(case_id):
+    """Whether this docket is the juvenile court's.
 
-    Never "NO". A blank and a "NO" read the same to the expungement sheet, so
-    writing "NO" would buy nothing and would claim something Napier cannot know:
-    ICOS records no discharge when probation ends early, records an extension
-    inconsistently, and does not carry parole at all, since parole is corrections
-    rather than the court. So this answers the one direction it can evidence,
-    which is that a term was imposed and has not run out yet.
+    Iowa Legal Aid asked for JUV to be possible only on a "JVJV" case number.
+    The whole JV family is accepted rather than that one type, because the
+    juvenile docket also carries JVCV and JVDV numbers and the cost of being
+    wrong runs one way: a genuine juvenile case that Napier failed to recognise
+    would have its adjudication demoted, which is the outcome this is here to
+    prevent. Nothing but JV reaches it.
     """
-    term = supervision_term(sentences)
-    if term is None or term[3] < as_of:
-        return None, None
-    return "YES", term
+    return case_type(case_id).startswith('JV')
 
 
-def get_dominant_charge(charges):
+def get_dominant_charge(charges, case_id=None):
     """Pick the one disposition code that represents the whole case.
 
     ICOS lists a disposition per count, so a plea deal shows up as a guilty
     alongside several dismissals. The CRS has one column for it, and the
     ranking in charge_code_map decides which count speaks for the case.
+
+    case_id is the ICOS case number, which carries the case type in characters
+    7 to 11. The only thing read off it is whether this is a juvenile case, for
+    JUV_RANK_ADULT_CASE. Omitting it reads as not juvenile, which is the way
+    round that cannot invent a JUV on an adult case. process_case, the only
+    caller that matters, always has the number and always passes it.
 
     Returns a copy. The caller's charge keeps its list of dispositions, so
     calling this twice on the same case gives the same answer both times.
@@ -668,6 +687,8 @@ def get_dominant_charge(charges):
             charge_key = "OTH"
         else:
             charge_key, rank = next(iter(charge_code_map[disposition].items()))
+            if charge_key == "JUV" and not is_juvenile_case(case_id):
+                rank = JUV_RANK_ADULT_CASE
             charge_dict[charge_key] = rank
         if index < len(raw_dates) and raw_dates[index]:
             dates_by_code.setdefault(charge_key, []).append(raw_dates[index])
@@ -709,11 +730,14 @@ def get_dominant_charge(charges):
 def case_level_code(status):
     """The CRS code for ICOS's case-level status, or None if it is not one.
 
-    The status ICOS prints on the case summary is its own vocabulary. Across 90
+    The status ICOS prints on the case summary is its own vocabulary. Across 300
     captured pages it reads GUILTY PLEA/DEFAULT, VIOLATIONS HANDLED BY CLERK,
-    DISMISSED, BY TRIAL TO COURT, OTHER JUDGMENT, CLOSED, TRANSFERRED and SMALL
-    CLAIM-DISPOSED BY CLERK, and it overlaps the per-count adjudication wordings
-    at DISMISSED and nowhere else.
+    DISMISSED, BY TRIAL TO COURT, CLOSED, OTHER JUDGMENT, TRANSFERRED, SMALL
+    CLAIM-DISPOSED BY CLERK, DEFAULTED, DEFERRED JUDGEMENT, DISCHARGE and
+    CONVERTED TO SIMPLE MISDEMEANR, and it overlaps the per-count adjudication
+    wordings at DISMISSED and nowhere else. The last four appeared only after the
+    corpus passed 90 pages, which is the reason for reading it this way: the
+    vocabulary is still growing and a guess made now would be wrong later.
 
     Only the overlap is read. The rest are not translated here, because whether
     VIOLATIONS HANDLED BY CLERK is a guilty plea is a question about Iowa
@@ -801,6 +825,41 @@ FINE_MARKERS = (
     'NONSCHEDULED CHAPTER 321', 'SCHEDULED VIOLATION/NON-SCHEDULED',
 )
 
+# Fees whose wording says one bucket and whose own ICOS summary says another.
+# The markers above are a reading of the fee name; these are what the clerk
+# actually filed the fee under, which is the only thing the reconciliation
+# cares about, so they are checked first and they win.
+#
+# Every one of these was measured across 259 captured cases carrying both a
+# summary and an itemization. Each was applied on its own and none of them cost
+# a single bucket that was adding up before; together they take the buckets
+# that reconcile from 555 of 674 to 600 of 655, and the rows where the whole
+# itemization reconciles from 201 to 228 of 259.
+#
+# The stakes are not cosmetic. A bucket that does not add up used to surrender
+# the fee breakdown for everything in it, so two $100 probation revocation fees
+# filed under OTHER took a $60 indigent defense fee in the same case out of
+# INDIGENT DEFENSE and into MISCELLANEOUS, which is the difference between
+# having a 910.7 analysis and not having one.
+SUMMARY_BUCKET_OVERRIDES = (
+    # Filed under COSTS by the clerk, whatever the wording suggests.
+    ('PARKING VIOLATION PER COMPLAINT', 'COSTS'),
+    ('PROBATION REVOCATION FEE', 'COSTS'),
+    ('REFUNDABLES DUE TO PREPAID EXPENSES', 'COSTS'),
+    ('TITLE CHANGE REAL ESTATE', 'COSTS'),
+    ('PROBATE ENTERING ORDER', 'COSTS'),
+    ('CERTIFICATE AND SEAL (PROBATE)', 'COSTS'),
+    ('PROBATE FEES PAID TO PRIVATE REFEREE', 'COSTS'),
+    # These two carry fine wording and the clerk files them under COSTS. Only
+    # the reconciliation moves; the column the client reads is still FINES,
+    # which is a separate question this does not touch.
+    ('SCHEDULED VIOLATION/NON-SCHEDULED', 'COSTS'),
+    ('NONSCHEDULED CHAPTER 321', 'COSTS'),
+    # The county attorney's collection fee is charged against the fine and the
+    # summary counts it there, not in OTHER where its wording lands it.
+    ('COLLECTION BY CO ATTY', 'FINE'),
+)
+
 
 def get_summary_bucket(detail):
     """Which of the five ICOS summary buckets a line item rolls up into.
@@ -812,6 +871,9 @@ def get_summary_bucket(detail):
     nothing else.
     """
     text = (detail or '').upper()
+    for marker, bucket in SUMMARY_BUCKET_OVERRIDES:
+        if marker in text:
+            return bucket
     if 'SURCHARGE' in text:
         return 'SURCHARGE'
     if 'RESTITUTION' in text:
@@ -849,6 +911,88 @@ def _unique_paid_subset(amounts, target):
                 return None  # more than one explanation
             found = frozenset(combo)
     return found
+
+
+def spread_over_fee_columns(due, entries, paid=None):
+    """Split a category balance across the columns its own fees belong to.
+
+    A category whose balance cannot be pinned to particular fees still has a
+    composition the record does show: what each fee was assessed at. Sending the
+    whole balance to one column threw that away, and the column it usually
+    landed in was MISCELLANEOUS, because that is where a category label with no
+    fee name in it falls.
+
+    That is the one thing these sheets cannot survive. Bankruptcy treats columns
+    J and K as the debt that is surely dischargeable and everything else as
+    maybe; the 910.7 sheet reads J through P and no further; the statute of
+    limitations sheet is built on old attorney fee and jail debt by name. An
+    indigent defense fee that arrives as MISCELLANEOUS is a fee the hearing
+    cannot ask the court to remit, and nothing on the page says why.
+
+    So the balance is apportioned by assessment instead. It is an estimate and
+    the row says so. Returns None when there is nothing to apportion over, which
+    leaves the caller to fall back the old way. Every cent still comes out: the
+    largest column carries the rounding.
+
+    Apportioning is the last resort, not the first. A fee the record already
+    shows as settled must not draw a share of a balance it is no longer part of,
+    because the column that would collect that share is often K, and reporting
+    collection costs a client does not owe is the specific defect this module
+    was rewritten to stop. So anything the record can pin down is pinned down
+    first, and only what is genuinely unattributable gets spread.
+    """
+    if not entries:
+        return None
+    # What each fee still shows as owed on its own line, where ICOS bothered to
+    # fill the Paid column in. Most itemizations leave Paid blank, in which case
+    # this is the assessment and nothing is lost.
+    owed = [[get_finance_column(detail), max(amount - line_paid, Decimal(0))]
+            for detail, amount, line_paid in entries]
+
+    # A bucket paid down by more than its own lines admit to is the usual case,
+    # because ICOS records the payment against the category and leaves the lines
+    # alone. Where exactly one combination of those lines accounts for the
+    # difference, that combination is not a guess: no other set of fees can add
+    # up to what was paid. Those fees are settled and drop out of the split.
+    if paid is not None:
+        remainder = paid - sum((entry[2] for entry in entries), Decimal(0))
+        if remainder > 0:
+            settled = _unique_paid_subset([line[1] for line in owed], remainder)
+            for index in settled or ():
+                owed[index][1] = Decimal(0)
+
+    weights = {}
+    for column, amount in owed:
+        if amount > 0:
+            weights[column] = weights.get(column, Decimal(0)) + amount
+    if not weights:
+        # Every line reads as paid off and yet the category still owes. The
+        # lines are the only account of what this money is, so fall back to
+        # what each fee was assessed and let the note carry the doubt.
+        for detail, amount, _line_paid in entries:
+            if amount > 0:
+                column = get_finance_column(detail)
+                weights[column] = weights.get(column, Decimal(0)) + amount
+    if not weights:
+        return None
+    if len(weights) == 1:
+        return {next(iter(weights)): due}
+    total = sum(weights.values(), Decimal(0))
+    if total <= 0:
+        return None
+
+    # Largest first, so the column carrying the rounding is the one where a
+    # cent is least likely to be noticed.
+    order = sorted(weights, key=lambda column: (-weights[column], column))
+    shares = {}
+    running = Decimal(0)
+    for column in order[1:]:
+        share = (due * weights[column] / total).quantize(Decimal('0.01'),
+                                                         rounding=ROUND_HALF_UP)
+        shares[column] = share
+        running += share
+    shares[order[0]] = due - running
+    return shares
 
 
 def reconcile_financials(case):
@@ -891,9 +1035,13 @@ def reconcile_financials(case):
     buckets = {name: [] for name in ICOS_BUCKETS}
     last_detail = None
     current = None
+    # A third party collection fee is normally ICOS listing a debt it does not
+    # count, so it is dropped before the buckets are checked. When this case's
+    # summary does count it, dropping it would break the bucket it belongs to.
+    keep_third_party = summary_counts_third_party(case)
     for row in rows:
         detail = row.get('detail') or ''
-        if is_excluded_fee(detail):
+        if is_excluded_fee(detail) and not keep_third_party:
             last_detail = None
             current = None
             continue
@@ -930,6 +1078,7 @@ def reconcile_financials(case):
     columns = {}
     unresolved = []
     unreconciled = []
+    apportioned = []
     carrying = []
     for name in ICOS_BUCKETS:
         entries = buckets[name]
@@ -944,8 +1093,19 @@ def reconcile_financials(case):
             if due is None:
                 due = category['original'] - (category.get('paid') or Decimal(0))
             if due:
-                column = get_finance_column(category['label'])
-                columns[column] = columns.get(column, Decimal(0)) + due
+                # The total is the summary's, because the itemization did not
+                # agree with it and the summary is the side ICOS stands behind.
+                # Which columns it belongs in is still the itemization's to say.
+                shares = spread_over_fee_columns(due, entries,
+                                                 category.get('paid'))
+                if shares is None:
+                    shares = {get_finance_column(category['label']): due}
+                elif len(shares) > 1:
+                    # One column is not an estimate. The category total went
+                    # somewhere exact and the note has nothing to add.
+                    apportioned.append(name)
+                for column, share in shares.items():
+                    columns[column] = columns.get(column, Decimal(0)) + share
             continue
 
         if not entries:
@@ -980,9 +1140,13 @@ def reconcile_financials(case):
             due = summary[name].get('due')
             if due is None:
                 due = sum(amounts, Decimal(0)) - paid
-            shared = {get_finance_column(entry[0]) for entry in entries}
-            column = shared.pop() if len(shared) == 1 else 'O'
-            columns[column] = columns.get(column, Decimal(0)) + due
+            shares = spread_over_fee_columns(due, entries, paid)
+            if shares is None:
+                shares = {get_finance_column(summary[name]['label']): due}
+            elif len(shares) > 1:
+                apportioned.append(name)
+            for column, share in shares.items():
+                columns[column] = columns.get(column, Decimal(0)) + share
             continue
         for index, (detail, amount, _line_paid) in enumerate(entries):
             owed = Decimal(0) if index in settled else amount
@@ -1004,18 +1168,28 @@ def reconcile_financials(case):
                 % (_and_list(unreconciled),
                    "those balances are" if len(unreconciled) > 1
                    else "that balance is"))
-        if any(get_finance_column(summary[name]['label']) == 'O'
-               for name in unreconciled):
-            text += (", and those fees are in MISCELLANEOUS rather than in "
-                     "their own columns")
+        stranded = [name for name in unreconciled
+                    if name not in apportioned
+                    and get_finance_column(summary[name]['label']) == 'O']
+        if stranded:
+            text += (", and %s is in MISCELLANEOUS rather than in its own "
+                     "columns" % _and_list(stranded))
         notes.append(text + ". The rest of the row is fee by fee and the ICOS "
                             "total is still right.")
     if unresolved:
         notes.append(
             "ICOS records payments per category, not per fee. The payment "
-            "in %s could not be tied to a specific line, so that balance "
-            "is reported as a category total rather than per fee."
-            % ", ".join(unresolved))
+            "in %s could not be tied to a specific line, so that balance is "
+            "ICOS's category total." % _and_list(unresolved))
+    if apportioned:
+        # Named separately from the reason, because this is the part that
+        # changes how the number should be read. The column is right and the
+        # split inside it is an estimate.
+        notes.append(
+            "The %s balance is divided across its fee columns in proportion "
+            "to what those fees were assessed, so the column totals are "
+            "estimates. Request an accounting before relying on the split."
+            % _and_list(sorted(set(apportioned))))
     return columns, " ".join(notes) or None
 
 
@@ -1032,8 +1206,51 @@ def is_excluded_fee(detail):
     leaves it out of the case totals entirely -- summing the itemization at face
     value put money in the collection-costs column that the defendant is not
     shown as owing.
+
+    Usually. summary_counts_third_party is the case-by-case check, because on
+    four of the nine captured cases carrying one of these fees ICOS did count it.
     """
     return "THIRD PARTY" in (detail or "").upper()
+
+
+def summary_counts_third_party(case):
+    """Whether this case's ICOS summary already includes its third party fees.
+
+    Of the nine captured cases carrying a third party collection fee, five leave
+    it out of the five bucket summary, which is what is_excluded_fee describes.
+    On the other four the itemization and the summary agree to the cent, and
+    that is ICOS saying it did count the fee.
+
+    Excluding the line on one of those four costs the fee breakdown rather than
+    the money. The bucket then falls short of its summary original, so it stops
+    reconciling and the balance comes back as a category total, spread over
+    whatever columns the rest of the bucket uses. That takes collection costs
+    out of column K, which is one of the two columns Iowa Legal Aid treats as
+    surely dischargeable in a bankruptcy.
+
+    All four of those captured cases are paid off, so nothing on the corpus
+    moves either way. This is here so that the first one that is not paid off
+    keeps its collection costs in column K.
+    """
+    categories = case.get('summary_categories') or []
+    rows = case.get('financials') or []
+    if not categories or not rows:
+        return False
+    if not any(is_excluded_fee(row.get('detail')) for row in rows):
+        return False
+
+    assessed = Decimal(0)
+    for row in rows:
+        # Rows with no amount are continuation payments against the line above,
+        # which the summary counts under that line rather than separately.
+        if row.get('amount') is not None:
+            assessed += Decimal(str(row['amount']))
+    summarised = Decimal(0)
+    for category in categories:
+        if category.get('original') is None:
+            return False
+        summarised += category['original']
+    return abs(assessed - summarised) <= Decimal('0.01')
 
 
 def summary_financials(case):
@@ -1211,16 +1428,17 @@ def process_case(case, worksheet, row, as_of=None):
     Napier guessed at, and the return value is how the run gets to say so.
 
     as_of is the clinic date, the same one build_workbook puts in BASIC INFO B3.
-    Whether a probation term is still running is only answerable against a day,
-    and it has to be that day rather than today, so that reopening a workbook
-    next year does not silently change what column I said.
+    Nothing here reads it since column I went back to the staff. It is kept
+    because every caller passes it and because a date-sensitive cell landing in
+    this row again should be answered against the day of the clinic rather than
+    the day the file is reopened.
     """
     if as_of is None:
         as_of = iowa_today()
     i = str(row)
     worksheet['A' + i] = case['id']
     worksheet['B' + i] = case['county']
-    charge = get_dominant_charge(case['charges'])
+    charge = get_dominant_charge(case['charges'], case['id'])
     ordinance_note = None
 
     cell_E = worksheet['E' + i] # Get cell E
@@ -1313,34 +1531,17 @@ def process_case(case, worksheet, row, as_of=None):
             if answer is not None:
                 worksheet[column + i] = answer
 
-    # Outside the charge branch on purpose. The sentence table is read off the
-    # charges page whatever get_dominant_charge made of the adjudications, and a
-    # case can carry a supervision term that Napier coded as something other
-    # than a plain conviction.
-    supervised, term = is_under_supervision(case.get('sentences'), as_of)
-    if supervised is not None:
-        worksheet['I' + i] = supervised
-        supervision_note = SUPERVISION_NOTE % (
-            term_wording(term[0]), term[1], term[2].strftime('%m/%d/%Y'),
-            term[3].strftime('%m/%d/%Y'))
-    else:
-        supervision_note = None
-
     cell_E.alignment = Alignment(wrap_text=True) # Apply text wrapping
 
     # If charge was None, we still need to process financials if it wasn't returned early
     if charge is None:
         # process_financials(case, worksheet, i) # Already called above if charge is None
-        if supervision_note:
-            append_note(worksheet, i, supervision_note)
         return [] # Now we can return
 
     process_financials(case, worksheet, i)
 
-    # After process_financials, which owns column V, so the note joins whatever
-    # it wrote about the money rather than being overwritten by it.
-    if supervision_note:
-        append_note(worksheet, i, supervision_note)
+    # After process_financials, which owns column V, so a note joins whatever it
+    # wrote about the money rather than being overwritten by it.
     if ordinance_note and owes_money(worksheet, i):
         append_note(worksheet, i, ordinance_note)
     spread = charge.get('disposition_date_spread') or []
@@ -1352,8 +1553,22 @@ def process_case(case, worksheet, row, as_of=None):
     # column D says, and a caveat there describes a decision nobody is making.
     if not disposition_date and owes_money(worksheet, i):
         append_note(worksheet, i, PENDING_CASE_NOTE)
+    # JUV survived on a case that is not the juvenile court's, which means an
+    # adjudication was the only disposition on the page. Unlike the spread and
+    # ordinance notes this one is not conditional on the row owing anything,
+    # because the code itself is what may be wrong and it is read by the licence
+    # and expungement sheets whether or not there is a dollar on the row.
+    if charge.get('disposition') == 'JUV' and not is_juvenile_case(case['id']):
+        append_note(worksheet, i, ADULT_ADJUDICATION_NOTE)
     unknown = charge.get('unknown_dispositions') or []
     if unknown:
+        # Which of the two notes belongs here is decided by the cell the sheets
+        # actually read, not by which branch above collected the wording. A
+        # count Napier could not read still leaves a code in column G, and the
+        # OTH note describes what the sheets do with it. A case with nothing
+        # adjudicated leaves column G empty, and the sheets do something else
+        # entirely with that.
         append_note(worksheet, i,
-                    UNKNOWN_DISPOSITION_NOTE % ", ".join(unknown))
+                    (UNKNOWN_DISPOSITION_NOTE if worksheet['G' + i].value
+                     else UNCODED_CASE_STATUS_NOTE) % ", ".join(unknown))
     return unknown
