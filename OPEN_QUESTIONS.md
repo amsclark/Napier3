@@ -6,9 +6,11 @@ They are places where the right answer is a legal judgement rather than a
 parsing one, so the code takes the conservative reading and says so.
 
 Numbers here come from replaying real ICOS cases through the shipping path. The
-corpus was 210 cases when the older sections below were measured and is 300 now,
-and each section says which. No client data, names or case numbers appear in
-this repository.
+corpus grows as counties are added to it: 210 cases when the oldest sections
+below were measured, 300 for most of them, 400 now. Each section says which it
+was measured against, and a section still quoting an older count has not been
+re-measured rather than been checked and found unchanged. No client data, names
+or case numbers appear in this repository.
 
 ## The SOL sheet does not account for all the debt
 
@@ -102,32 +104,46 @@ emailed out while the run is happening.
 Worth asking Iowa Legal Aid whether CLOSED means something specific in ICOS
 practice, because if it does, it is one line to map.
 
-## Room and board debt the appeal sheet cannot see
+## Why the appeal sheet is named after one county
 
 ICOS has one wording for jail and room and board,
-`REIMBURSE-SHERIFF-ROOM/BOARD/MEDICAL`, and it appears on 11 lines worth
-$18,907.56 across 10 of the 300 captured cases. Napier sends every one of them
-to CASE DATA column L,
-which is where the SOL sheet's column D reads from and where the whole POLK
-R&B APPEAL sheet reads from. The money only gets that far on cases whose
-itemization reconciled against ICOS's own category totals fee by fee. Where a
-category did not add up, the balance goes in as that category's total, and
-room and board is inside COSTS, so it lands in MISC with everything else.
+`REIMBURSE-SHERIFF-ROOM/BOARD/MEDICAL`. It appears on 12 lines worth
+$18,939.56 across 11 of the 400 captured cases. Napier sends every one of them
+to CASE DATA column L, which is where the SOL sheet's column D reads from and
+where the whole POLK R&B APPEAL sheet reads from.
 
-Five of the ten cases still owe money. Two of them reconcile, and their
-$3,060.00 of unpaid room and board reads off the appeal sheet the way an
-attorney would expect. The other three owe $11,080.66 between them, their
-itemizations show $8,420.23 of room and board unpaid, and the appeal sheet
-reports $0.00 for each.
+The reconciliation part of this is closed. Column L used to go empty whenever
+the surrounding category did not add up against its itemization, because room
+and board sits inside COSTS and the whole COSTS balance went to MISC. Since the
+fee breakdown change, an unreconciled balance is apportioned across the columns
+its own fees point at, and column L now agrees with the balance ICOS reports on
+all 11 cases to the cent. Seven of them have money in play, totalling
+$11,510.23.
 
-Napier does say so. CASE DATA column V carries the note naming which category
-totals did not add up. The appeal sheet has four columns and does not carry
-that note, so what a reader sees there is a zero that means Napier could not
-break the number out, printed identically to a zero that means the case has no
-room and board on it. Whether that sheet should be able to say which one it
-means is a question about the sheet.
+Anyone re-checking that by hand should know that ICOS lists instalment payments
+as continuation rows carrying a payment and no detail, so summing the assessed
+column against the first payment on each line overstates what is owed. Two of
+these cases look short by $92.67 and $98.00 that way and are correct.
 
-Offer to look at the reconciliation itself is open and unanswered.
+What is still open is the sheet. It is four columns wide, it has no county
+filter in any cell, and it reads every row of CASE DATA, so a workbook built
+for a client with no Polk cases in it still renders one line per case with
+Polk's name at the top. Of the 80 Polk cases now captured, one carries room and
+board and it is paid off. Every case in the corpus that does owe room and board
+is in Delaware, Linn or Wapello, which are the counties the sheet's own title
+says it is not about.
+
+So the question for Iowa Legal Aid is what that sheet is for. If the Polk
+county attorney's office is the only one that will hear a room and board
+appeal, the sheet wants a county filter and currently has none. If the name is
+historical and the sheet is really about room and board anywhere in Iowa, it
+wants renaming and nothing else. Nobody should have to guess which, and the
+answer decides whether a client outside Polk gets looked at.
+
+The narrower version of the same problem: the four columns do not carry column
+V's note, so a zero there reads identically whether the case has no jail debt
+or Napier could not break the number out. That matters less now that the
+breakdown holds, and it is still true.
 
 ## An ordinance conviction the expungement sheet cannot rule out
 
