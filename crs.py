@@ -95,7 +95,22 @@ charge_code_map = {
     # the expungement sheet has always cleared without anything ever producing
     # it. Ranked with the other non-convictions, so a case that also carries a
     # guilty count still reads as guilty.
-    "CHANGE OF VENUE": {"TNSF":0}
+    "CHANGE OF VENUE": {"TNSF":0},
+    # Surfaced by widening the corpus to 400 cases across 68 counties. One
+    # case carries it on both counts, two simple misdemeanours with $640.00
+    # still owed, and it was falling through to OTH.
+    #
+    # OTH is the code that means Napier does not know, and the licence sheet
+    # reads it as no conviction, so the sheet was answering "neither licence
+    # nor registration" on a client who has a conviction and a remedy.
+    #
+    # GTR rather than GPL, and the choice does not matter: 299 formulas in the
+    # template name both, and not one names either without the other. So no
+    # computed answer anywhere in the workbook turns on whether the guilty
+    # finding came from a trial or a plea, which is the only thing "- OTHER"
+    # leaves open. What it does not leave open is that the client was found
+    # guilty, and that is what every sheet actually asks.
+    "GUILTY - OTHER": {"GTR":1}
 }
 
 # The rank for a disposition string charge_code_map has never seen. It sits
