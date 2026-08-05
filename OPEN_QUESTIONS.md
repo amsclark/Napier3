@@ -101,8 +101,10 @@ put a number in a bankruptcy column on the strength of a guess, so it stays
 OTH, which is the code that means Napier does not know, and it keeps being
 emailed out while the run is happening.
 
-Worth asking Iowa Legal Aid whether CLOSED means something specific in ICOS
-practice, because if it does, it is one line to map.
+Asked Iowa Legal Aid on 5 August 2026, in the concrete form of a 1993 case
+whose only status is CLOSED and whose column G is empty because of it, with the
+offer that if they want a specific code there it is one line to map. Awaiting
+their answer.
 
 ## A guilty finding that does not say how it was arrived at
 
@@ -262,7 +264,9 @@ what UNKNOWN carries. `COLLECTION BY CO ATTY (THRESHOLD MET)` and
 `COLLECTION BY CO ATTY` appear on 8 lines between them. The second reads like a
 collection cost, which would put it in column K where the statute of
 limitations sheet can see it, but calling it that is a decision about what the
-county attorney fee is rather than about what the page says.
+county attorney fee is rather than about what the page says. Put to Iowa Legal
+Aid on 5 August 2026, with the K reading offered and the note that their
+bankruptcy sheet turns on the answer, so the call is theirs. Awaiting it.
 
 Two captured cases complicate the county attorney fee further: their own
 summaries leave it out of the balance entirely. A Black Hawk felony case
@@ -364,21 +368,18 @@ last date that carries the winning disposition code, so the code and the date
 on the row agree with each other. On one of the 210 cases that is 9 days
 before the case's actual last adjudication, because the later count was
 disposed under a different code. Pairing the code with its own date and
-reporting the case as finished on its last day cannot both be true, and which
-one the sheets want is a question about the sheets.
+reporting the case as finished on its last day cannot both be true, and Iowa
+Legal Aid settled it on 3 August 2026 in favour of the pairing: a probation
+violation's date on a conviction's row was the thing they flagged. Column V
+lists the other dates when the counts were disposed on different days.
 
-Column I, "Under supervison?", is answered off the sentence table on the
-charges page, and comes out YES on 4 of the 300 captured cases. It is blank on
-the rest, and blank covers two different things: a term that has run out, and a
-term nobody can put an end date on. Three cases are the second sort, where ICOS
-shows probation with a date and no duration.
-
-The expungement sheet reads that column in `=IF('CASE DATA'!I4="YES",
-SUM('CASE DATA'!J4:P4),"n/a")`, so a blank and a NO reach it identically and
-"Amount of debt subject to 910.7?" says n/a either way. On the three cases with
-an undated term that n/a is Napier not knowing rather than the answer being
-none, and nothing on the sheet distinguishes the two. Whether that column should
-be able to say so is a question about the sheet.
+Column I, "Under supervison?", was briefly answered off the sentence table on
+the charges page and is deliberately not any more. Iowa Legal Aid answered on
+3 August 2026: staff check the Department of Corrections website by hand
+because ICOS cannot see early discharge or parole, so the column ships blank
+for them to fill in, the way it always had. The sentence table is still parsed
+onto the case for anything else that wants it, and the reasoning sits above
+the constant in crs.py.
 
 Money the clerk is holding on somebody's behalf is kept out of the payment
 history by matching three whole wordings, `APPEARANCE BOND REFUND`,
@@ -389,9 +390,10 @@ a bond assignment fee is court debt and a forfeited bond is money the county
 keeps, and deliberately not on the word `REFUNDABLE`, for the reason in the
 prepaid expenses section above.
 
-The workbook recognises a `TNSF` disposition code that the parser never
-produces. Either ICOS has a wording for it that has not been seen in 210
-cases, or the code is dead.
+The workbook recognises a `TNSF` disposition code that the parser, for its
+first 210 cases, never produced. The wording turned out to be CHANGE OF VENUE,
+met on the 3 August 2026 production run and mapped since, so the code is not
+dead and this one is closed.
 
 An Iowa city ordinance conviction that mirrors a chapter 321 offence: does it
 put the licence at risk the way the state charge would? The LICENSE-REGIS
