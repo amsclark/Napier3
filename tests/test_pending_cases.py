@@ -194,7 +194,7 @@ def test_a_closed_case_stops_counting_as_a_pending_charge():
                                 status='CLOSED', dispo_date='09/23/1901'))
     assert cells['D'] == '09/23/1901'
     assert cells['G'] in (None, '')
-    assert unknown == ['CLOSED']
+    assert unknown == [('CLOSED', False)]
 
 
 def test_a_status_napier_cannot_read_is_reported_not_guessed():
@@ -206,7 +206,7 @@ def test_a_status_napier_cannot_read_is_reported_not_guessed():
     cells, unknown = _row(_case('321.285', 'SYNTHETIC SPEED',
                                 status='VIOLATIONS HANDLED BY CLERK',
                                 dispo_date='03/03/1903'))
-    assert unknown == ['VIOLATIONS HANDLED BY CLERK']
+    assert unknown == [('VIOLATIONS HANDLED BY CLERK', False)]
     assert 'VIOLATIONS HANDLED BY CLERK' in cells['V']
     assert cells['G'] in (None, '')
 

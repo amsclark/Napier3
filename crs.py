@@ -1641,6 +1641,13 @@ def process_case(case, worksheet, row, as_of=None):
     Almost always empty. When it is not, the case is on the sheet under a code
     Napier guessed at, and the return value is how the run gets to say so.
 
+    Each wording comes back paired with whether the row ended up carrying a
+    code, because the two cases the run has to describe are not the same one. A
+    count whose adjudication could not be read is coded OTH; a case with nothing
+    adjudicated at all leaves column G empty and three sheets call it an open
+    charge. The pairing is what stops the run reporting the second as the first,
+    and it is read off column G for the same reason the note is.
+
     as_of is the clinic date, the same one build_workbook puts in BASIC INFO B3.
     Nothing here reads it since column I went back to the staff. It is kept
     because every caller passes it and because a date-sensitive cell landing in
@@ -1775,14 +1782,19 @@ def process_case(case, worksheet, row, as_of=None):
     if charge.get('disposition') == 'JUV' and not is_juvenile_case(case['id']):
         append_note(worksheet, i, ADULT_ADJUDICATION_NOTE)
     unknown = charge.get('unknown_dispositions') or []
-    if unknown:
-        # Which of the two notes belongs here is decided by the cell the sheets
-        # actually read, not by which branch above collected the wording. A
-        # count Napier could not read still leaves a code in column G, and the
-        # OTH note describes what the sheets do with it. A case with nothing
-        # adjudicated leaves column G empty, and the sheets do something else
-        # entirely with that.
-        append_note(worksheet, i,
-                    (UNKNOWN_DISPOSITION_NOTE if worksheet['G' + i].value
-                     else UNCODED_CASE_STATUS_NOTE) % ", ".join(unknown))
-    return unknown
+    if not unknown:
+        return []
+    # Which of the two notes belongs here is decided by the cell the sheets
+    # actually read, not by which branch above collected the wording. A count
+    # Napier could not read still leaves a code in column G, and the OTH note
+    # describes what the sheets do with it. A case with nothing adjudicated
+    # leaves column G empty, and the sheets do something else entirely with
+    # that.
+    coded = bool(worksheet['G' + i].value)
+    append_note(worksheet, i,
+                (UNKNOWN_DISPOSITION_NOTE if coded
+                 else UNCODED_CASE_STATUS_NOTE) % ", ".join(unknown))
+    # The same answer goes back to the caller rather than being worked out a
+    # second time. The run's account of the row and the row's account of itself
+    # were allowed to disagree once already.
+    return [(wording, coded) for wording in unknown]
