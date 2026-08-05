@@ -1,3 +1,4 @@
+import itertools
 import re
 
 from calendar import monthrange
@@ -1065,6 +1066,47 @@ def spread_over_fee_columns(due, entries, paid=None):
     return shares
 
 
+def _bucket_partition(rows, keep_third_party, skip=frozenset()):
+    """Sort the itemization into the five buckets the summary reports.
+
+    Returns {bucket: [[detail, assessed, paid], ...]}, carrying the last
+    detail across continuation rows the way itemized_financials does. A
+    continuation row has no detail and no amount, only a payment against the
+    line above it, so its payment is credited to that line rather than
+    dropped. A skipped or excluded row breaks that chain instead, so a payment
+    that follows one is dropped rather than credited to a line ICOS does not
+    count.
+
+    skip holds indexes into rows, from uncounted_collection_rows.
+    """
+    buckets = {name: [] for name in ICOS_BUCKETS}
+    last_detail = None
+    current = None
+    for index, row in enumerate(rows):
+        detail = row.get('detail') or ''
+        if index in skip or (is_excluded_fee(detail) and not keep_third_party):
+            last_detail = None
+            current = None
+            continue
+        if not detail.strip():
+            if last_detail is None:
+                continue
+            detail = last_detail
+        else:
+            last_detail = detail
+        amount = row.get('amount')
+        paid = row.get('paid')
+        if amount is None:
+            # Continuation row: a further payment against the line above.
+            if current is not None and paid is not None:
+                current[2] += Decimal(str(paid))
+            continue
+        current = [detail, Decimal(str(amount)),
+                   Decimal(str(paid)) if paid is not None else Decimal(0)]
+        buckets[get_summary_bucket(detail)].append(current)
+    return buckets
+
+
 def reconcile_financials(case):
     """Per-column amounts owed, keeping the fee breakdown and the ICOS balance.
 
@@ -1098,39 +1140,12 @@ def reconcile_financials(case):
     if set(summary) != set(ICOS_BUCKETS):
         return None, None
 
-    # Partition the itemization, carrying the last detail across continuation
-    # rows the way itemized_financials does. A continuation row has no detail
-    # and no amount, only a payment against the line above it, so its payment
-    # is credited to that line rather than dropped.
-    buckets = {name: [] for name in ICOS_BUCKETS}
-    last_detail = None
-    current = None
     # A third party collection fee is normally ICOS listing a debt it does not
     # count, so it is dropped before the buckets are checked. When this case's
     # summary does count it, dropping it would break the bucket it belongs to.
     keep_third_party = summary_counts_third_party(case)
-    for row in rows:
-        detail = row.get('detail') or ''
-        if is_excluded_fee(detail) and not keep_third_party:
-            last_detail = None
-            current = None
-            continue
-        if not detail.strip():
-            if last_detail is None:
-                continue
-            detail = last_detail
-        else:
-            last_detail = detail
-        amount = row.get('amount')
-        paid = row.get('paid')
-        if amount is None:
-            # Continuation row: a further payment against the line above.
-            if current is not None and paid is not None:
-                current[2] += Decimal(str(paid))
-            continue
-        current = [detail, Decimal(str(amount)),
-                   Decimal(str(paid)) if paid is not None else Decimal(0)]
-        buckets[get_summary_bucket(detail)].append(current)
+    buckets = _bucket_partition(rows, keep_third_party,
+                                uncounted_collection_rows(case))
 
     # A bucket has to add up to what the summary says was assessed before any
     # payment is attributed off it. A fee read into the wrong bucket shows up as
@@ -1337,6 +1352,97 @@ def summary_counts_third_party(case):
             return False
         summarised += category['original']
     return abs(assessed - summarised) <= Decimal('0.01')
+
+
+def uncounted_collection_rows(case):
+    """Indexes of itemization rows this case's ICOS summary leaves out.
+
+    The county attorney's collection fee is usually part of the case balance,
+    filed under FINE, which is what the SUMMARY_BUCKET_OVERRIDES entry says
+    and what most captured cases carrying one show. On two of the 400 the
+    clerk's own arithmetic says the opposite. A Black Hawk felony case
+    counts its state and county collection splits in FINE and leaves the bare
+    COLLECTION BY CO ATTY fee out entirely, so the itemization runs over the
+    summary by exactly that fee. A Union County case goes further: its raw
+    ICOS page lists every collection fee, plus a second CRIME SERVICES
+    SURCHARGE ledger entry identical to the paid one but with no payment, no
+    receipt and no date, and its summary counts none of them. Those are
+    superseded entries from the collection process, not debt, and the clerk's
+    total says so: original amounts equal to the summary only once the
+    duplicates and the collection rows are set aside.
+
+    Which fees a summary leaves out varies case by case, the way third party
+    fees already do, so this is decided per case and only on the clerk's own
+    arithmetic. Candidates are grouped, collection fees by their exact wording
+    and unpaid rows that duplicate an identical earlier row together, and a
+    union of groups is excluded only when the itemization exceeds the summary
+    by exactly that union's sum, every one of the five buckets then matches
+    its summary original to the cent, and no other union manages the same.
+    A wrong exclusion would need all three to conspire. When no union
+    qualifies, nothing is excluded and the partition check fails the way it
+    does today, which is the safety net all of these guesses share.
+    """
+    categories = case.get('summary_categories') or []
+    rows = case.get('financials') or []
+    if not categories or not rows:
+        return frozenset()
+    summary = {}
+    for category in categories:
+        if category.get('original') is None:
+            return frozenset()
+        summary[category['label'].upper()] = category
+    if set(summary) != set(ICOS_BUCKETS):
+        return frozenset()
+
+    groups = {}
+    seen = set()
+    for index, row in enumerate(rows):
+        detail = (row.get('detail') or '').strip().upper()
+        amount = row.get('amount')
+        if amount is None:
+            continue
+        if 'COLLECTION BY CO ATTY' in detail:
+            groups.setdefault(('fee', detail), []).append(index)
+        elif (detail, str(amount)) in seen and row.get('paid') is None:
+            groups.setdefault(('duplicate', detail, str(amount)),
+                              []).append(index)
+        seen.add((detail, str(amount)))
+    # The union search below is exhaustive, so it needs a bound; ten groups is
+    # far past anything captured (Union County, the worst, has five).
+    if not groups or len(groups) > 10:
+        return frozenset()
+
+    keep_third_party = summary_counts_third_party(case)
+    assessed = Decimal(0)
+    for row in rows:
+        if row.get('amount') is None:
+            continue
+        if is_excluded_fee(row.get('detail')) and not keep_third_party:
+            continue
+        assessed += Decimal(str(row['amount']))
+    summarised = sum(summary[name]['original'] for name in ICOS_BUCKETS)
+    overage = assessed - summarised
+    if overage <= Decimal('0.01'):
+        return frozenset()
+
+    sums = {key: sum(Decimal(str(rows[index]['amount']))
+                     for index in indexes)
+            for key, indexes in groups.items()}
+    keys = sorted(groups)
+    winners = []
+    for size in range(1, len(keys) + 1):
+        for combo in itertools.combinations(keys, size):
+            if sum(sums[key] for key in combo) != overage:
+                continue
+            skip = frozenset(index for key in combo for index in groups[key])
+            buckets = _bucket_partition(rows, keep_third_party, skip)
+            if all(abs(sum((entry[1] for entry in buckets[name]), Decimal(0))
+                       - summary[name]['original']) <= Decimal('0.01')
+                   for name in ICOS_BUCKETS):
+                winners.append(skip)
+    if len(winners) == 1:
+        return winners[0]
+    return frozenset()
 
 
 def summary_financials(case):
