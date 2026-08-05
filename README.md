@@ -196,8 +196,9 @@ when the wait gives up, a run that succeeded but needed three or more attempts,
 an unusable response once signed in, ICOS not answering at all, a case that
 would not parse, a case ICOS would not retrieve, a job crashing, an unhandled
 exception in a request, a party role or a disposition ICOS used that Napier
-does not recognise, a workbook built and never collected, and a progress page
-that lost contact with the server.
+does not recognise, a case status ICOS used that Napier will not translate, a
+workbook built and never collected, and a progress page that lost contact with
+the server.
 
 An unusable response and no answer at all are separate subject lines, and each
 carries the reason as its first line. They used to be one class with a size
@@ -211,6 +212,17 @@ body was is no longer recoverable, because the one email that would have said so
 had already been spent on something else. A court site that is down and a
 session that has lost its place look the same from outside, and only one of them
 is Iowa's fault.
+
+An unreadable disposition and an untranslated case status are separate subject
+lines for the same reason, and they were not until 5 August. A word missing from
+`charge_code_map` codes the case OTH and the fix is to add the word. A case with
+no adjudicated count carries only the status ICOS prints for the case as a
+whole, `case_level_code` refuses most of that vocabulary on purpose, and column
+G is left empty, which BANKRUPTCY, EXEMPTIONS and SOL render as "open charge".
+Column V was taught the difference on 3 August. The progress line and the email
+were not, so a run reported a closed 1993 case as coded OTH, named a notes
+column that said the opposite, and under one shared class would have silenced
+whichever of the two came second.
 
 The last two are the ones nothing else would catch, because the server thinks
 those runs went fine. A staffer whose phone drops the progress page sees a

@@ -120,7 +120,7 @@ def _row(case):
 def test_the_row_says_it_was_coded_on_a_guess():
     """The workbook outlives the alert and goes to whoever runs the clinic."""
     unknown, code, note = _row(_case(NOVEL))
-    assert unknown == [NOVEL]
+    assert unknown == [(NOVEL, True)]
     assert code == 'OTH'
     assert NOVEL in note
     assert 'OTH' in note
@@ -191,7 +191,7 @@ def test_an_unreadable_disposition_is_mailed_out(monkeypatch):
     """
     sent = _recorded(monkeypatch)
     job = FakeJob()
-    tasks.report_unknown_dispositions(job, {NOVEL: ['00000  FECR000000']})
+    tasks.report_unknown_dispositions(job, {(NOVEL, True): ['00000  FECR000000']})
     assert len(sent) == 1
     args, kwargs = sent[0]
     assert args[2] == alerts.UNKNOWN_DISPOSITION
@@ -207,7 +207,7 @@ def test_the_alert_carries_no_defendant(monkeypatch):
     """
     sent = _recorded(monkeypatch)
     tasks.report_unknown_dispositions(
-        FakeJob(), {NOVEL: ['00000  FECR000000']})
+        FakeJob(), {(NOVEL, True): ['00000  FECR000000']})
     _, kwargs = sent[0]
     assert set(kwargs) <= {'progress', 'disposition', 'cases'}
 
@@ -216,7 +216,7 @@ def test_the_run_says_so_on_the_progress_page_too(monkeypatch):
     """Staff read the finish page. Alex reads the mail. Both need to know."""
     _recorded(monkeypatch)
     job = FakeJob()
-    tasks.report_unknown_dispositions(job, {NOVEL: ['00000  FECR000000']})
+    tasks.report_unknown_dispositions(job, {(NOVEL, True): ['00000  FECR000000']})
     assert any(NOVEL in message for message in job.messages)
     assert any('OTH' in message for message in job.messages)
 
@@ -232,7 +232,7 @@ def test_one_alert_per_wording_not_per_case(monkeypatch):
     """A clinic pulling seventy cases through one new ICOS wording is one email."""
     sent = _recorded(monkeypatch)
     tasks.report_unknown_dispositions(
-        FakeJob(), {NOVEL: ['00000  FECR000000', '00000  FECR000001',
+        FakeJob(), {(NOVEL, True): ['00000  FECR000000', '00000  FECR000001',
                             '00000  FECR000002']})
     assert len(sent) == 1
     assert sent[0][1]['cases'].count(',') == 2
@@ -245,4 +245,4 @@ def test_the_workbook_build_hands_the_wordings_back(tmp_path, monkeypatch):
     monkeypatch.setattr(tasks, 'tmp_dir', str(tmp_path) + os.sep)
     _, unknown, _ = tasks.build_workbook(
         [_case(NOVEL), _case('GUILTY')], 'TEST CLIENT', '01/01/1980', False)
-    assert unknown == {NOVEL: ['00000  FECR000000']}
+    assert unknown == {(NOVEL, True): ['00000  FECR000000']}

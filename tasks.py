@@ -168,31 +168,75 @@ def report_novel_roles(job, cases):
     return novel
 
 
-def report_unknown_dispositions(job, unknown):
-    """Say when a case was coded on a guess, on the page and by email.
+# What the run says about a count whose adjudication wording is not in
+# charge_code_map. The case is on the sheet under a guess, and the guess is OTH.
+UNKNOWN_DISPOSITION_LINE = (
+    "Iowa Courts recorded \"%s\" on %d case%s, which Napier does not "
+    "recognise. Those rows are coded OTH and say so in the notes column: %s."
+)
 
-    charge_code_map has a word for every outcome anyone has seen ICOS use.
-    Anything else codes the case OTH, and OTH is what the expungement,
-    bankruptcy, exemption and licence sheets read as no conviction, so a client
-    with a real conviction can come out of four sheets looking clean. The row
-    itself says so in column V, but the workbook goes to whoever runs the
-    clinic and the map only gets the missing word added if it reaches Alex.
+# What it says about the other row, which used to get the line above.
+#
+# Nothing about that was true of it. Its wording is not missing from
+# charge_code_map, because charge_code_map is not what read it: the case has no
+# adjudicated count at all, so the only disposition it carries is the status
+# ICOS prints for the case as a whole, and case_level_code translates one
+# wording of that vocabulary and refuses the rest on purpose. Nothing is coded
+# OTH. Column G is empty, which BANKRUPTCY, EXEMPTIONS and SOL render as "open
+# charge", so the row this line is about is being reported to the attorney as a
+# charge still pending against a client whose case Iowa Courts has closed.
+#
+# Column V was taught the difference in August; this line was not, and it is the
+# half Alex reads. It named a code the row does not carry and sent him to a
+# notes column that says something else.
+UNCODED_CASE_STATUS_LINE = (
+    "Iowa Courts recorded \"%s\" as the status of %d case%s with no "
+    "adjudicated count, which Napier does not translate into a CRS code. "
+    "Column G is left empty, so the BANKRUPTCY, EXEMPTIONS and SOL sheets read "
+    "%s as an open charge, and the notes column says so: %s."
+)
+
+
+def report_unknown_dispositions(job, unknown):
+    """Say what a case was coded on, on the page and by email.
+
+    Two things arrive here and they need telling apart. charge_code_map has a
+    word for every outcome anyone has seen ICOS use, and anything else codes the
+    case OTH, which is what the expungement, bankruptcy, exemption and licence
+    sheets read as no conviction, so a client with a real conviction can come
+    out of four sheets looking clean. The other is a case with nothing
+    adjudicated on it, where column G is left empty rather than guessed at and
+    three sheets read the empty cell as an open charge.
+
+    Both leave the row saying so in column V, but the workbook goes to whoever
+    runs the clinic. The map only gets a missing word added if it reaches Alex,
+    and what an untranslated case status deserves is a question for Iowa Legal
+    Aid, so the two go out under separate subjects rather than one.
 
     The wording and the case number go out. Both are court public record and
-    neither is any use without the other: the word is what the map is missing
-    and the case is the page to read it off. The client is not in it.
+    neither is any use without the other: the word is what Napier could not act
+    on and the case is the page to read it off. The client is not in it.
     """
-    for disposition, case_ids in sorted(unknown.items()):
-        job.log("Iowa Courts recorded \"%s\" on %d case%s, which Napier does not "
-                "recognise. Those rows are coded OTH and say so in the notes "
-                "column: %s."
-                % (disposition, len(case_ids), "" if len(case_ids) == 1 else "s",
-                   ", ".join(case_ids)))
-        alerts.record(job.id[:8], job.kind, alerts.UNKNOWN_DISPOSITION,
-                      progress=alerts.recent_progress(job),
-                      disposition=disposition,
-                      cases=", ".join(case_ids))
-    return sorted(unknown)
+    for (disposition, coded), case_ids in sorted(unknown.items()):
+        count = len(case_ids)
+        plural = "" if count == 1 else "s"
+        listed = ", ".join(case_ids)
+        if coded:
+            job.log(UNKNOWN_DISPOSITION_LINE
+                    % (disposition, count, plural, listed))
+            alerts.record(job.id[:8], job.kind, alerts.UNKNOWN_DISPOSITION,
+                          progress=alerts.recent_progress(job),
+                          disposition=disposition,
+                          cases=listed)
+        else:
+            job.log(UNCODED_CASE_STATUS_LINE
+                    % (disposition, count, plural,
+                       "that row" if count == 1 else "those rows", listed))
+            alerts.record(job.id[:8], job.kind, alerts.UNCODED_CASE_STATUS,
+                          progress=alerts.recent_progress(job),
+                          **{'case status': disposition,
+                             'cases': listed})
+    return sorted({disposition for disposition, _ in unknown})
 
 
 def search_task(job, username, password, firstname, middlename, lastname):
@@ -847,8 +891,8 @@ def retry_task(job, username, password, payload):
             # stops being read.
             fresh_ids = {case['id'] for case in recovered}
             report_unknown_dispositions(job, {
-                wording: [case_id for case_id in case_ids if case_id in fresh_ids]
-                for wording, case_ids in unknown.items()
+                key: [case_id for case_id in case_ids if case_id in fresh_ids]
+                for key, case_ids in unknown.items()
                 if any(case_id in fresh_ids for case_id in case_ids)})
             record['written'] = len(cases)
             record['file'] = path
@@ -908,10 +952,12 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     serves, and one that is quietly short two cases is worse than one that
     says it is short two cases.
 
-    The second value is a map of the ICOS wording to the case numbers it turned
-    up on. Empty on almost every run. When it is not, those cases are on the
-    sheet under a guessed code and somebody needs to know before the workbook is
-    used, so the caller reports it rather than the file quietly carrying it.
+    The second value maps the ICOS wording, paired with whether the row it
+    landed on came out with a code in column G, to the case numbers it turned up
+    on. Empty on almost every run. When it is not, those cases are either on the
+    sheet under a guessed code or on it with no code at all, and somebody needs
+    to know which before the workbook is used, so the caller reports it rather
+    than the file quietly carrying it.
     """
     workbook = load_workbook('CRS Lite 3.5.5.xlsx' if is_lite else 'CRS 3.5.5.xlsx')
     sheet = workbook['CASE DATA']
@@ -923,8 +969,8 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     row = 4
     unknown = {}
     for case in cases:
-        for disposition in crs.process_case(case, sheet, row, clinic_date) or []:
-            unknown.setdefault(disposition, []).append(case['id'])
+        for key in crs.process_case(case, sheet, row, clinic_date) or []:
+            unknown.setdefault(key, []).append(case['id'])
         row += 1
 
     # Columns W to AH take column F apart one statute per column, and the
