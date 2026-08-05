@@ -97,9 +97,16 @@ as unrecognised until then.
 
 CLOSED is deliberately not mapped. A case closes after a conviction and after a
 dismissal alike, and the word does not say which. Mapping it either way would
-put a number in a bankruptcy column on the strength of a guess, so it stays
-OTH, which is the code that means Napier does not know, and it keeps being
-emailed out while the run is happening.
+put a number in a bankruptcy column on the strength of a guess, so the case goes
+onto the sheet uncoded and keeps being emailed out while the run is happening.
+
+Where it lands depends on which vocabulary produced it, and this paragraph used
+to say it stayed OTH, which is only true of one of them. CLOSED written on a
+count is a disposition `charge_code_map` has no word for, and that does code the
+case OTH. CLOSED as the status of a case with no adjudicated count is not read
+by `charge_code_map` at all, and `case_level_code` declines it, so column G is
+left empty and BANKRUPTCY, EXEMPTIONS and SOL read the row as an open charge.
+The email now says which of the two it met.
 
 Asked Iowa Legal Aid on 5 August 2026, in the concrete form of a 1993 case
 whose only status is CLOSED and whose column G is empty because of it, with the

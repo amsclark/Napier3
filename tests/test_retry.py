@@ -108,6 +108,9 @@ class FakeClient:
         self.logged_in = False
 
 
+# Keyed the way build_workbook keys it: the ICOS wording paired with whether the
+# row it landed on came out with a code in column G. True here because an
+# unreadable count is coded OTH, which is the reporting these tests are about.
 UNKNOWN = {}
 
 
@@ -391,7 +394,7 @@ class TestGoingBackForThem:
         updated once. Telling them again about the same one on every rebuild is
         how alerting stops being read."""
         FakeClient.fail_cases = {DOE_CASES[1]}
-        UNKNOWN.update({'HELD IN ABEYANCE': list(DOE_CASES)})
+        UNKNOWN.update({('HELD IN ABEYANCE', True): list(DOE_CASES)})
         _, job_id = run_one(client)
         FakeClient.fail_cases = set()
         new_id, state = follow_retry(client, job_id)
@@ -408,7 +411,7 @@ class TestGoingBackForThem:
         empty list still reads out as "recorded X on 0 cases" and still emails,
         which is the same nag with the evidence taken out of it."""
         FakeClient.fail_cases = {DOE_CASES[1]}
-        UNKNOWN.update({'HELD IN ABEYANCE': [DOE_CASES[0], DOE_CASES[2]]})
+        UNKNOWN.update({('HELD IN ABEYANCE', True): [DOE_CASES[0], DOE_CASES[2]]})
         _, job_id = run_one(client)
         FakeClient.fail_cases = set()
 

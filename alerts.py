@@ -82,6 +82,21 @@ NOVEL_ROLE = 'unrecognised party role on an ICOS search'
 # surfaced is somebody noticing a sheet was wrong about a client. The alert
 # carries the ICOS wording and the case number and no defendant.
 UNKNOWN_DISPOSITION = 'unrecognised disposition on an ICOS case'
+# Its own class, because it is a different fact about a different row and it
+# wants a different answer. Above is a word missing from charge_code_map, and
+# the fix is to add it. This is the status ICOS prints for a case as a whole on
+# a case where no count was adjudicated, and case_level_code refuses to
+# translate all but one wording of it on purpose: guessing a conviction code
+# off a case status is the error it is avoiding. Column G is left empty, which
+# BANKRUPTCY, EXEMPTIONS and SOL read as an open charge.
+#
+# Sharing the class with the one above cost the distinction twice over. Both
+# suppress each other under the per-class floor, so a run carrying one of each
+# mailed whichever came first, and the subject line said a word was missing
+# from a map when nothing was. Splitting them also stops these drowning the
+# other: what CLOSED deserves is an open question with Iowa Legal Aid, so this
+# fires on every run of the same client until they answer it.
+UNCODED_CASE_STATUS = 'untranslated case status on an ICOS case'
 
 # A run that eventually worked but took this many attempts is the early warning
 # that ICOS is degrading, which is worth one email before staff start noticing.
