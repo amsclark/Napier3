@@ -1371,10 +1371,19 @@ def uncounted_collection_rows(case):
     total says so: original amounts equal to the summary only once the
     duplicates and the collection rows are set aside.
 
+    A simple misdemeanor from a third county shows the same duplicate with its
+    wording recoded: an unpaid surcharge under a legacy DNU (do not use) fee
+    code, same amount as the paid surcharge next to it under the current code,
+    and the summary counts only the paid one. Other cases from the same county
+    carry unpaid DNU rows their summaries do count, so a legacy code alone
+    proves nothing; the candidate is the pairing, an unpaid DNU row whose
+    amount matches a row the clerk marked paid in the same bucket.
+
     Which fees a summary leaves out varies case by case, the way third party
     fees already do, so this is decided per case and only on the clerk's own
-    arithmetic. Candidates are grouped, collection fees by their exact wording
-    and unpaid rows that duplicate an identical earlier row together, and a
+    arithmetic. Candidates are grouped, collection fees by their exact wording,
+    unpaid rows that duplicate an identical earlier row together, and unpaid
+    legacy-coded rows shadowing a paid amount in their bucket together, and a
     union of groups is excluded only when the itemization exceeds the summary
     by exactly that union's sum, every one of the five buckets then matches
     its summary original to the cent, and no other union manages the same.
@@ -1394,6 +1403,15 @@ def uncounted_collection_rows(case):
     if set(summary) != set(ICOS_BUCKETS):
         return frozenset()
 
+    # The paid counterpart of a recoded duplicate can sit on either side of
+    # it in the ledger, so paid amounts are collected before grouping.
+    paid_amounts = set()
+    for row in rows:
+        detail = (row.get('detail') or '').strip().upper()
+        if row.get('amount') is None or row.get('paid') is None:
+            continue
+        paid_amounts.add((get_summary_bucket(detail), str(row['amount'])))
+
     groups = {}
     seen = set()
     for index, row in enumerate(rows):
@@ -1405,6 +1423,10 @@ def uncounted_collection_rows(case):
             groups.setdefault(('fee', detail), []).append(index)
         elif (detail, str(amount)) in seen and row.get('paid') is None:
             groups.setdefault(('duplicate', detail, str(amount)),
+                              []).append(index)
+        elif (detail.startswith('DNU') and row.get('paid') is None
+              and (get_summary_bucket(detail), str(amount)) in paid_amounts):
+            groups.setdefault(('dnu', detail, str(amount)),
                               []).append(index)
         seen.add((detail, str(amount)))
     # The union search below is exhaustive, so it needs a bound; ten groups is

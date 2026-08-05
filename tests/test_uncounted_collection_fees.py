@@ -8,7 +8,9 @@ summary by exactly that fee. Another lists every collection fee plus a second
 ledger entry for an already-paid surcharge, identical wording and amount but
 no payment, no receipt, no date, and counts none of them; the raw ICOS page
 itself carries those rows, so they are superseded ledger entries, not a
-parsing error and not debt.
+parsing error and not debt. A third case shows the same duplicate recoded:
+an unpaid surcharge under a legacy DNU (do not use) fee code, same amount as
+the paid surcharge next to it under the current code, counted only once.
 
 uncounted_collection_rows decides per case, the way summary_counts_third_party
 already does for third party fees, and only on the clerk's own arithmetic: a
@@ -164,3 +166,66 @@ def test_an_ordinary_unpaid_duplicate_is_not_touched():
     columns, note = crs.reconcile_financials(case)
     assert note is None, note
     assert columns == {'Q': Decimal('250.00')}, columns
+
+
+# The third shape: the superseded entry with its wording recoded. The paid
+# surcharge sits under the current fee code and the leftover ledger entry under
+# a legacy DNU (do not use) code, same amount, no payment, and the summary
+# counts only the paid one. Identical-wording matching cannot see this pair.
+LEGACY_CODE_CASE = {
+    'id': '00000  SMSM000001',
+    'summary_categories': _five(SURCHARGE='300.00', SURCHARGE_PAID='300.00'),
+    'financials': [
+        _fee('LAW ENFORCEMENT INITIATIVE SURCHARGE', '90.00', '90.00'),
+        _fee('DNU-LAW ENFORCEMENT INITIATIVE SURCHARGE', '90.00'),
+        _fee('DNU-CRIME SERVICES SURCHARGE', '210.00', '210.00'),
+    ],
+}
+
+
+def test_a_recoded_legacy_duplicate_the_summary_leaves_out_is_excluded():
+    assert crs.uncounted_collection_rows(LEGACY_CODE_CASE) == frozenset({1})
+
+
+def test_the_legacy_duplicate_case_reconciles_with_nothing_owed():
+    columns, note = crs.reconcile_financials(LEGACY_CODE_CASE)
+    assert note is None, note
+    assert columns == {}, columns
+
+
+def test_a_counted_legacy_row_is_left_alone():
+    """The same paid-and-unpaid pairing, but here the clerk counts both. The
+    candidate forms and the arithmetic gate must keep the rule silent."""
+    case = {
+        'id': '00000  SMSM000002',
+        'summary_categories': _five(SURCHARGE='180.00',
+                                    SURCHARGE_PAID='90.00'),
+        'financials': [
+            _fee('LAW ENFORCEMENT INITIATIVE SURCHARGE', '90.00', '90.00'),
+            _fee('DNU-LAW ENFORCEMENT INITIATIVE SURCHARGE', '90.00'),
+        ],
+    }
+    assert crs.uncounted_collection_rows(case) == frozenset()
+    columns, note = crs.reconcile_financials(case)
+    assert note is None, note
+    assert columns == {'Q': Decimal('90.00')}, columns
+
+
+def test_a_legacy_row_without_a_paid_counterpart_is_not_a_candidate():
+    """A legacy code alone proves nothing: other captured cases carry unpaid
+    DNU rows their summaries do count. Without a paid row of the same amount
+    in the same bucket the row is not a candidate, so this case keeps its
+    honest failure note even though excluding the DNU row would balance."""
+    case = {
+        'id': '00000  SMSM000003',
+        'summary_categories': _five(COSTS='60.00', SURCHARGE='210.00'),
+        'financials': [
+            _fee('COURT COSTS', '60.00'),
+            _fee('DNU-LAW ENFORCEMENT INITIATIVE SURCHARGE', '90.00'),
+            _fee('DNU-CRIME SERVICES SURCHARGE', '210.00'),
+        ],
+    }
+    assert crs.uncounted_collection_rows(case) == frozenset()
+    columns, note = crs.reconcile_financials(case)
+    assert note is not None and 'SURCHARGE' in note, note
+    assert 'COSTS' not in note, note
