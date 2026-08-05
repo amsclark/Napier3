@@ -264,6 +264,22 @@ collection cost, which would put it in column K where the statute of
 limitations sheet can see it, but calling it that is a decision about what the
 county attorney fee is rather than about what the page says.
 
+Two captured cases complicate the county attorney fee further: their own
+summaries leave it out of the balance entirely. A Black Hawk felony case
+counts its state and county collection splits under FINE and not the bare
+fee, so the itemization ran over the summary by exactly that fee. A Union
+County case lists every collection fee, plus a second ledger entry for an
+already paid surcharge, identical wording and amount but no payment, no
+receipt and no date, and counts none of them; the raw ICOS page carries those
+rows itself, so they read as superseded entries from the collection process
+rather than debt. Napier now sets such rows aside case by case, and only when
+the clerk's own totals prove it: the itemization has to exceed the summary by
+exactly those rows, every category has to reconcile to the cent once they are
+gone, and no other reading of the page can manage the same. So the
+classification question above is really two questions about one fee: which
+column it belongs in when it is owed, and whether ICOS considers it owed at
+all, which the summaries answer differently on different cases.
+
 ## What a structured fine is made of
 
 A structured fine is the instalment arrangement, not the debt. A clerk
