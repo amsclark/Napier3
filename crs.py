@@ -375,6 +375,56 @@ def cites_section(statutes, sections):
     return "NO"
 
 
+# Two statutes that are not crimes. Fugitive from justice is an extradition
+# hold and violation of parole is an executive revocation, so neither is a
+# conviction the client carries, and Iowa Legal Aid asked for both to read as
+# civil. Napier codes off whatever the clerk typed in the disposition, so the
+# four captured fugitive cases came out under four different codes: GTR, TNSF,
+# WTHD and OTH. All five owe nothing, so no money moves today.
+#
+# Exactly these two, never chapter 908. Violation of probation is 908.11, one
+# section over, and the same 538 cases carry 20 of those worth about $17,600,
+# most of them real guilty pleas. A chapter rule would flip all of them to
+# civil, which is the opposite of what Iowa Legal Aid asked for the last time
+# this came up. cites_section is what keeps them apart: it will not match 908.1
+# against 908.11 because it refuses a trailing digit.
+CIVIL_SECTIONS = ('820.2', '908.1')
+
+# What a clerk files a pre-electronic-docket case under. Either spelling is
+# enough on its own, because the captured case carries both and there is no
+# reading of one without the other that means anything else.
+OLD_CASE_CODE = 'CR/OLDCASE'
+OLD_CASE_DESCRIPTION = 'OLD CASE CHARGE CODE'
+
+
+def is_old_case_code(charge):
+    """Is this the clerk's placeholder for a case whose file is on paper?"""
+    code = (charge.get('original_charge') or charge.get('charge') or '')
+    description = (charge.get('original_description')
+                   or charge.get('description') or '')
+    return (code.strip().upper() == OLD_CASE_CODE
+            or description.strip().upper() == OLD_CASE_DESCRIPTION)
+
+
+def only_civil_sections(statutes):
+    """True when every adjudicated count on the case is one of CIVIL_SECTIONS.
+
+    Every count, not any count. A case holding someone as a fugitive alongside
+    a real conviction is a case with a real conviction, and Iowa Legal Aid was
+    explicit that the conviction wins. Recoding the whole row CIV on the
+    strength of one non-criminal count would move the conviction's balance into
+    the dischargeable and exempt columns on the bankruptcy and exemption
+    sheets, which is a worse error than the label it fixes.
+    """
+    if not statutes:
+        return False
+    codes = [code.strip() for code in str(statutes).split(';')]
+    codes = [code for code in codes if code and code.lower() != 'n/a']
+    if not codes:
+        return False
+    return all(cites_section(code, CIVIL_SECTIONS) == "YES" for code in codes)
+
+
 # How far back to look when working out what somebody is paying now. A court
 # asking whether a person can pay wants the recent record, not an average that
 # a garnishment in 2003 drags upwards.
@@ -767,8 +817,21 @@ def case_level_code(status):
 
 
 def get_finance_column(detail):
+    # A county attorney collection fee is really a payment marker, so no column
+    # is truly right for it. Across 538 captured cases it puts $0.00 of
+    # assessed-and-unpaid money anywhere: 16 cases carry one, 49 rows between
+    # them, and the clerk marked 47 of those paid with a receipt and a tender.
+    # The other 2 sit on a case Napier already drops. So this moves nothing
+    # today on any case anyone has measured.
+    #
+    # It is in K rather than P for the rare case that does carry a balance.
+    # What it would be then is collection debt, and K is where the other two
+    # collection fees go, which is the half of the bankruptcy sheet's J+K that
+    # reads as dischargeable. P is UNKNOWN, and unknown money is covered by no
+    # exemption and called not dischargeable, which is the wrong way for a
+    # guess about a client's debt to run.
     if "COLLECTION BY CO ATTY" in detail:
-        return "P" # UNKNOWN
+        return "K" # COLLECTION FEE
     if "DELINQUENT REVOLVING FUND" in detail:
         return "P" # UNKNOWN
 
@@ -1716,6 +1779,32 @@ def process_case(case, worksheet, row, as_of=None):
                             charge['unknown_dispositions'] + [status])
                 else:
                     disposition = code
+            if not disposition and is_old_case_code(charge):
+                # OLD CASE CHARGE CODE is what Iowa's clerks put on a case that
+                # predates the electronic docket. There is no adjudication to
+                # read because the disposition is on paper in a courthouse
+                # basement, and the status is CLOSED, which is not a
+                # disposition Napier can translate.
+                #
+                # Left empty, column G is 0 to Excel, and the SOL, BANKRUPTCY
+                # and EXEMPTIONS sheets each render IF(G=0, "open charge", G).
+                # So a case closed in 1993 was printing as an open charge on
+                # three sheets. OTH is a string, so those sheets print OTH, and
+                # OTH appears in no formula anywhere in either template, so it
+                # is in no cleared set and the money does not move. The one
+                # captured case owes $197.43 and stays in the same buckets on
+                # all three sheets.
+                #
+                # Keyed on the charge code and not on the status. CLOSED turns
+                # up on cases that have a real adjudication to read, and this
+                # must not speak for any of those.
+                disposition = "OTH"
+
+        # After the clerk's wording has had its say and before anything is
+        # written, because what the charge is beats how the disposition was
+        # typed. This is the only place the statute overrides the code.
+        if only_civil_sections(charge['charge']):
+            disposition = "CIV"
 
         worksheet['C' + i] = charge['offenseDate']
         worksheet['D' + i] = disposition_date

@@ -187,14 +187,22 @@ def test_a_closed_case_stops_counting_as_a_pending_charge():
     """A 1993 case was being counted as a live charge blocking expungement.
 
     CLOSED is not a disposition Napier can code, and the date is a fact ICOS
-    stated either way. Taking the date is what stops the false pending charge;
-    the code stays blank because that part really is unknown.
+    stated either way. Taking the date is what stops the false pending charge.
+
+    Column G used to stay blank here, on the reasoning that the disposition
+    really was unknown. Iowa Legal Aid asked for OTH instead on 5 August,
+    because blank is 0 to Excel and SOL, BANKRUPTCY and EXEMPTIONS all render
+    IF(G=0, "open charge", G), so honest silence was printing as a live charge
+    on three sheets. OTH is in no formula in either template, so the label is
+    the only thing that changed. tests/test_ari_aug5_items.py holds that down
+    from the other side, including the part where the wording is still
+    reported.
     """
     cells, unknown = _row(_case('CR/OLDCASE', 'SYNTHETIC OLD CASE CODE',
                                 status='CLOSED', dispo_date='09/23/1901'))
     assert cells['D'] == '09/23/1901'
-    assert cells['G'] in (None, '')
-    assert unknown == [('CLOSED', False)]
+    assert cells['G'] == 'OTH'
+    assert unknown == [('CLOSED', True)]
 
 
 def test_a_status_napier_cannot_read_is_reported_not_guessed():
