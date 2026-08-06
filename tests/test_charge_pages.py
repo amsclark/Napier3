@@ -100,6 +100,11 @@ def test_a_conviction_keeps_its_statute():
     assert parse(GUILTY)['charge'] == '124.401'
 
 
+def test_a_single_count_keeps_its_disposition_suffix():
+    """Column E should identify the result consistently for one or many counts."""
+    assert parse(GUILTY)['description'] == 'SYNTHETIC FELONY[GTR]'
+
+
 def test_two_convictions_both_survive():
     charge = parse(GUILTY, ('321J.2', 'SYNTHETIC OWI', 'GUILTY BY COURT'))
     assert charge['charge'] == '124.401;321J.2'
