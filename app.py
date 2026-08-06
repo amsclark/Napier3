@@ -24,6 +24,12 @@ if platform.system() == 'Windows':
 RESTARTED_MESSAGE = ("Napier restarted and this search is no longer available. "
                      "Please run the search again.")
 
+# Spellings of one client's name on the single search form. Each one is a
+# search, each search holds the shared Iowa Courts account, and past a handful
+# the thing to do is search the surname on its own rather than guess at the
+# spellings one at a time.
+MAX_SPELLINGS = 6
+
 # --- ICOS connection keepalive -------------------------------------------
 # ICOS's edge throttles/tarpits the first connection(s) from an idle source IP
 # (this Heroku dyno), so a user's first search after a quiet spell stalls ~30s
@@ -153,6 +159,7 @@ def remember_job(job):
 
 
 app.jinja_env.globals['max_names'] = roster.MAX_NAMES
+app.jinja_env.globals['max_spellings'] = MAX_SPELLINGS
 
 
 @app.context_processor
@@ -195,6 +202,38 @@ def logout():
     return redirect(url_for('index'))
 
 
+def spellings_typed(form):
+    """Every spelling on the search form, in the order they were typed.
+
+    The form posts one firstname, middlename and lastname per row, so a client
+    whose name is on the docket two ways is two rows and getlist reads them the
+    same way it reads the one row every other search is. A row with no surname
+    is an empty extra row somebody added and did not use, not an error: Iowa
+    Courts cannot be searched without one.
+
+    Duplicates are dropped. Typing the same spelling twice would hold the
+    shared account for a second search that answers what the first one did.
+    """
+    firsts = form.getlist('firstname')
+    middles = form.getlist('middlename')
+    lasts = form.getlist('lastname')
+    people, seen = [], set()
+    for index in range(max(len(firsts), len(middles), len(lasts), 0)):
+        def part(values):
+            return values[index].strip() if index < len(values) else ''
+        person = {'first': part(firsts), 'middle': part(middles),
+                  'last': part(lasts)}
+        if not person['last']:
+            continue
+        key = (person['first'].lower(), person['middle'].lower(),
+               person['last'].lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        people.append(person)
+    return people
+
+
 @app.route('/search', methods=['POST'])
 def search():
     # An ESA user ID is ILA## or drakelegalclinic and never has a space in it,
@@ -209,12 +248,24 @@ def search():
         return render_template('start.html',
                                error="That user ID is not an Iowa Legal Aid Iowa Courts account.")
 
+    people = spellings_typed(request.form)
+    if not people:
+        # Only the first row's surname is required in the browser, so an empty
+        # one can only arrive here with scripting off or from a second row on
+        # its own. Iowa Courts has nothing to match without it.
+        return render_template('start.html',
+                               error="Enter a last name to search for.")
+    if len(people) > MAX_SPELLINGS:
+        return render_template(
+            'start.html',
+            error="That is %d spellings of one name. Napier holds the shared "
+                  "Iowa Courts account for the whole run, so it takes %d at a "
+                  "time." % (len(people), MAX_SPELLINGS))
+
     # A search left open from an earlier run would keep holding the ESA account.
     icos_sessions.close(session.pop('icos_token', None))
 
-    job = jobs.start('search', tasks.search_task, username, password,
-                     request.form['firstname'], request.form['middlename'],
-                     request.form['lastname'])
+    job = jobs.start('search', tasks.search_task, username, password, people)
     remember_job(job)
     return redirect(url_for('progress', job_id=job.id))
 
@@ -236,12 +287,21 @@ def batch():
                                error="There were no names in that list. One "
                                      "client per line, either \"Last, First\" "
                                      "or \"First Last\".")
-    if len(people) > roster.MAX_NAMES:
+    # Searches, not clients. A client with an aka is two searches, and what the
+    # limit is protecting is how long the run holds the shared account.
+    searches = roster.searches_count(people)
+    if searches > roster.MAX_NAMES:
+        extra = searches - len(people)
         return render_template(
             'start.html', open_batch=True,
-            error="That list has %d names in it. Napier holds the shared Iowa "
+            error="That list is %d searches%s. Napier holds the shared Iowa "
                   "Courts account for the whole run, so it takes %d at a time. "
-                  "Split the list." % (len(people), roster.MAX_NAMES))
+                  "Split the list."
+                  % (searches,
+                     " (%d clients and %d alternate spelling%s)"
+                     % (len(people), extra, "" if extra == 1 else "s")
+                     if extra else "",
+                     roster.MAX_NAMES))
 
     icos_sessions.close(session.pop('icos_token', None))
 
@@ -287,16 +347,23 @@ def batch_crs():
         keys = [key for key in (chosen.get('keys') or []) if key in entry['keys']]
         if not keys:
             continue
-        case_ids = []
-        for key in keys:
-            case_ids.extend(entry['cases'].get(key, []))
+        # Split by the spelling that found each defendant, and deduplicated by
+        # case number across all of them: a client with an aka can have the same
+        # case come back under both, and writing it twice doubles what they owe.
+        searches = tasks.plan_searches(keys, entry['cases'],
+                                       entry.get('people')
+                                       or [entry.get('person')],
+                                       entry.get('found_by'))
+        case_ids = [case_id for group in searches
+                    for case_id in group['case_ids']]
         # The defendant key is "YYYY-MM-DD NAME", the way the search grouped it.
         def_dob, _, def_name = keys[0].partition(" ")
         # The search terms come off the search job, never off the browser: the
         # run repeats this search on ICOS, and a name posted here instead would
         # be somebody the staffer never saw on the roster page.
         picks.append({'def_name': def_name, 'def_dob': def_dob,
-                      'case_ids': case_ids, 'person': entry.get('person')})
+                      'case_ids': case_ids, 'person': entry.get('person'),
+                      'searches': searches})
 
     if not picks:
         return jsonify({"error": "Pick a match for at least one client."}), 400
@@ -508,8 +575,14 @@ def results(job_id):
 
     result = job.result
     session['icos_token'] = result['session_token']
+    # searches is what each spelling came back with, so a run that searched two
+    # can say which one found a defendant and which one Iowa Courts refused.
+    # A run from before aliases has none and the page renders as it always did.
+    searches = result.get('searches') or []
     return render_template('search.html', cases=result['cases'], keys=result['keys'],
                            too_many_results=result['too_many_results'],
+                           searches=searches if len(searches) > 1 else [],
+                           found_by=result.get('found_by') or {},
                            search_job_id=job.id)
 
 
@@ -535,7 +608,9 @@ def crs_job():
     # same rule the clinic list keeps.
     job = jobs.start('crs', tasks.crs_task, token, keys, search_job.result['cases'],
                      def_name, def_dob, session.get('isLite', False),
-                     search_job.result.get('person'))
+                     search_job.result.get('person'),
+                     search_job.result.get('people'),
+                     search_job.result.get('found_by'))
     remember_job(job)
     session.pop('icos_token', None)  # the CRS job owns it now and logs it off
     return jsonify({"job_id": job.id, "progress_url": url_for('progress', job_id=job.id)})

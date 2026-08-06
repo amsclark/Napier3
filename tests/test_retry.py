@@ -256,7 +256,11 @@ class TestWhatTheFinishPageOffers:
         await_job(client, search_id)
         client.get('/results/' + search_id)
         result = jobs.get(search_id).result
-        result.pop('person')            # the older job shape
+        # The older job shape: no record of any search term, under either the
+        # name it was kept under before aliases or the one it is kept under now.
+        result.pop('person')
+        result.pop('people')
+        result.pop('found_by')
         response = client.post('/crs-job', json={'search_job_id': search_id,
                                                  'keys': result['keys']})
         job_id = response.get_json()['job_id']

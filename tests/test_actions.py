@@ -464,9 +464,14 @@ class TestJudgmentsOnTheSheet:
 
 
 class TestActionSheet:
-    def test_the_action_list_is_the_first_sheet_staff_see(self):
+    def test_the_action_list_is_behind_the_summary_not_in_front_of_it(self):
+        """It was the first sheet. Iowa Legal Aid never asked for it, and what
+        it was opening in front of is the criminal record summary they did ask
+        for, on a file they open to read that summary."""
         workbook = written_workbook(FULL, [{'G': 'DISM', 'R': 100}])
-        assert workbook.sheetnames[0] == 'ACTION LIST'
+        assert workbook.sheetnames[0] == 'BASIC INFO'
+        assert workbook.sheetnames.index('ACTION LIST') \
+            > workbook.sheetnames.index('SOL')
 
     def test_the_client_and_the_clinic_date_are_at_the_top(self):
         workbook = written_workbook(FULL, [{'G': 'DISM', 'R': 100}])
@@ -537,7 +542,8 @@ class TestActionSheet:
 
     def test_the_lite_workbook_gets_a_list_too(self):
         workbook = written_workbook(LITE, [{'D': STALE, 'J': 100}])
-        assert workbook.sheetnames[0] == 'ACTION LIST'
+        assert workbook.sheetnames[0] == 'BASIC INFO'
+        assert 'ACTION LIST' in workbook.sheetnames
 
     def test_the_lite_list_does_not_point_at_a_sheet_it_does_not_have(self):
         # SOL, BANKRUPTCY and EXEMPTIONS are not in the Lite file.

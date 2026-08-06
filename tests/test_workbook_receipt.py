@@ -101,11 +101,32 @@ class TestWhatTheLineSays:
 
 
 class TestWhereItSits:
-    def test_it_is_on_the_sheet_that_opens(self):
+    def test_it_does_not_open_in_front_of_the_summary(self):
+        """It used to be sheet one. Nobody at Iowa Legal Aid asked for it, and
+        the sheets it was sitting in front of are the ones they did ask for and
+        the ones they open the file to read."""
+        workbook = load_workbook(FULL)
+        before = workbook.sheetnames
+        actions.build_action_sheet(workbook, [], 0, CLINIC, 'SYNTHETIC CLIENT',
+                                   MISSING)
+        assert workbook.sheetnames[:len(before)] == before
+        assert workbook.sheetnames[0] == 'BASIC INFO'
+        assert 'ACTION LIST' in workbook.sheetnames
+
+    def test_moving_it_left_every_formula_alone(self):
+        """Position is presentation. Every formula in the template names the
+        sheet it reads, so none of them shift when a sheet is inserted or moved,
+        and a test that says so is what stops it being moved back by hand."""
         workbook = load_workbook(FULL)
         actions.build_action_sheet(workbook, [], 0, CLINIC, 'SYNTHETIC CLIENT',
                                    MISSING)
-        assert workbook.sheetnames[0] == 'ACTION LIST'
+        for name in ('BANKRUPTCY', 'SOL', 'EXEMPTIONS'):
+            formulas = [cell.value for row in workbook[name].iter_rows()
+                        for cell in row
+                        if isinstance(cell.value, str)
+                        and cell.value.startswith('=')]
+            assert formulas
+            assert not any('ACTION LIST' in formula for formula in formulas)
 
     def test_and_above_the_actions_rather_than_under_them(self):
         """A list of forty ranked actions is a lot of scrolling, and a warning

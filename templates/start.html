@@ -31,20 +31,36 @@
   <form action="/search" method="post">
     <fieldset>
       <legend>Who are you searching for</legend>
-      <div class="row row-name">
-        <label>
-          <span class="field-label">First name</span>
-          <input type="text" name="firstname" autocomplete="off" autofocus>
-        </label>
-        <label>
-          <span class="field-label">Middle</span>
-          <input type="text" name="middlename" autocomplete="off">
-        </label>
-        <label>
-          <span class="field-label">Last name</span>
-          <input type="text" name="lastname" autocomplete="off" required>
-        </label>
+      {# Iowa Courts matches the name exactly as it is written on the case, so
+         a client whose docket spells them two ways used to be two searches,
+         two turns with the shared account and two workbooks somebody merged by
+         hand. Extra rows here are extra searches on one sign in, pooled into
+         one list to pick from and one workbook. #}
+      <div id="spellings">
+        <div class="row row-name spelling">
+          <label>
+            <span class="field-label">First name</span>
+            <input type="text" name="firstname" autocomplete="off" autofocus>
+          </label>
+          <label>
+            <span class="field-label">Middle</span>
+            <input type="text" name="middlename" autocomplete="off">
+          </label>
+          <label>
+            <span class="field-label">Last name</span>
+            <input type="text" name="lastname" autocomplete="off" required>
+          </label>
+        </div>
       </div>
+      <p class="spelling-actions">
+        <button type="button" class="bulk" id="add-spelling">
+          Add another spelling
+        </button>
+        <span class="check-note">
+          For a name the court records more than one way, like Alhameed and Al
+          Hameed. Napier searches each one and builds a single workbook.
+        </span>
+      </p>
     </fieldset>
 
     <fieldset>
@@ -103,11 +119,14 @@
       <label>
         <span class="field-label">One client per line</span>
         <textarea name="roster" rows="8" spellcheck="false"
-                  placeholder="Doe, Jane&#10;Roe, John Q&#10;Maria Garcia"></textarea>
+                  placeholder="Doe, Jane&#10;Roe, John Q&#10;Maria Garcia&#10;Al Hameed, Ali aka Alhameed, Ali"></textarea>
         <span class="check-note">
           Either "Last, First" or "First Last". A heading row, a date of birth
           column or a case number after the name are all fine, Napier ignores
-          them. Up to {{ max_names }} names at a time.
+          them. For a name the court records more than one way, write both on
+          the one line with "aka" between them and Napier searches each and
+          builds one workbook. Up to {{ max_names }} searches at a time, so a
+          client with an aka counts as two.
         </span>
       </label>
     </fieldset>
@@ -145,6 +164,30 @@
 </details>
 
 <style>
+.spelling-actions {
+  margin: .7rem 0 0;
+}
+
+.bulk {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: .85rem;
+  color: var(--brand-bright);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.spelling + .spelling { margin-top: .85rem; }
+
+/* The remove link sits under its own row rather than beside the fields, so the
+   three name boxes stay on the same grid as the first row's on every width. */
+.spelling-drop {
+  margin: .35rem 0 0;
+  font-size: .82rem;
+}
+
 .batch summary {
   cursor: pointer;
   list-style: none;
@@ -191,6 +234,73 @@
 </style>
 
 <script>
+// Extra spellings of one client's name. Each row posts another firstname,
+// middlename and lastname, which the server reads with getlist, so a form with
+// one row posts exactly what it always posted and nothing downstream can tell
+// the difference.
+//
+// Only the first row's surname is required. An extra row left blank is somebody
+// who clicked the button and changed their mind, and the server drops it.
+(function () {
+  var MAX = {{ max_spellings|tojson }};
+  var rows = document.getElementById("spellings");
+  var add = document.getElementById("add-spelling");
+  if (!rows || !add) { return; }
+
+  function count() {
+    return rows.querySelectorAll(".spelling").length;
+  }
+
+  function refresh() {
+    add.hidden = count() >= MAX;
+  }
+
+  function field(label, name) {
+    var wrap = document.createElement("label");
+    var caption = document.createElement("span");
+    caption.className = "field-label";
+    caption.textContent = label;
+    var input = document.createElement("input");
+    input.type = "text";
+    input.name = name;
+    input.autocomplete = "off";
+    wrap.appendChild(caption);
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  add.addEventListener("click", function () {
+    if (count() >= MAX) { return; }
+    var block = document.createElement("div");
+
+    var row = document.createElement("div");
+    row.className = "row row-name spelling";
+    row.appendChild(field("First name", "firstname"));
+    row.appendChild(field("Middle", "middlename"));
+    row.appendChild(field("Last name", "lastname"));
+    block.appendChild(row);
+
+    var drop = document.createElement("p");
+    drop.className = "spelling-drop";
+    var remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "bulk";
+    remove.textContent = "Remove this spelling";
+    remove.addEventListener("click", function () {
+      block.parentNode.removeChild(block);
+      refresh();
+    });
+    drop.appendChild(remove);
+    block.appendChild(drop);
+
+    rows.appendChild(block);
+    row.querySelector("input").focus();
+    refresh();
+  });
+
+  refresh();
+})();
+
 // The shared ICOS user IDs get retyped a dozen times a day. Only the ID is
 // kept, only when asked for, and nothing about the client ever is: the names
 // staff search for are privileged and have no business sitting in a browser
