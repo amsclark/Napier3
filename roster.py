@@ -16,17 +16,29 @@ a client missing from a clinic list is a client nobody sees that day.
 # A clinic list, not a mailing list. Past this the run holds the shared ICOS
 # account for most of an afternoon, and a paste this big is nearly always a
 # whole spreadsheet rather than a day's clients.
+#
+# Counted in searches rather than in clients, because what it is protecting is
+# the time the account is held and a client with an aka costs two searches.
 MAX_NAMES = 40
 
 # Words a header row starts with. A pasted table brings its headings along and
 # "Client Name" is not a person. "dob" is here because a table pasted one column
 # per line puts it on a line of its own, where it otherwise reads as a
-# surname-only search, which is a real thing staff do on purpose.
-HEADERS = ('name', 'client', 'first', 'last', 'defendant', 'participant', 'dob')
+# surname-only search, which is a real thing staff do on purpose. "aka" and
+# "alias" are here for the same reason: a spreadsheet with a spellings column
+# brings that heading along too.
+HEADERS = ('name', 'client', 'first', 'last', 'defendant', 'participant',
+           'dob', 'aka', 'alias', 'akas', 'aliases')
 
 # Anything after the name in a pasted row: a date of birth, a case number, a
 # phone number, an appointment time.
 SEPARATORS = ('\t', '|', ';')
+
+# How a clinic list writes "the docket also spells them this way". Iowa Courts
+# matches the name exactly as it appears on the case, so a client with two
+# spellings used to be two lines on the list, two searches somebody ran on
+# purpose and two workbooks they merged by hand.
+ALIAS_MARKERS = (' aka ', ' a/k/a ', ' a.k.a. ', ' also known as ')
 
 
 def _clean(line):
@@ -69,16 +81,45 @@ def split_name(name):
     return words[0], ' '.join(words[1:-1]), words[-1]
 
 
+def split_spellings(name):
+    """One cleaned line into the spellings it names, primary first.
+
+    "Al Hameed, Ali aka Alhameed, Ali" is one client and two searches. Anything
+    that does not carry a marker comes back as a list of one, which is what
+    every line on every clinic list written so far is.
+    """
+    parts = [name]
+    for marker in ALIAS_MARKERS:
+        parts = [piece
+                 for part in parts
+                 for piece in _split_on(part, marker)]
+    return [' '.join(part.split()) for part in parts if part.split()]
+
+
+def _split_on(text, marker):
+    """Split on a marker however it was capitalised, keeping the text as typed."""
+    pieces, lowered, start = [], text.lower(), 0
+    while True:
+        at = lowered.find(marker, start)
+        if at == -1:
+            pieces.append(text[start:])
+            return pieces
+        pieces.append(text[start:at])
+        start = at + len(marker)
+
+
 def parse(text):
     """A pasted list into (people, rejected).
 
-    people are dicts of raw, first, middle and last. rejected are the lines
-    that carried no name, reported back rather than swallowed so that a list of
+    people are dicts of raw, first, middle and last, plus the alternate
+    spellings of the same client under 'aliases'. rejected are the lines that
+    carried no name, reported back rather than swallowed so that a list of
     twenty that produced nineteen searches says which one it dropped.
 
     Duplicates are folded together. A clinic list assembled from two sources
     has them, and searching the same name twice costs a minute of a shared
-    account for an answer we already have.
+    account for an answer we already have. A spelling that repeats the primary,
+    or repeats another spelling on the same line, goes the same way.
     """
     people, rejected, seen = [], [], set()
     for line in (text or '').splitlines():
@@ -91,20 +132,65 @@ def parse(text):
             # and the page has to say so either way.
             rejected.append(line.strip())
             continue
-        first, middle, last = split_name(name)
-        if not last:
+
+        spellings, on_this_line = [], set()
+        for spelling in split_spellings(name):
+            first, middle, last = split_name(spelling)
+            if not last:
+                continue
+            key = (first.lower(), middle.lower(), last.lower())
+            if key in on_this_line:
+                continue
+            on_this_line.add(key)
+            spellings.append({'raw': spelling, 'first': first,
+                              'middle': middle, 'last': last})
+        if not spellings:
             rejected.append(line.strip())
             continue
-        key = (first.lower(), middle.lower(), last.lower())
+
+        # Against the primary only. A client already on the list under one
+        # spelling should not be searched twice, but two clients who share an
+        # aka are still two clients.
+        primary = spellings[0]
+        key = (primary['first'].lower(), primary['middle'].lower(),
+               primary['last'].lower())
         if key in seen:
             continue
         seen.add(key)
-        people.append({'raw': name, 'first': first, 'middle': middle,
-                       'last': last})
+        person = dict(primary)
+        person['raw'] = name
+        person['aliases'] = spellings[1:]
+        people.append(person)
     return people, rejected
+
+
+def spellings(person):
+    """Every name to search for this client, primary first.
+
+    The shape a search wants, and the one thing that has to agree with
+    searches_count below: the account is held for as long as this list is long.
+    """
+    names = [{'first': person['first'], 'middle': person['middle'],
+              'last': person['last']}]
+    for alias in person.get('aliases') or []:
+        names.append({'first': alias['first'], 'middle': alias['middle'],
+                      'last': alias['last']})
+    return names
+
+
+def searches_count(people):
+    """How many searches this list is, which is not how many clients it is."""
+    return sum(len(spellings(person)) for person in people)
 
 
 def describe(person):
     """The name as Napier will search it, for the page that asks staff to check."""
-    return ' '.join(part for part in
+    said = ' '.join(part for part in
                     (person['first'], person['middle'], person['last']) if part)
+    aliases = person.get('aliases') or []
+    if aliases:
+        said += " (also %s)" % ", ".join(
+            ' '.join(part for part in
+                     (alias['first'], alias['middle'], alias['last']) if part)
+            for alias in aliases)
+    return said

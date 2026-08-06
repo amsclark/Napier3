@@ -481,7 +481,14 @@ def build_action_sheet(workbook, cases, written, as_of, def_name, failed=()):
                     code_lists(workbook))
     history = client_payments(cases, as_of)
 
-    worksheet = workbook.create_sheet('ACTION LIST', 0)
+    # At the back, with PAYMENTS, rather than in front of the workbook. This
+    # sheet and that one are Napier's, and the seven in between are Iowa Legal
+    # Aid's own criminal record summary, which is the thing staff open the file
+    # to read and the thing they asked for. Nobody asked for a new sheet on top
+    # of it. Position is presentation only: every formula in the template names
+    # the sheet it reads ('CASE DATA'!G4, SOL!C4), so none of them care, and
+    # putting this last also leaves BASIC INFO as the sheet the file opens on.
+    worksheet = workbook.create_sheet('ACTION LIST')
     worksheet['A1'] = 'ACTION LIST'
     worksheet['A1'].font = TITLE_FONT
     worksheet['D1'] = def_name

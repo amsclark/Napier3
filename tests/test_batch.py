@@ -240,8 +240,20 @@ class TestSearchingTheList:
         _, response = run_batch(client, long_list)
         assert response.status_code == 200
         body = response.get_data(as_text=True)
-        assert '50 names' in body
+        assert '50 searches' in body
         assert 'Split the list' in body
+        assert FakeClient.instances == []
+
+    def test_the_cap_counts_searches_rather_than_clients(self, client):
+        """What the cap protects is how long the run holds the shared Iowa
+        Courts account, and a client with an aka is two searches. Counting
+        clients would let a list of forty hold it for eighty."""
+        with_akas = "\n".join("Doe%d, Jane aka Roe%d, Jane" % (n, n)
+                              for n in range(25))
+        _, response = run_batch(client, with_akas)
+        body = response.get_data(as_text=True)
+        assert '50 searches' in body
+        assert '25 clients and 25 alternate spellings' in body
         assert FakeClient.instances == []
 
     def test_a_non_legal_aid_user_id_is_refused(self, client):

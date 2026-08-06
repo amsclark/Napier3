@@ -147,6 +147,71 @@ def group_cases(cases):
     return case_dict, sorted(case_dict)
 
 
+def plan_searches(keys, case_dict, people, found_by=None):
+    """The cases somebody picked, split by the search that has to precede them.
+
+    Iowa Courts matches a name exactly as it is written on the case, so a client
+    whose name is spelled two ways on the docket is two searches. The picking
+    page pools both, and this puts the pooled selection back into the shape a
+    pull needs: ICOS answers a case request out of the last result set it
+    produced, so each spelling has to be standing in front of it before the
+    cases that spelling found can be asked for.
+
+    Deduplicated by case number across the whole selection. Two spellings can
+    both turn up the same case -- a surname on its own and the full name always
+    will -- and the same case written into the workbook twice doubles what the
+    client owes, on every sheet, quietly.
+
+    Groups that nobody picked anything out of are dropped, so a spelling that
+    found only people who were somebody else costs no search.
+    """
+    people = list(people or [])
+    found_by = found_by or {}
+    groups = [[] for _ in people] or [[]]
+    seen = set()
+    for key in keys:
+        index = found_by.get(key, 0)
+        if not 0 <= index < len(groups):
+            # A key the search job has no record of finding. It came off a
+            # result that predates the alias support, or off a browser. Either
+            # way the first search is the only one that can be repeated for it.
+            index = 0
+        for case_id in case_dict.get(key, []):
+            if case_id in seen:
+                continue
+            seen.add(case_id)
+            groups[index].append(case_id)
+    return [{'person': people[index] if index < len(people) else None,
+             'case_ids': case_ids}
+            for index, case_ids in enumerate(groups) if case_ids]
+
+
+def searches_behind(entry):
+    """Every search that has to be repeated to pull this entry's cases.
+
+    An entry recorded before Napier could search more than one spelling names
+    its single search 'person' and lists its cases flat. One recorded since
+    carries them already split. Both have to come back the same shape here,
+    because a retry offered on a run from this morning is a retry of an entry
+    in the old shape.
+    """
+    searches = entry.get('searches')
+    if searches:
+        return [{'person': group.get('person'),
+                 'case_ids': list(group['case_ids'])} for group in searches]
+    return [{'person': entry.get('person'),
+             'case_ids': list(entry['case_ids'])}]
+
+
+def _failed_by_search(entry):
+    """Only what came back short, still split by the search behind it."""
+    failed = set(entry['failed'])
+    return [{'person': group['person'],
+             'case_ids': [case_id for case_id in group['case_ids']
+                          if case_id in failed]}
+            for group in searches_behind(entry)]
+
+
 def report_novel_roles(job, cases):
     """Say when a search included a role nobody has classified yet.
 
@@ -239,36 +304,107 @@ def report_unknown_dispositions(job, unknown):
     return sorted({disposition for disposition, _ in unknown})
 
 
-def search_task(job, username, password, firstname, middlename, lastname):
+def search_task(job, username, password, people):
+    """Search every spelling of one client's name, on one sign in.
+
+    Iowa Courts matches the name exactly as it is written on the case, so a
+    client whose docket spells them two ways is two searches and, until this,
+    two runs, two turns with the shared account and two workbooks somebody
+    merged by hand afterwards. The picking page already builds one workbook out
+    of as many Iowa Courts identities as staff tick; all that was missing was
+    being able to hand it more than one search.
+
+    One spelling Iowa Courts will not answer does not cost the others, the same
+    way one name does not cost a clinic list. It is recorded against that
+    spelling and the results page says so. Nothing to show at all from any of
+    them is still a failed run, which is what a single search that errored has
+    always been.
+
+    No name reaches the log. Progress lines are quoted into alert email and a
+    client's name is privileged; which of N spellings is being searched is not.
+    """
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     client.set_stop_check(lambda: job.cancelled)
     keep_session = False
-    person = {'first': firstname, 'middle': middlename, 'last': lastname}
+    people = list(people)
     try:
         client.login(username, password)
-        body = client.search(firstname, middlename, lastname)
 
-        job.log("Reading results...")
-        cases, too_many_results = case_parser.parse_search(body)
-        report_novel_roles(job, cases)
-        case_dict, keys = group_cases(cases)
+        searches, case_dict, found_by = [], {}, {}
+        first_error = None
+        for index, person in enumerate(people):
+            _stop_if_asked(job)
+            if len(people) > 1:
+                job.log("Searching Iowa Courts for spelling %d of %d..."
+                        % (index + 1, len(people)),
+                        count=index, total=len(people))
+            record = {'name': roster.describe(person), 'keys': [],
+                      'too_many_results': False, 'error': None}
+            searches.append(record)
+            try:
+                body = client.search(person['first'], person['middle'],
+                                     person['last'])
+            except IcosStopped:
+                raise
+            except IcosError as e:
+                record['error'] = e.message
+                if first_error is None:
+                    first_error = e
+                continue
+
+            job.log("Reading results...")
+            cases, too_many_results = case_parser.parse_search(body)
+            report_novel_roles(job, cases)
+            found, keys = group_cases(cases)
+            record['keys'] = keys
+            record['too_many_results'] = too_many_results
+            for key in keys:
+                # Two spellings can return the same defendant, and always do
+                # when one of them is the surname on its own. Merged rather than
+                # listed twice, and deduplicated by case number inside the key,
+                # because the picking page shows one row per defendant and the
+                # count on it has to be the number of cases that row will pull.
+                already = set(case_dict.setdefault(key, []))
+                case_dict[key].extend(case_id for case_id in found[key]
+                                      if case_id not in already)
+                # First one wins. Either search can be put back in front of
+                # ICOS to pull these cases, and the first is the one most likely
+                # to be the fuller spelling staff typed first.
+                found_by.setdefault(key, index)
+
+        if searches and all(record['error'] for record in searches):
+            # Every spelling refused. A run with nothing behind it is the
+            # failure a single refused search has always been, and the message
+            # ICOS gave is the useful half of it.
+            raise first_error
 
         token = icos_sessions.put(client)
         keep_session = True
+        keys = sorted(case_dict)
+        total = sum(len(case_ids) for case_ids in case_dict.values())
         job.result = {
             "cases": case_dict,
             "keys": keys,
-            "too_many_results": too_many_results,
+            "too_many_results": any(record['too_many_results']
+                                    for record in searches),
             "session_token": token,
             # Kept because a CRS run that comes back short can only be retried
             # by putting this same search back in front of ICOS first, and by
             # then the run has logged off and the terms are gone. It never goes
             # to the browser: to_dict leaves result alone, and a client's name
             # is privileged.
-            "person": person,
+            #
+            # person is the first spelling and stays for the runs and the retry
+            # payloads that only ever knew about one. people and found_by are
+            # what a run with aliases needs: every spelling, and which of them
+            # found each defendant.
+            "person": people[0] if people else None,
+            "people": people,
+            "found_by": found_by,
+            "searches": searches,
         }
         job.log("Found %d case%s across %d name%s."
-                % (len(cases), "" if len(cases) == 1 else "s",
+                % (total, "" if total == 1 else "s",
                    len(keys), "" if len(keys) == 1 else "s"))
         return "/results/" + job.id
     finally:
@@ -359,7 +495,8 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
     return cases, failed
 
 
-def _retry_entry(def_name, def_dob, person, case_ids, cases, failed):
+def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
+                 searches=None):
     """One client's share of what a retry needs.
 
     case_ids is everything that was asked for, in the order it was asked for,
@@ -368,13 +505,22 @@ def _retry_entry(def_name, def_dob, person, case_ids, cases, failed):
     signs in fresh and re-pulls only the failures, and it has to be able to
     write the ones that already worked without asking ICOS for them again.
 
+    searches is the same case_ids split by the spelling that found them, for a
+    client searched under more than one. Left out for a client searched once,
+    where person carries the only search there is.
+
     These sit in the dyno's memory for the two hours the job lives, which is
     the same window the workbook itself sits in tmp for, so nothing is exposed
     here that the finished run was not already holding. They reach no log, no
     alert and no page.
     """
-    return {'def_name': def_name, 'def_dob': def_dob, 'person': person,
-            'case_ids': list(case_ids), 'cases': cases, 'failed': list(failed)}
+    entry = {'def_name': def_name, 'def_dob': def_dob, 'person': person,
+             'case_ids': list(case_ids), 'cases': cases, 'failed': list(failed)}
+    if searches:
+        entry['searches'] = [{'person': group['person'],
+                              'case_ids': list(group['case_ids'])}
+                             for group in searches]
+    return entry
 
 
 def _retry_payload(kind, is_lite, entries):
@@ -393,7 +539,8 @@ def _retry_payload(kind, is_lite, entries):
     """
     if not any(entry['failed'] for entry in entries):
         return None
-    if any(entry['failed'] and not entry['person'] for entry in entries):
+    if any(group['case_ids'] and not group['person']
+           for entry in entries for group in _failed_by_search(entry)):
         return None
     return {'kind': kind, 'is_lite': is_lite, 'clients': entries}
 
@@ -452,33 +599,60 @@ def batch_search_task(job, username, password, people, rejected=()):
             # batch_crs_task.
             entry = {'name': roster.describe(person), 'keys': [], 'cases': {},
                      'too_many_results': False, 'error': None,
-                     'person': person}
+                     'person': person, 'people': roster.spellings(person),
+                     'found_by': {}}
             clients.append(entry)
-            try:
-                body = client.search(person['first'], person['middle'],
-                                     person['last'])
-            except IcosStopped:
-                raise
-            except IcosError as e:
-                entry['error'] = e.message
-                if dead_searches.failed(
-                        declared=getattr(e, 'court_site_down', False)):
-                    for skipped in people[index:]:
-                        clients.append({
-                            'name': roster.describe(skipped), 'keys': [],
-                            'cases': {}, 'too_many_results': False,
-                            'error': "%s before Napier reached this name."
-                                     % stopped_responding(dead_searches,
-                                                          past=True)})
-                    job.log("%s, so the rest of the list was not searched."
-                            % stopped_responding(dead_searches))
+            # One client, one or more spellings. A clinic list carries an "aka"
+            # for the same reason a single search does: Iowa Courts matches the
+            # name as it is written on the case, and a client whose docket
+            # spells them two ways is otherwise two lines on the list and two
+            # workbooks somebody merges afterwards.
+            stop_the_list = False
+            for spelling, alias in enumerate(entry['people']):
+                try:
+                    body = client.search(alias['first'], alias['middle'],
+                                         alias['last'])
+                except IcosStopped:
+                    raise
+                except IcosError as e:
+                    # Recorded once per client. Which spelling refused is not
+                    # worth a second message to somebody looking at a list of
+                    # twenty, and the counter is what decides whether the site
+                    # is down.
+                    entry['error'] = e.message
+                    if dead_searches.failed(
+                            declared=getattr(e, 'court_site_down', False)):
+                        for skipped in people[index:]:
+                            clients.append({
+                                'name': roster.describe(skipped), 'keys': [],
+                                'cases': {}, 'too_many_results': False,
+                                'error': "%s before Napier reached this name."
+                                         % stopped_responding(dead_searches,
+                                                              past=True)})
+                        job.log("%s, so the rest of the list was not searched."
+                                % stopped_responding(dead_searches))
+                        stop_the_list = True
                     break
-                continue
-            dead_searches.worked()
-            cases, too_many = case_parser.parse_search(body)
-            report_novel_roles(job, cases)
-            entry['cases'], entry['keys'] = group_cases(cases)
-            entry['too_many_results'] = too_many
+                dead_searches.worked()
+                cases, too_many = case_parser.parse_search(body)
+                report_novel_roles(job, cases)
+                found, keys = group_cases(cases)
+                for key in keys:
+                    already = set(entry['cases'].setdefault(key, []))
+                    entry['cases'][key].extend(
+                        case_id for case_id in found[key]
+                        if case_id not in already)
+                    entry['found_by'].setdefault(key, spelling)
+                entry['too_many_results'] = (entry['too_many_results']
+                                             or too_many)
+            entry['keys'] = sorted(entry['cases'])
+            if entry['keys']:
+                # A spelling that answered is a client Napier can still build,
+                # so a second one that refused is not worth showing as this
+                # client's outcome.
+                entry['error'] = None
+            if stop_the_list:
+                break
 
         token = icos_sessions.put(client)
         keep_session = True
@@ -524,6 +698,65 @@ def _reselect(job, client, pick):
                       note="%s That client was skipped." % e.message)
         return False, getattr(e, 'court_site_down', False)
     return True, False
+
+
+def _pull_grouped(job, client, searches, reselect, offset=0, total=None,
+                  outage=None, dead_searches=None):
+    """Pull one client's cases a spelling at a time.
+
+    ICOS decides which case a case request means from the last search it
+    answered, so a client found under two spellings cannot have both halves
+    pulled off one result set. Each group gets its own spelling put back in
+    front of ICOS first, which is one request and about a third of a second,
+    against a stub case that fails every validator and burns the four minute
+    case budget finding out.
+
+    reselect is False for the one case where the search is already standing
+    there: a single-spelling run pulling straight off the search that produced
+    it. Making that path do a redundant search would spend a request and a
+    lock on the shared account on every ordinary run to serve the rare one.
+
+    Answers (cases, failed, whether any spelling would not answer twice). The
+    last of those is what separates "Iowa Courts would not give up these cases"
+    from "Iowa Courts would not answer this name", which are different things
+    to tell somebody and were the same message before aliases existed.
+    """
+    outage = Outage() if outage is None else outage
+    dead_searches = (Outage(threshold=SEARCHES_FAILED_IN_A_ROW_IS_AN_OUTAGE)
+                     if dead_searches is None else dead_searches)
+    wanted = [group for group in searches if group['case_ids']]
+    if total is None:
+        total = offset + sum(len(group['case_ids']) for group in wanted)
+
+    cases, failed, refused_a_name = [], [], False
+    pulled = offset
+    for index, group in enumerate(wanted, start=1):
+        _stop_if_asked(job)
+        case_ids = group['case_ids']
+        if outage.over or dead_searches.over:
+            failed.extend(case_ids)
+            pulled += len(case_ids)
+            continue
+        if reselect:
+            if len(wanted) > 1:
+                job.log("Spelling %d of %d: pulling %d case%s..."
+                        % (index, len(wanted), len(case_ids),
+                           "" if len(case_ids) == 1 else "s"),
+                        count=pulled, total=total)
+            reselected, site_down = _reselect(job, client, group)
+            if not reselected:
+                dead_searches.failed(declared=site_down)
+                refused_a_name = True
+                failed.extend(case_ids)
+                pulled += len(case_ids)
+                continue
+            dead_searches.worked()
+        got, missed = _pull_cases(job, client, case_ids, offset=pulled,
+                                  total=total, outage=outage)
+        cases.extend(got)
+        failed.extend(missed)
+        pulled += len(case_ids)
+    return cases, failed, refused_a_name
 
 
 def batch_crs_task(job, session_token, picks, is_lite):
@@ -581,7 +814,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
             # holds whole parsed cases and the record is what the finish page
             # renders.
             entry = _retry_entry(pick['def_name'], pick['def_dob'],
-                                 pick.get('person'), pick['case_ids'], [], [])
+                                 pick.get('person'), pick['case_ids'], [], [],
+                                 pick.get('searches'))
             retry_entries.append(entry)
 
             # Before the re-search, not after it. A dead site would otherwise
@@ -606,28 +840,24 @@ def batch_crs_task(job, session_token, picks, is_lite):
                     % (index, len(picks), len(pick['case_ids']),
                        "" if len(pick['case_ids']) == 1 else "s"),
                     count=pulled, total=total_cases)
-            reselected, site_down = _reselect(job, client, pick)
-            if not reselected:
-                dead_searches.failed(declared=site_down)
-                pulled += len(pick['case_ids'])
-                record['failed'] = list(pick['case_ids'])
-                entry['failed'] = list(pick['case_ids'])
-                record['error'] = ("Iowa Courts would not answer this client's "
-                                   "name a second time, so their cases could "
-                                   "not be pulled. Search them on their own.")
-                continue
-            dead_searches.worked()
-
-            cases, failed = _pull_cases(job, client, pick['case_ids'],
-                                        offset=pulled, total=total_cases,
-                                        outage=outage)
+            # A spelling at a time, each one put back in front of ICOS before
+            # its own share is asked for. A client on the list with no aka is
+            # one group and one re-search, which is what this always did.
+            cases, failed, refused_a_name = _pull_grouped(
+                job, client, searches_behind(pick), reselect=True,
+                offset=pulled, total=total_cases, outage=outage,
+                dead_searches=dead_searches)
             pulled += len(pick['case_ids'])
             record['failed'] = failed
             entry['cases'], entry['failed'] = cases, list(failed)
             if not cases:
-                record['error'] = ("Iowa Courts would not give up any of this "
-                                   "client's cases, so there is no workbook "
-                                   "for them.")
+                record['error'] = (
+                    "Iowa Courts would not answer this client's name a second "
+                    "time, so their cases could not be pulled. Search them on "
+                    "their own."
+                    if refused_a_name else
+                    "Iowa Courts would not give up any of this client's "
+                    "cases, so there is no workbook for them.")
                 continue
             try:
                 path, unknown, atp = build_workbook(cases, pick['def_name'],
@@ -701,12 +931,17 @@ def _zip_workbooks(built, is_lite):
 
 
 def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
-             person=None):
+             person=None, people=None, found_by=None):
     """person is the search that produced these cases, carried for the retry.
 
     Optional because a job that started before the search job recorded it has
     none, and a run with no way back is still a run worth finishing. The finish
     page just does not offer another go.
+
+    people and found_by are what a client searched under more than one spelling
+    needs: every spelling, and which of them found each defendant somebody
+    ticked. Absent, this is one search and behaves exactly as it always has,
+    pulling straight off the result set already in front of ICOS.
     """
     client = icos_sessions.claim(session_token)
     if client is None:
@@ -725,13 +960,23 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
     client.set_stop_check(lambda: job.cancelled)
 
     try:
-        case_ids = []
-        for key in keys:
-            case_ids.extend(case_dict.get(key, []))
+        searches = plan_searches(keys, case_dict, people or [person], found_by)
+        # The order the groups are pulled in, so the workbook's rows and the
+        # retry's idea of where a recovered row goes back agree with each other.
+        case_ids = [case_id for group in searches
+                    for case_id in group['case_ids']]
 
-        cases, failed = _pull_cases(job, client, case_ids)
+        # Only when there is more than one, because a single search is already
+        # the last thing ICOS answered and re-running it would cost every
+        # ordinary run a request to serve the rare one.
+        cases, failed, refused_a_name = _pull_grouped(
+            job, client, searches, reselect=len(searches) > 1)
 
         if not cases:
+            if refused_a_name:
+                raise IcosError("Iowa Courts would not answer that name a "
+                                "second time, so none of the cases could be "
+                                "pulled. Please try the search again.")
             raise ValueError("no cases could be read")
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
@@ -749,7 +994,8 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
             "failed_cases": failed,
             "done_url": "/done/%s" % job.id,
             "retry": _retry_payload('crs', is_lite, [
-                _retry_entry(def_name, def_dob, person, case_ids, cases, failed)]),
+                _retry_entry(def_name, def_dob, person, case_ids, cases,
+                             failed, searches)]),
         }
 
         if failed:
@@ -832,15 +1078,14 @@ def retry_task(job, username, password, payload):
                         % (index, len(entries), len(entry['failed']),
                            "" if len(entry['failed']) == 1 else "s"),
                         count=pulled, total=total)
-                reselected, site_down = _reselect(job, client, entry)
-                if reselected:
-                    dead_searches.worked()
-                    recovered, still_failed = _pull_cases(
-                        job, client, entry['failed'], offset=pulled,
-                        total=total, outage=outage)
-                else:
-                    dead_searches.failed(declared=site_down)
-                    reselect_failed = True
+                # Split by the spelling that found each of them, so a client
+                # searched under two names has each one put back in front of
+                # ICOS before its own share is asked for. One spelling is the
+                # ordinary case and comes through here as a single group.
+                recovered, still_failed, reselect_failed = _pull_grouped(
+                    job, client, _failed_by_search(entry), reselect=True,
+                    offset=pulled, total=total, outage=outage,
+                    dead_searches=dead_searches)
                 pulled += len(entry['failed'])
                 recovered_total += len(recovered)
 
@@ -849,9 +1094,13 @@ def retry_task(job, username, password, payload):
             # and not a supplement to one.
             cases = _merged_cases(entry, recovered)
             record['failed'] = still_failed
+            # entry.get('searches') and not searches_behind(), so a client
+            # searched once is written back in the shape it arrived in rather
+            # than growing a one-group split it never needed.
             rebuilt.append(_retry_entry(entry['def_name'], entry['def_dob'],
                                         entry['person'], entry['case_ids'],
-                                        cases, still_failed))
+                                        cases, still_failed,
+                                        entry.get('searches')))
             if not cases:
                 if skipped:
                     record['error'] = ("%s before Napier reached this client, "

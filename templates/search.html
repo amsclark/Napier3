@@ -60,6 +60,34 @@
   font-variant-numeric: tabular-nums;
 }
 
+.person-found {
+  display: block;
+  font-size: .78rem;
+  color: var(--ink-faint);
+}
+
+.spellings {
+  margin: 0 0 1.1rem;
+  padding: .7rem .95rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line-soft);
+}
+
+.spelling-line {
+  margin: 0;
+  font-size: .84rem;
+  display: flex;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+
+.spelling-line + .spelling-line { margin-top: .3rem; }
+
+.spelling-name { font-weight: 600; }
+.spelling-count, .spelling-none { color: var(--ink-soft); }
+.spelling-bad { color: var(--stop-ink); }
+
 .tally {
   flex: none;
   font-size: .8rem;
@@ -124,9 +152,38 @@
         Iowa Courts groups cases by name and date of birth. Pick every entry
         that is the same person and Napier will build one workbook from all of
         them.
+        {% if searches %}
+          These are the results of all {{ searches | length }} spellings
+          together. A case listed under two of them is only pulled once.
+        {% endif %}
       </p>
     </div>
   </div>
+
+  {% if searches %}
+    <div class="spellings">
+      {% for search in searches %}
+        <p class="spelling-line">
+          <span class="spelling-name">{{ search.name }}</span>
+          {% if search.error %}
+            {# Not fatal. The other spelling answered, and the cases it found
+               are on this page. Saying which one refused is what stops a short
+               list reading as "that is all there is". #}
+            <span class="spelling-bad">Iowa Courts would not answer this one.
+              {{ search.error }}</span>
+          {% elif not search['keys'] %}
+            <span class="spelling-none">no cases under this spelling</span>
+          {% else %}
+            {# Subscript, not a dot. Jinja looks for an attribute first and a
+               dict has a .keys method, so search.keys is that method and
+               renders as a truthy object of no length. #}
+            <span class="spelling-count">{{ search['keys'] | length }}
+              name{{ search['keys'] | length | pluralize("","s") }}</span>
+          {% endif %}
+        </p>
+      {% endfor %}
+    </div>
+  {% endif %}
 
   {% if too_many_results %}
     <div class="notice" role="alert">
@@ -187,6 +244,14 @@
             <span class="person-name">{{ parts[1] if parts|length > 1 else key }}</span>
             {% if parts|length > 1 %}
               <span class="person-dob">Born {{ parts[0] }}</span>
+            {% endif %}
+            {% if searches %}
+              {# Which search turned this person up. With two spellings on
+                 screen and one list of results, the useful thing to know about
+                 a row is which of the two it came off. #}
+              <span class="person-found">
+                found as {{ searches[found_by.get(key, 0)].name }}
+              </span>
             {% endif %}
           </span>
           <span class="tally">{{ cases[key] | length }} case{{ cases[key] | length | pluralize("","s") }}</span>
