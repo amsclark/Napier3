@@ -112,7 +112,7 @@ def test_an_adjudicated_count_still_codes_from_the_adjudication():
     captured pages that have an adjudication and were always right."""
     dominant = crs.get_dominant_charge([parse('124.401', 'SYNTHETIC', 'GUILTY')])
     assert dominant['disposition'] == 'GTR'
-    assert dominant['description'] == 'SYNTHETIC'
+    assert dominant['description'] == 'SYNTHETIC[GTR]'
     assert dominant['charge'] == '124.401'
 
 
@@ -229,6 +229,6 @@ def test_an_adjudicated_case_ignores_the_case_level_status():
                                 status='DISMISSED', dispo_date='04/29/1902'))
     assert cells['G'] == 'GTR'
     assert cells['D'] == '02/02/1901'
-    assert cells['E'] == 'SYNTHETIC FELONY'
+    assert cells['E'] == 'SYNTHETIC FELONY[GTR]'
     assert cells['F'] == '124.401'
     assert unknown == []

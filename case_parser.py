@@ -474,7 +474,14 @@ def parse_case_charges(html, case):
         
     if cur_charge is not None:
         if ";" not in cur_charge['description']:
-            cur_charge['description'] = cur_charge['description'][:cur_charge['description'].index("[")]
+            # A real adjudication keeps its [GTR]/[GPL]/[DISM] suffix just as a
+            # multi-count case does. An empty adjudication row is different:
+            # disposition_code cannot name an absent result, and the synthetic
+            # [OTH] appended while parsing must not hide the original pending
+            # charge description used below.
+            if not cur_charge['disposition'][0]:
+                cur_charge['description'] = cur_charge['description'][
+                    :cur_charge['description'].index("[")]
             #print("Disposition: " + disposition_code(cur_charge['disposition'][0]))
             disp_code = disposition_code(cur_charge['disposition'][0])
             if disp_code in NOT_ADJUDICATED:

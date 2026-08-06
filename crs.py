@@ -1226,6 +1226,7 @@ def reconcile_financials(case):
     columns = {}
     unresolved = []
     unreconciled = []
+    recovered_gaps = []
     apportioned = []
     carrying = []
     # Which columns each category's balance actually reached. The note below
@@ -1245,6 +1246,43 @@ def reconcile_financials(case):
             if due is None:
                 due = category['original'] - (category.get('paid') or Decimal(0))
             if due:
+                # A positive gap is money the summary says exists but the
+                # itemization never identifies. Keep every line ICOS *does*
+                # identify in its real fee column and put only that gap in
+                # UNKNOWN. Previously the whole category balance followed the
+                # visible lines, which is how $58.25 of room and board turned
+                # into $219 of room and board and how a known $200 misc fee
+                # became $250.
+                #
+                # FINE is the exception: the summary category itself identifies
+                # the debt as a fine even when the detail table omits it. Iowa
+                # Legal Aid relies on that distinction and explicitly asked us
+                # to use the summary fine total in column R.
+                line_paid = sum((entry[2] for entry in entries), Decimal(0))
+                missing = category['original'] - assessed
+                visible_due = assessed - line_paid
+                if (missing > Decimal('0.01')
+                        and abs((visible_due + missing) - due)
+                        <= Decimal('0.01')):
+                    recovered_gaps.append(name)
+                    if name == 'FINE':
+                        columns['R'] = columns.get('R', Decimal(0)) + due
+                        landed[name] = {'R'}
+                    else:
+                        for detail, amount, paid in entries:
+                            owed = amount - paid
+                            if owed <= 0:
+                                continue
+                            column = get_finance_column(detail)
+                            columns[column] = columns.get(
+                                column, Decimal(0)) + owed
+                        columns['P'] = columns.get('P', Decimal(0)) + missing
+                        landed[name] = {
+                            get_finance_column(detail)
+                            for detail, amount, paid in entries
+                            if amount - paid > 0
+                        } | {'P'}
+                    continue
                 # The total is the summary's, because the itemization did not
                 # agree with it and the summary is the side ICOS stands behind.
                 # Which columns it belongs in is still the itemization's to say.
@@ -1309,7 +1347,9 @@ def reconcile_financials(case):
             column = get_finance_column(detail)
             columns[column] = columns.get(column, Decimal(0)) + owed
 
-    if carrying and not set(carrying) - set(unreconciled):
+    if (carrying
+            and not set(carrying) - (set(unreconciled) - set(recovered_gaps))
+            and not recovered_gaps):
         # Nothing on this row reconciled, so what came out is the summary with
         # extra steps. Hand it back to the caller, which says so in one sentence
         # rather than five.
@@ -1340,6 +1380,11 @@ def reconcile_financials(case):
                      "columns" % stranded[0])
         notes.append(text + ". The rest of the row is fee by fee and the ICOS "
                             "total is still right.")
+    if recovered_gaps:
+        notes.append(
+            "The part of %s that ICOS does not identify in the itemization is "
+            "in UNKNOWN; the identified fees remain in their own columns."
+            % _and_list(sorted(set(recovered_gaps))))
     if unresolved:
         notes.append(
             "ICOS records payments per category, not per fee. The payment "

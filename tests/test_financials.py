@@ -198,7 +198,7 @@ def test_the_same_collapsed_row_still_warns_when_money_is_owed(felony_case):
     ]
     sheet = FakeSheet()
     crs.process_financials(felony_case, sheet, 4)
-    assert 'MISCELLANEOUS' in sheet.value_of('V4')
+    assert 'UNKNOWN' in sheet.value_of('V4')
 
 
 def test_a_zero_balance_does_not_silence_a_real_disagreement(felony_case):
