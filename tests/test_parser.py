@@ -154,6 +154,13 @@ def test_a_beneficiary_is_not_the_person_the_search_is_about():
     assert cases == []
 
 
+def test_a_juvenile_involved_is_the_person_the_search_is_about():
+    """JVIN identifies the juvenile party, not a relative or other nonparty."""
+    cases, _ = case_parser.parse_search(role_row('JUVENILE - INVOLVED'))
+    assert ids(cases) == ['00000  FECR000000']
+    assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
+
+
 def test_the_two_role_lists_do_not_overlap():
     """A role in both would be suppressed and vouched for at the same time."""
     assert not (case_parser.NON_PARTY_ROLES & case_parser.KNOWN_PARTY_ROLES)
