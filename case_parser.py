@@ -144,6 +144,9 @@ KNOWN_PARTY_ROLES = frozenset({
     'DEFENDANT',
     'PRO SE DEFENDANT',
     'DEFENDANT - PRO SE',
+    # ICOS code JVIN: the juvenile whose case this is, unlike the suppressed
+    # JUVENILE - MOTHER OF and JUVENILE - FATHER OF relationship roles.
+    'JUVENILE - INVOLVED',
     'PLAINTIFF',
     'PRO SE PLAINTIFF',
     'PETITIONER',
@@ -600,5 +603,3 @@ def parse_case_financials(html, case):
             'tender': _text(cols[8]) if len(cols) > 8 else None,
         })
     case['financials'] = financials
-
-
