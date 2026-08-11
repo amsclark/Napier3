@@ -152,7 +152,14 @@ def test_a_case_dated_off_the_summary_is_left_alone():
 
 
 def test_the_caveat_joins_what_the_money_left_in_column_v():
-    """Column V belongs to process_financials first. This joins, never replaces."""
+    """Column V belongs to process_financials first. This joins, never replaces.
+
+    The money sentence used to be the whole-row fallback, which named
+    MISCELLANEOUS. Since 6 August a fine the itemization omits is recovered into
+    the fine column instead of stranding the row, so the sentence here is the
+    unreconciled one. What this test is about is that a financial sentence and
+    the adjudication caveat both survive in one cell.
+    """
     sheet = load_workbook(FULL)['CASE DATA']
     case = _case()
     case['financials'] = [
@@ -161,5 +168,5 @@ def test_the_caveat_joins_what_the_money_left_in_column_v():
     ]
     crs.process_case(case, sheet, crs.FIRST_CASE_ROW)
     note = sheet['V' + str(crs.FIRST_CASE_ROW)].value or ''
-    assert 'MISCELLANEOUS' in note, note
+    assert 'did not add up' in note, note
     assert 'no adjudication' in note, note
