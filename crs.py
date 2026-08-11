@@ -1226,6 +1226,10 @@ def reconcile_financials(case):
     columns = {}
     unresolved = []
     unreconciled = []
+    # Categories whose gap was recovered at all, and the subset of those that
+    # put the unidentified part in UNKNOWN. FINE is in the first and not the
+    # second, because its recovery lands in the fine column instead.
+    recovered = []
     recovered_gaps = []
     apportioned = []
     carrying = []
@@ -1258,17 +1262,33 @@ def reconcile_financials(case):
                 # the debt as a fine even when the detail table omits it. Iowa
                 # Legal Aid relies on that distinction and explicitly asked us
                 # to use the summary fine total in column R.
+                #
+                # It also takes an identified line to have something to keep in
+                # place. A category the itemization says nothing at all about
+                # has no fee column to inflate, and the one thing ICOS did say
+                # is which bucket the money is in, so that balance still goes to
+                # the bucket's own column. Routing it to UNKNOWN instead threw
+                # away the category and silenced the MISCELLANEOUS warning the
+                # note is built around.
                 line_paid = sum((entry[2] for entry in entries), Decimal(0))
                 missing = category['original'] - assessed
                 visible_due = assessed - line_paid
-                if (missing > Decimal('0.01')
+                identifies_something = (name == 'FINE'
+                                        or assessed > Decimal('0.01'))
+                if (identifies_something
+                        and missing > Decimal('0.01')
                         and abs((visible_due + missing) - due)
                         <= Decimal('0.01')):
-                    recovered_gaps.append(name)
+                    recovered.append(name)
                     if name == 'FINE':
+                        # No part of this went to UNKNOWN, so it is deliberately
+                        # kept out of recovered_gaps: the sentence that list
+                        # writes would be telling an attorney to look in a column
+                        # the money is not in.
                         columns['R'] = columns.get('R', Decimal(0)) + due
                         landed[name] = {'R'}
                     else:
+                        recovered_gaps.append(name)
                         for detail, amount, paid in entries:
                             owed = amount - paid
                             if owed <= 0:
@@ -1348,8 +1368,8 @@ def reconcile_financials(case):
             columns[column] = columns.get(column, Decimal(0)) + owed
 
     if (carrying
-            and not set(carrying) - (set(unreconciled) - set(recovered_gaps))
-            and not recovered_gaps):
+            and not set(carrying) - (set(unreconciled) - set(recovered))
+            and not recovered):
         # Nothing on this row reconciled, so what came out is the summary with
         # extra steps. Hand it back to the caller, which says so in one sentence
         # rather than five.

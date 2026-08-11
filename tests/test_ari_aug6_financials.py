@@ -70,3 +70,32 @@ def test_partly_described_fine_uses_the_summary_fine_total():
     columns, _ = crs.reconcile_financials(case)
     assert columns['R'] == Decimal('3100.00')
     assert 'K' not in columns
+
+
+def test_a_recovered_fine_is_not_described_as_being_in_unknown():
+    """The fine exception puts the whole balance in FINES, so the sentence that
+    sends an attorney to UNKNOWN must not be written about it. Nothing of it is
+    there, and the note is the only thing on the row saying where to look."""
+    case = {
+        'summary_categories': _summary(FINE=('89.50', '0')),
+        'financials': [_fee('DNU-FINES/FORFEITED BAIL/CIVIL PENALTY', '10.00')],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert columns['R'] == Decimal('89.50')
+    assert 'P' not in columns
+    assert 'UNKNOWN' not in (note or ''), note
+
+
+def test_a_category_the_itemization_never_mentions_keeps_its_own_column():
+    """With nothing identified there is no fee column to protect, and which
+    bucket ICOS put the money in is the one thing it did say. Sending this to
+    UNKNOWN threw that away and silenced the MISCELLANEOUS warning."""
+    case = {
+        'summary_categories': _summary(COSTS=('100.00', '0'),
+                                       FINE=('65.00', '0')),
+        'financials': [_fee('FINE', '65.00')],
+    }
+    columns, note = crs.reconcile_financials(case)
+    assert columns['O'] == Decimal('100.00')
+    assert 'P' not in columns
+    assert 'COSTS is in MISCELLANEOUS' in (note or ''), note

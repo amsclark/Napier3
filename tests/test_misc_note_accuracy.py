@@ -87,10 +87,18 @@ UNCATEGORISED = 'SYNTHETIC UNCATEGORISED LINE'
                          [ROOM_AND_BOARD, SHERIFF, INDIGENT_DEFENSE])
 def test_a_balance_that_landed_in_one_real_column_is_not_called_miscellaneous(
         detail, column):
-    """Every fee in the category points at the same column, so the balance went
-    there whole. There is no MISCELLANEOUS in it to warn about."""
+    """The fee ICOS names keeps its own amount, and no cell claims the rest.
+
+    This used to send the whole category total into the one column its fees
+    pointed at. Iowa Legal Aid's 6 August review stopped that: it is how $58.25
+    of room and board became $219 of room and board on a real row. The
+    identified $1,000 stays where ICOS put it, the $5,577.56 nobody accounted
+    for goes to UNKNOWN, and either way there is no MISCELLANEOUS to warn
+    about.
+    """
     columns, note = _row('6577.56', [_fee(detail, '1000.00')])
-    assert columns[column] == Decimal('6577.56')
+    assert columns[column] == Decimal('1000.00')
+    assert columns['P'] == Decimal('5577.56')
     assert not columns.get('O')
     assert CLAIM not in note, note
 
@@ -126,15 +134,21 @@ def test_a_balance_that_really_is_in_miscellaneous_is_still_called_out():
     assert 'COSTS is in %s' % CLAIM in note, note
 
 
-def test_an_apportioned_split_says_nothing_about_miscellaneous():
-    """Unchanged behaviour, asserted because it is the other half of the same
-    condition: a balance divided across columns is described by the estimate
-    sentence, not this one."""
+def test_two_identified_fees_each_keep_their_own_amount():
+    """The other half of the same condition, and it moved on 6 August too.
+
+    A $100 category holding a $30 fee and a $20 fee used to be divided in
+    proportion, writing $60 and $40, neither of which ICOS ever said. Each fee
+    now keeps what it was assessed and the $50 nobody accounted for goes to
+    UNKNOWN. The estimate sentence still covers the splits that are still
+    estimates, in tests/test_financials.py.
+    """
     columns, note = _row('100.00', [_fee(ROOM_AND_BOARD[0], '30.00'),
                                     _fee(SHERIFF[0], '20.00')])
-    assert columns['L'] and columns['M']
+    assert columns['L'] == Decimal('30.00')
+    assert columns['M'] == Decimal('20.00')
+    assert columns['P'] == Decimal('50.00')
     assert CLAIM not in note, note
-    assert 'estimates' in note, note
 
 
 def test_a_category_with_no_itemization_at_all_still_falls_to_its_label():
@@ -151,14 +165,17 @@ def test_a_category_with_no_itemization_at_all_still_falls_to_its_label():
 def test_two_stranded_categories_read_as_plural():
     """Naming two categories and then saying "is" reads as a bug in the row to
     anyone who notices, which is not what you want on the one line telling an
-    attorney how much of the number to trust."""
+    attorney how much of the number to trust.
+
+    Both categories have to be ones the itemization says nothing about, because
+    a category with even one identified fee keeps that fee in its own column and
+    sends only the remainder to UNKNOWN, which is a different sentence.
+    """
     case = {
         'summary_categories': _five(COSTS=(Decimal('100.00'), Decimal('0')),
                                     OTHER=(Decimal('50.00'), Decimal('0')),
                                     FINE=(FINE_TOTAL, Decimal('0'))),
-        'financials': [FINE_LINE,
-                       _fee(UNCATEGORISED, '10.00'),
-                       _fee('SYNTHETIC COURT COSTS LINE', '7.00')],
+        'financials': [FINE_LINE],
     }
     columns, note = crs.reconcile_financials(case)
     note = note or ''
