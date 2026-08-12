@@ -157,6 +157,11 @@ KNOWN_PARTY_ROLES = frozenset({
     'PRO SE APPELLANT',
     'APPELLEE',
     'PRO SE APPELLEE',
+    # The owner named on a case about their property: condemnation, tax sale,
+    # a municipal infraction, an in rem forfeiture. The case can assess costs
+    # against them personally, so it is their record, unlike the LIEN FILER
+    # and INTERESTED PARTY bystander roles. Seen on a live search 2026-08-12.
+    'PROPERTY OWNER',
 })
 
 # The notice ICOS shows when a name matches more cases than it will list. The
