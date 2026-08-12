@@ -161,6 +161,21 @@ def test_a_juvenile_involved_is_the_person_the_search_is_about():
     assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
 
 
+def test_a_property_owner_is_the_person_the_search_is_about():
+    """Found by a live search on 2026-08-12: ICOS answered with PROPERTY OWNER,
+    which was in neither list, so the case was kept by default and the role
+    mailed out as unrecognised.
+
+    The owner is named on a case about their own property — condemnation, tax
+    sale, a municipal infraction, an in rem forfeiture — and those cases can
+    assess costs against them personally, so the case belongs in their record
+    summary and the role is vouched for rather than suppressed.
+    """
+    cases, _ = case_parser.parse_search(role_row('PROPERTY OWNER'))
+    assert ids(cases) == ['00000  FECR000000']
+    assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
+
+
 def test_the_two_role_lists_do_not_overlap():
     """A role in both would be suppressed and vouched for at the same time."""
     assert not (case_parser.NON_PARTY_ROLES & case_parser.KNOWN_PARTY_ROLES)
