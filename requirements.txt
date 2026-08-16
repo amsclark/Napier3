@@ -9,7 +9,7 @@ jdcal==1.4.1
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 openpyxl==3.1.5
-selenium==4.46.0
+selenium==4.47.0
 six==1.17.0
 # Pulled in by beautifulsoup4, which asks only for >=1.6.1 and so would take
 # whatever the build happened to resolve. That is how 2.6 ended up deployed and
