@@ -155,14 +155,35 @@ class TestChargeClassSuffixes:
         charge = parse([count('124.401(5)', 'SYNTHETIC POSSESSION',
                               'DISMISSED',
                               adjudicated_class='AGGRAVATED MISDEMEANOR')])
-        assert charge['description'] == 'SYNTHETIC POSSESSION[AGMD][DISM]'
+        assert charge['description'] == 'SYNTHETIC POSSESSION[AGMS][DISM]'
         assert charge['charge'] == ''
 
     def test_the_suffix_survives_into_the_workbook_column(self):
         cells, _ = _row(_case([count('123.46(2)', 'SYNTHETIC INTOXICATION',
                                      'GUILTY - OTHER',
                                      adjudicated_class='SIMPLE MISDEMEANOR')]))
-        assert cells['E'] == 'SYNTHETIC INTOXICATION[SMMD][GTR]'
+        assert cells['E'] == 'SYNTHETIC INTOXICATION[SMMS][GTR]'
+
+    def test_the_suffix_codes_are_iowa_legal_aids_own(self):
+        """Her 8/18 correction, pinned: FELA through FELD, AGMS, SRMS, SMMS,
+        SV, NSV -- plus CNTP for the contempt rows she asked for by example.
+        The first cut shipped AGMD/SRMD/SMMD, which read fine and were codes
+        nobody at Iowa Legal Aid writes. The right-hand side of the map is
+        her staff's vocabulary, not a free choice, so a new entry whose code
+        is not on this list has to be one she has asked for."""
+        assert sorted(set(case_parser.CHARGE_CLASS_SUFFIXES.values())) == [
+            'AGMS', 'CNTP', 'FELA', 'FELB', 'FELC', 'FELD', 'NSV', 'SMMS',
+            'SRMS', 'SV']
+
+    def test_both_spellings_of_a_non_scheduled_violation_read_nsv(self):
+        """No captured page carries the class row yet -- her five Polk NTA
+        examples are pending capture -- so the map holds the hyphenated and
+        the spaced spelling and this test holds the map to both. When the
+        real page lands, the spelling it shows stays and this test narrows."""
+        for wording in ('NON-SCHEDULED VIOLATION', 'NON SCHEDULED VIOLATION'):
+            charge = parse([count('321.218', 'SYNTHETIC DENIED', 'GUILTY',
+                                  adjudicated_class=wording)])
+            assert charge['description'] == 'SYNTHETIC DENIED[NSV][GTR]'
 
 
 # -- a case pending on more than one count ----------------------------------

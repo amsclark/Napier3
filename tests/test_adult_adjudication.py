@@ -219,9 +219,13 @@ def test_the_juvenile_row_is_left_alone():
 
 def test_the_spread_note_does_not_claim_column_g_holds_a_date():
     """Their words: "The note says that column G will hold the disposition date,
-    but that one should just have the dispo code". It never held a date. The
-    wording invited the reading and now names both columns."""
-    note = crs.DISPOSITION_SPREAD_NOTE % ('01/01/1900, 03/03/1903',
+    but that one should just have the dispo code". It never held a date, and
+    two drafts written here were misread in a row. The wording is now the
+    sentence Iowa Legal Aid supplied on 18 August 2026, which does not
+    mention column G at all: column D counts the conviction date, and an SOL
+    reader goes back to ICOS."""
+    note = crs.DISPOSITION_SPREAD_NOTE % (2, '01/01/1900, 03/03/1903',
                                           '01/01/1900')
-    assert 'Column G is the disposition code' in note
+    assert 'Column D counts the conviction date' in note
+    assert 'column G' not in note
     assert 'the date of the disposition in column G' not in note
