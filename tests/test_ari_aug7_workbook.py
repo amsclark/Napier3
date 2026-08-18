@@ -175,15 +175,21 @@ class TestChargeClassSuffixes:
             'AGMS', 'CNTP', 'FELA', 'FELB', 'FELC', 'FELD', 'NSV', 'SMMS',
             'SRMS', 'SV']
 
-    def test_both_spellings_of_a_non_scheduled_violation_read_nsv(self):
-        """No captured page carries the class row yet -- her five Polk NTA
-        examples are pending capture -- so the map holds the hyphenated and
-        the spaced spelling and this test holds the map to both. When the
-        real page lands, the spelling it shows stays and this test narrows."""
-        for wording in ('NON-SCHEDULED VIOLATION', 'NON SCHEDULED VIOLATION'):
-            charge = parse([count('321.218', 'SYNTHETIC DENIED', 'GUILTY',
-                                  adjudicated_class=wording)])
-            assert charge['description'] == 'SYNTHETIC DENIED[NSV][GTR]'
+    def test_a_non_scheduled_violation_reads_nsv(self):
+        """The wording is ICOS's, confirmed by replaying the five Polk NTA
+        cases Iowa Legal Aid named, on 18 August 2026: every one prints
+        NON-SCHEDULED VIOLATION with the hyphen, as does the one earlier
+        captured NTA page from another county. This test carried both
+        spellings until then and narrowed to the one the real pages use."""
+        charge = parse([count('321.218', 'SYNTHETIC DENIED', 'GUILTY',
+                              adjudicated_class='NON-SCHEDULED VIOLATION')])
+        assert charge['description'] == 'SYNTHETIC DENIED[NSV][GTR]'
+
+    def test_an_unmapped_spelling_adds_no_suffix_rather_than_a_guess(self):
+        """The no-guess rule, held to on the spelling that was dropped."""
+        charge = parse([count('321.218', 'SYNTHETIC DENIED', 'GUILTY',
+                              adjudicated_class='NON SCHEDULED VIOLATION')])
+        assert charge['description'] == 'SYNTHETIC DENIED[GTR]'
 
 
 # -- a case pending on more than one count ----------------------------------
