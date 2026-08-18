@@ -103,6 +103,11 @@ NON_PARTY_ROLES = frozenset({
     'INTERPRETOR',
     'INTERVENOR',
     'JUDGE',
+    # The officer on a case, not its subject. Surfaced by a live search on
+    # 2026-08-13 that alerted NOVEL_ROLE; the same class as ATTORNEY, WITNESS
+    # and JUDGE -- being on the case professionally does not make the record
+    # theirs.
+    'LAW ENFORCEMENT',
     'LIEN FILER',
     'NAME OF TRUST',
     # Someone who filed a document into a case they are not party to,
@@ -226,7 +231,22 @@ charge_code_dict = {
     "WITHDRAWN": "WTHD",
     "NOT FILED": "NOTF",
     "CIVIL": "CIV",
-    "CHANGE OF VENUE": "TNSF"
+    "CHANGE OF VENUE": "TNSF",
+    # crs.charge_code_map learned this wording first, so a Hamilton public
+    # intoxication ICOS disposed GUILTY - OTHER coded GTR in column G while
+    # its charge description read [OTH]: the maps disagreed about the same
+    # count on the same row. The agreement test now walks both key sets, so
+    # the next wording either map learns alone fails a test instead of
+    # shipping a workbook that contradicts itself.
+    "GUILTY - OTHER": "GTR",
+    # A Story County OWI alerted on this on 2026-08-13, behind the spaced
+    # DNU - prefix strip_dnu now handles. JCS is Iowa's justice data system;
+    # the wording says another court adjudicated the count, without saying
+    # how it came out. OTH on purpose: the outcome lives on the other
+    # court's record, and OTH is the code that moves no money and marks the
+    # row as coded on less than a full answer. The entry exists so the
+    # wording stops alerting as unknown on every run that touches the case.
+    "JCS OTHER ADJ OTHER COURT": "OTH"
 }
 
 # The outcomes that mean no adjudicated charge, so the statutory code is not
@@ -242,6 +262,48 @@ charge_code_dict = {
 # VENUE was decided on the receiving county's case and not on this one, so its
 # statute is not the client's to carry off this record.
 NOT_ADJUDICATED = frozenset({"WTHD", "DISM", "ACQ", "NOTF", "TNSF"})
+
+# The 'Adjudicated Charge Class:' wording ICOS prints per count, and the
+# suffix it earns in column E ahead of the disposition suffix, so a count
+# reads FORGERY[FELD][GPL] and a 321.218 reads [SV][GTR] -- the shapes Iowa
+# Legal Aid's 8/07 review asked for by example. The class is the severity,
+# which the description alone often does not carry, and severity is what the
+# expungement waits and the licence consequences turn on.
+#
+# The felony codes are ICOS's own: a captured Polk burglary describes itself
+# as 'BURGLARY 1ST DEGREE - 1983 (FELB)' against a CLASS B FELONY class row,
+# and FELD is the code the 8/07 review used. Class B and the misdemeanours,
+# scheduled violation and contempt wordings are observed on captured pages;
+# classes A, C and D complete ICOS's own lettering and nothing else. OTHER is
+# deliberately absent: it is the class row's way of saying nothing, and a
+# suffix that says nothing is noise in a legal document. A wording not in
+# this map simply adds no suffix, so an ICOS wording we have not seen cannot
+# put a guess in column E.
+CHARGE_CLASS_SUFFIXES = {
+    "CLASS A FELONY": "FELA",
+    "CLASS B FELONY": "FELB",
+    "CLASS C FELONY": "FELC",
+    "CLASS D FELONY": "FELD",
+    "AGGRAVATED MISDEMEANOR": "AGMD",
+    "SERIOUS MISDEMEANOR": "SRMD",
+    "SIMPLE MISDEMEANOR": "SMMD",
+    "SCHEDULED VIOLATION": "SV",
+    "CONTEMPT OF COURT": "CNTP",
+}
+
+
+def strip_dnu(wording):
+    """The ICOS wording with its DNU (do not use) prefix taken off.
+
+    Iowa's clerks spell the prefix more than one way. Every capture through
+    July 2026 said DNU-GUILTY, unspaced, and both maps stripped exactly that.
+    Then a Story County OWI served 'DNU -JCS OTHER ADJ OTHER COURT', space
+    before the hyphen, and the literal replace could not see it, so the
+    wording missed both maps and alerted as unknown on every run that touched
+    the case. Anchored to the front because the prefix is a prefix: a wording
+    that mentions DNU anywhere else is its own wording.
+    """
+    return re.sub(r'^DNU\s*-\s*', '', (wording or '').strip())
 
 
 def disposition_code(wording):
@@ -260,7 +322,7 @@ def disposition_code(wording):
     next wording Iowa prefixes is already handled, and the two maps cannot
     answer differently about the same count again.
     """
-    return charge_code_dict.get((wording or "").replace("DNU-", ""), "OTH")
+    return charge_code_dict.get(strip_dnu(wording), "OTH")
 
 
 def parse_search(html):
@@ -400,6 +462,13 @@ def parse_case_charges(html, case):
     cur_section = None
     prior_charge = str()
     prior_description = str()
+    # Per count, in the order the page lists them. The accumulated strings
+    # above are what the sheet reads; these are what lets the end of this
+    # function look back at one count on its own. The disposition list cannot
+    # serve for that because it is built newest first.
+    original_description_parts = []
+    adjudication_wordings = []
+    adjudicated_classes = []
     #disposition = {}
     rows = soup.find_all('tr')
     for row in rows:
@@ -439,6 +508,7 @@ def parse_case_charges(html, case):
                 # statute the expungement sheet reads in 792 formulas.
                 cur_charge['original_charge'] = texts[1]
                 cur_charge['original_description'] = texts[3]
+                original_description_parts.append(texts[3])
             if len(texts) >= 3 and texts[0].startswith("Offense Date:"):
                 if 'prior_offenseDate' not in vars():
                     cur_charge['offenseDate'] = texts[1]
@@ -466,7 +536,17 @@ def parse_case_charges(html, case):
                 cur_charge['description'] = prior_description+texts[3]
                 prior_description = cur_charge['description']
             
+            if "Adjudicated Charge Class:" in texts:
+                # Present on every captured count, riding the same row as
+                # 'Judge:' and printing a non-breaking space when there is
+                # nothing to say, so appending per row stays in step with
+                # the counts. Found by label rather than position because
+                # the row leads with the judge.
+                position = texts.index("Adjudicated Charge Class:")
+                adjudicated_classes.append(
+                    texts[position + 1] if position + 1 < len(texts) else '')
             if len(texts) >= 4 and texts[0].startswith("Adjudication:"):
+                adjudication_wordings.append(texts[1])
                 charge_list.insert(0, texts[1])
                 cur_charge['disposition'] = charge_list
                 charge_date_list.insert(0, texts[3])
@@ -481,6 +561,28 @@ def parse_case_charges(html, case):
 
         
     if cur_charge is not None:
+        # The statutes as ICOS listed them, before the NOT_ADJUDICATED filter
+        # empties or trims 'charge'. crs.py needs them for exactly one thing:
+        # a case whose every count went unadjudicated here still reads CIV
+        # when every count cites a civil section. A Polk parole violation
+        # (908.1) disposed CHANGE OF VENUE had its statute stripped as TNSF,
+        # so the civil check saw no statutes at all and column G said
+        # transferred about a case Iowa Legal Aid asked to read as civil.
+        cur_charge['all_statutes'] = cur_charge['charge']
+        # The class suffix goes in ahead of the disposition suffix, count by
+        # count: FORGERY[GPL] becomes FORGERY[FELD][GPL]. Only counts that
+        # carry a disposition suffix get one -- a still-pending count is
+        # about to have its suffix stripped below, and ICOS leaves its class
+        # row blank anyway.
+        class_parts = cur_charge['description'].split(';')
+        for index, part in enumerate(class_parts):
+            if index >= len(adjudicated_classes):
+                break
+            class_suffix = CHARGE_CLASS_SUFFIXES.get(adjudicated_classes[index])
+            if class_suffix and part.endswith(']'):
+                head, _, tail = part.rpartition('[')
+                class_parts[index] = '%s[%s][%s' % (head, class_suffix, tail)
+        cur_charge['description'] = ';'.join(class_parts)
         if ";" not in cur_charge['description']:
             # A real adjudication keeps its [GTR]/[GPL]/[DISM] suffix just as a
             # multi-count case does. An empty adjudication row is different:
@@ -495,21 +597,40 @@ def parse_case_charges(html, case):
             if disp_code in NOT_ADJUDICATED:
                 cur_charge['charge'] = ""
         else:
-            cleaned_list = [] 
+            cleaned_list = []
+            display_list = []
             filter_charge_string = cur_charge['charge']
             filter_description_string = cur_charge['description']
             filter_charge_list = filter_charge_string.split(";")
             filter_description_list = filter_description_string.split(";")
             combined_list = list(zip(filter_charge_list, filter_description_list))
             for index, charge_tuple in enumerate(combined_list):
+                wording = (adjudication_wordings[index]
+                           if index < len(adjudication_wordings) else '')
+                if not wording and not charge_tuple[0]:
+                    # An empty adjudication row: no result and no adjudicated
+                    # statute, the count is still pending. The single-count
+                    # path already showed the charge as filed instead of a
+                    # synthetic [OTH]; this path did not, so a two-count open
+                    # OWI read [OTH];[OTH] in column E and ';' in column F and
+                    # staff could not tell what the State had accused the
+                    # client of. Same rule as one count: describe the charge
+                    # as filed with no suffix, keep column F to adjudicated
+                    # statutes only.
+                    display_list.append(
+                        original_description_parts[index]
+                        if index < len(original_description_parts) else '')
+                    continue
+                display_list.append(charge_tuple[1])
                 if any("[" + x + "]" in charge_tuple[1] for x in NOT_ADJUDICATED):
                     #print("Excluding: " + charge_tuple[0] + " " + charge_tuple[1])
                     pass
-                else: 
+                else:
                     #print("Including: " + charge_tuple[0] + " " + charge_tuple[1])
                     cleaned_list.append(charge_tuple[0])
             #print("Cleaned Charge List: " + ';'.join(cleaned_list))
             cur_charge['charge'] = ';'.join(cleaned_list)
+            cur_charge['description'] = ';'.join(display_list)
         charges.append(cur_charge)
         
     case['charges'] = charges
