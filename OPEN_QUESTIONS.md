@@ -368,17 +368,41 @@ other six have no disposition of any kind and are genuinely pending. Both of the
 uncoded rows leave column G empty, which BANKRUPTCY, EXEMPTIONS and SOL all read
 as "open charge", and the row says so in column V.
 
+## Two answers from 18 August 2026 waiting on a real page
+
+Iowa Legal Aid's 18 August 2026 email settled the charge class suffix
+vocabulary — the misdemeanour codes end in S, not D, and a non-scheduled
+violation earns [NSV] — and supplied five real Polk county traffic cases that
+carry it. None of those pages is captured yet, so the map holds the class
+wording in two candidate spellings, hyphenated and not, and a test says it
+will narrow to whichever one the real page uses once one is replayed. Until
+then one of the two entries is a guess about ICOS's habits.
+
+The same email supplied a real two-case example of OUT OF COUNTY WARRANT,
+which appears among a case's filings rather than its dispositions, and said
+the current output on such cases, other civil and CLOSED, is acceptable to
+them. That reading has not been checked against the real pages either, so the
+confirmation is theirs and not yet the corpus's. Both replays wait on an
+off-hours capture window, because live ICOS runs on the shared accounts do
+not happen during business hours.
+
 ## Smaller ones
 
 A case whose counts were adjudicated on different days is reported under the
-last date that carries the winning disposition code, so the code and the date
-on the row agree with each other. On one of the 210 cases that is 9 days
-before the case's actual last adjudication, because the later count was
-disposed under a different code. Pairing the code with its own date and
-reporting the case as finished on its last day cannot both be true, and Iowa
-Legal Aid settled it on 3 August 2026 in favour of the pairing: a probation
-violation's date on a conviction's row was the thing they flagged. Column V
-lists the other dates when the counts were disposed on different days.
+earliest date that carries the winning disposition code, so the code and the
+date on the row agree with each other and the date is the conviction's own.
+Iowa Legal Aid settled this in two halves. On 3 August 2026 they settled the
+pairing: a probation violation's date on a conviction's row was the thing they
+flagged, so column D follows the count column G names. On 18 August 2026 they
+settled which date wins when several counts share the winning code: the
+conviction date, meaning the earliest, because the expungement waiting periods
+on four sheets run off column D and a contempt or violation found guilty years
+later was holding them open past when the client had cleared them. The cost
+runs the other way on the SOL sheet, which they accepted: a judgment can look
+older than the last enforceable piece of it, so the column V note, in their
+own words, sends an SOL reader back to ICOS for the timeline of debt
+assessed. Column V lists the other dates when the counts were disposed on
+different days.
 
 Column I, "Under supervison?", was briefly answered off the sentence table on
 the charges page and is deliberately not any more. Iowa Legal Aid answered on

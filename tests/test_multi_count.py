@@ -175,18 +175,23 @@ def test_the_conviction_coming_first_is_left_alone():
     assert cells['D'] == '01/01/1900'
 
 
-def test_two_counts_sharing_the_winning_code_take_the_later_date():
-    """A captured case convicted on two counts two years apart.
+def test_two_counts_sharing_the_winning_code_take_the_earliest_date():
+    """The shape Iowa Legal Aid reported on 13 August 2026:
+    a conviction, then a contempt or probation violation found guilty years
+    later on the same case. Both counts code GTR, and taking the later date
+    made the conviction look years younger than it is, holding the
+    expungement waiting periods open past when the client cleared them.
 
-    The case finished reaching that disposition on the second date, and it is
-    the reading that will not retire a debt early.
+    This test asserted the later date until Iowa Legal Aid overruled that
+    reading on 18 August 2026: column D counts the conviction date, and the
+    SOL reader is sent to ICOS by the note instead.
     """
     cells = _row([
         ('714.2(3)', 'SYNTHETIC THEFT', 'GUILTY', '01/01/1900'),
-        ('714.2(3)', 'SYNTHETIC THEFT', 'GUILTY', '02/02/1901'),
+        ('665.4', 'SYNTHETIC CONTEMPT', 'GUILTY', '02/02/1901'),
     ])
     assert cells['G'] == 'GTR'
-    assert cells['D'] == '02/02/1901'
+    assert cells['D'] == '01/01/1900'
 
 
 def test_a_single_count_case_is_untouched():
@@ -215,7 +220,13 @@ def test_an_unadjudicated_count_contributes_no_date():
 # -- and the row says it is compressing more than one judgment ---------------
 
 def test_a_case_disposed_over_several_days_says_so():
-    """The sheet reads one date and applies it to every dollar on the row."""
+    """The sheet reads one date and applies it to every dollar on the row.
+
+    The note's sentence naming what column D counts is Iowa Legal Aid's own
+    wording, supplied 18 August 2026 after two drafts written here were
+    misread. Pinned loosely: the dates, that D counts the conviction date,
+    and that an SOL reader is sent back to ICOS.
+    """
     cells = _row([
         ('714.2(3)', 'SYNTHETIC THEFT', 'DISMISSED BY COURT', '01/01/1900'),
         ('124.401(5)', 'SYNTHETIC POSSESSION', 'GUILTY', '02/02/1901'),
@@ -223,7 +234,8 @@ def test_a_case_disposed_over_several_days_says_so():
     note = cells['V'] or ''
     assert '01/01/1900' in note
     assert '02/02/1901' in note
-    assert '20 year' in note
+    assert 'conviction date' in note
+    assert 'SOL' in note
 
 
 def test_counts_disposed_the_same_day_stay_quiet():
@@ -236,7 +248,7 @@ def test_counts_disposed_the_same_day_stay_quiet():
         ('714.2(3)', 'SYNTHETIC THEFT', 'DISMISSED BY COURT', '02/02/1901'),
         ('124.401(5)', 'SYNTHETIC POSSESSION', 'GUILTY', '02/02/1901'),
     ])
-    assert 'different dates' not in (cells['V'] or '')
+    assert 'disposition dates' not in (cells['V'] or '')
 
 
 def test_a_case_that_owes_nothing_stays_quiet():
@@ -246,7 +258,7 @@ def test_a_case_that_owes_nothing_stays_quiet():
         ('714.2(3)', 'SYNTHETIC THEFT', 'DISMISSED BY COURT', '01/01/1900'),
         ('124.401(5)', 'SYNTHETIC POSSESSION', 'GUILTY', '02/02/1901'),
     ], costs='0')
-    assert 'different dates' not in (cells['V'] or '')
+    assert 'disposition dates' not in (cells['V'] or '')
 
 
 def test_the_caveat_joins_what_the_money_left_in_column_v():
@@ -263,4 +275,4 @@ def test_the_caveat_joins_what_the_money_left_in_column_v():
     crs.process_case(case, sheet, crs.FIRST_CASE_ROW)
     note = sheet['V' + str(crs.FIRST_CASE_ROW)].value or ''
     assert 'MISCELLANEOUS' in note, note
-    assert 'different dates' in note, note
+    assert 'disposition dates' in note, note
