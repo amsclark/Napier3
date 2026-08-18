@@ -163,7 +163,7 @@ class TestItSurvivesTheBuild:
         monkeypatched = tasks.tmp_dir
         tasks.tmp_dir = str(tmp_path) + os.sep
         try:
-            path, _, _ = tasks.build_workbook(
+            path, _, _, _ = tasks.build_workbook(
                 [], 'SYNTHETIC CLIENT', '01/01/1900', False, MISSING)
         finally:
             tasks.tmp_dir = monkeypatched
@@ -183,7 +183,7 @@ class TestItSurvivesTheBuild:
         monkeypatched = tasks.tmp_dir
         tasks.tmp_dir = str(tmp_path) + os.sep
         try:
-            path, _, _ = tasks.build_workbook(
+            path, _, _, _ = tasks.build_workbook(
                 [], 'SYNTHETIC CLIENT', '01/01/1900', True, MISSING)
         finally:
             tasks.tmp_dir = monkeypatched

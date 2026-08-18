@@ -97,6 +97,14 @@ UNKNOWN_DISPOSITION = 'unrecognised disposition on an ICOS case'
 # other: what CLOSED deserves is an open question with Iowa Legal Aid, so this
 # fires on every run of the same client until they answer it.
 UNCODED_CASE_STATUS = 'untranslated case status on an ICOS case'
+# grid.extend_formula_grid fills the derived sheets down to the case list on
+# every build, and grid.shortfalls then measures whether it worked. It always
+# has. When it stops -- a CRS 3.6 laid out in a way the extension cannot read,
+# most likely -- the workbook is still delivered, still opens, and is short a
+# figure on a sheet nobody recounts by hand. The finish page tells the staffer,
+# and this tells the person who can fix the template, because the two are not
+# the same person and the workbook is going to a clinic either way.
+WORKBOOK_SHORT = 'workbook sheets do not reach the last case'
 
 # A run that eventually worked but took this many attempts is the early warning
 # that ICOS is degrading, which is worth one email before staff start noticing.

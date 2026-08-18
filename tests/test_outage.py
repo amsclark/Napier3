@@ -105,7 +105,7 @@ def _fake_build(cases, name, dob, lite, failed=()):
     path = os.path.join(tasks.tmp_dir, 'test_outage.xlsx')
     with open(path, 'wb') as handle:
         handle.write(b'PK\x03\x04 stub workbook')
-    return path, {}, {'balance': '$0.00', 'monthly': None, 'months': 12}
+    return path, {}, {'balance': '$0.00', 'monthly': None, 'months': 12}, []
 
 
 @pytest.fixture(autouse=True)

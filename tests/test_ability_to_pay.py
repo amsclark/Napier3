@@ -167,7 +167,7 @@ class TestItSurvivesTheBuild:
         monkeypatched = tasks.tmp_dir
         tasks.tmp_dir = str(tmp_path) + os.sep
         try:
-            path, _, figures = tasks.build_workbook(
+            path, _, figures, _ = tasks.build_workbook(
                 [], 'SYNTHETIC CLIENT', '01/01/1900', False)
         finally:
             tasks.tmp_dir = monkeypatched

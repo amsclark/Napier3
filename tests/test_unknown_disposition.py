@@ -243,6 +243,6 @@ def test_one_alert_per_wording_not_per_case(monkeypatch):
 def test_the_workbook_build_hands_the_wordings_back(tmp_path, monkeypatch):
     """process_case can report all it likes if build_workbook drops it."""
     monkeypatch.setattr(tasks, 'tmp_dir', str(tmp_path) + os.sep)
-    _, unknown, _ = tasks.build_workbook(
+    _, unknown, _, _ = tasks.build_workbook(
         [_case(NOVEL), _case('GUILTY')], 'TEST CLIENT', '01/01/1980', False)
     assert unknown == {(NOVEL, True): ['00000  FECR000000']}

@@ -96,7 +96,8 @@ def run(monkeypatch, case_ids, unavailable=()):
     def fake_build(cases, name, dob, lite, failed=()):
         written.extend(case['id'] for case in cases)
         TOLD_MISSING.extend(failed)
-        return os.path.join(tasks.tmp_dir, 'stub.xlsx'), {}, {'balance': '$0.00', 'monthly': None, 'months': 12}
+        return (os.path.join(tasks.tmp_dir, 'stub.xlsx'), {},
+                {'balance': '$0.00', 'monthly': None, 'months': 12}, [])
 
     monkeypatch.setattr(tasks, 'build_workbook', fake_build)
 

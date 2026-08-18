@@ -212,6 +212,21 @@ def _failed_by_search(entry):
             for group in searches_behind(entry)]
 
 
+def report_short_workbook(job, short, written):
+    """Say when a saved workbook does not reach its own last case.
+
+    The finish page says this too, to the staffer holding the file. This says it
+    to whoever maintains the template, who is not in the room and would
+    otherwise hear about it only if the staffer thought to forward the page. The
+    case count is the useful part for reproducing it; no name and no case number
+    goes out with it.
+    """
+    if not short:
+        return
+    alerts.record(job.id[:8], job.kind, alerts.WORKBOOK_SHORT,
+                  cases=written, sheets=" ".join(short))
+
+
 def report_novel_roles(job, cases):
     """Say when a search included a role nobody has classified yet.
 
@@ -808,7 +823,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
         for index, pick in enumerate(picks, start=1):
             _stop_if_asked(job)
             record = {'name': pick['def_name'], 'requested': len(pick['case_ids']),
-                      'written': 0, 'failed': [], 'file': None, 'error': None}
+                      'written': 0, 'failed': [], 'file': None, 'error': None,
+                      'limits': []}
             built.append(record)
             # Carried alongside the record rather than inside it, because this
             # holds whole parsed cases and the record is what the finish page
@@ -860,9 +876,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
                     "cases, so there is no workbook for them.")
                 continue
             try:
-                path, unknown, atp = build_workbook(cases, pick['def_name'],
-                                                    pick['def_dob'], is_lite,
-                                                    failed)
+                path, unknown, atp, short = build_workbook(
+                    cases, pick['def_name'], pick['def_dob'], is_lite, failed)
             except Exception as e:
                 # The other clients' workbooks are already built or still to
                 # come, and neither should be lost to this one.
@@ -877,9 +892,11 @@ def batch_crs_task(job, session_token, picks, is_lite):
                                    "workbook. The rest of the list is here.")
                 continue
             report_unknown_dispositions(job, unknown)
+            report_short_workbook(job, short, len(cases))
             record['written'] = len(cases)
             record['file'] = path
             record['atp'] = atp
+            record['limits'] = short
 
         if not any(record['file'] for record in built):
             raise ValueError("no workbooks could be built")
@@ -980,13 +997,14 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
             raise ValueError("no cases could be read")
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
-        path, unknown_dispositions, atp = build_workbook(cases, def_name,
-                                                         def_dob, is_lite,
-                                                         failed)
+        path, unknown_dispositions, atp, short = build_workbook(
+            cases, def_name, def_dob, is_lite, failed)
         report_unknown_dispositions(job, unknown_dispositions)
+        report_short_workbook(job, short, len(cases))
         job.result = {
             "file": path,
             "atp": atp,
+            "limits": short,
             "def_name": def_name,
             "is_lite": is_lite,
             "written_cases": len(cases),
@@ -1058,7 +1076,8 @@ def retry_task(job, username, password, payload):
             _stop_if_asked(job)
             record = {'name': entry['def_name'],
                       'requested': len(entry['case_ids']),
-                      'written': 0, 'failed': [], 'file': None, 'error': None}
+                      'written': 0, 'failed': [], 'file': None, 'error': None,
+                      'limits': []}
             built.append(record)
 
             recovered, still_failed, reselect_failed = [], list(entry['failed']), False
@@ -1118,9 +1137,9 @@ def retry_task(job, username, password, payload):
                                        "still no workbook for them.")
                 continue
             try:
-                path, unknown, atp = build_workbook(cases, entry['def_name'],
-                                                    entry['def_dob'], is_lite,
-                                                    still_failed)
+                path, unknown, atp, short = build_workbook(
+                    cases, entry['def_name'], entry['def_dob'], is_lite,
+                    still_failed)
             except Exception as e:
                 print("Workbook failed on retry for client %d: %r" % (index, e),
                       flush=True)
@@ -1143,9 +1162,11 @@ def retry_task(job, username, password, payload):
                 key: [case_id for case_id in case_ids if case_id in fresh_ids]
                 for key, case_ids in unknown.items()
                 if any(case_id in fresh_ids for case_id in case_ids)})
+            report_short_workbook(job, short, len(cases))
             record['written'] = len(cases)
             record['file'] = path
             record['atp'] = atp
+            record['limits'] = short
 
         if not any(record['file'] for record in built):
             raise ValueError("no workbooks could be rebuilt")
@@ -1178,6 +1199,7 @@ def retry_task(job, username, password, payload):
             # so a retry that recovered two cases raises the balance the
             # calculator is about to be given.
             "atp": record.get('atp'),
+            "limits": record.get('limits', []),
             "def_name": record['name'],
             "is_lite": is_lite,
             "written_cases": record['written'],
@@ -1193,8 +1215,9 @@ def retry_task(job, username, password, payload):
 
 
 def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
-    """Returns the path written, the dispositions Napier could not read, and
-    the two figures the ability-to-pay calculator asks for.
+    """Returns the path written, the dispositions Napier could not read, the
+    two figures the ability-to-pay calculator asks for, and anything the saved
+    workbook is still short of.
 
     failed is the cases that would not come off Iowa Courts, so the workbook
     can say what is not in it. The file travels further than any page Napier
@@ -1207,6 +1230,10 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     sheet under a guessed code or on it with no code at all, and somebody needs
     to know which before the workbook is used, so the caller reports it rather
     than the file quietly carrying it.
+
+    The last value is one sentence per sheet that still stops before the last
+    case, measured off the workbook after the formula grid is extended. Empty
+    on every run the extension handles, which so far is all of them.
     """
     workbook = load_workbook('CRS Lite 3.5.5.xlsx' if is_lite else 'CRS 3.5.5.xlsx')
     sheet = workbook['CASE DATA']
@@ -1243,6 +1270,14 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     # formula's meaning, and does nothing at all to a workbook that fits.
     grid.extend_formula_grid(workbook, row - 4)
 
+    # And then measure what that left, rather than working it out from the case
+    # count and the depths the template shipped at. The finish page used to do
+    # the arithmetic, so it went on quoting ceilings the extension had already
+    # lifted: a 184 case run came back complete and captioned as short. Anything
+    # named here is a gap in the file about to be saved, so a run that fits says
+    # nothing at all.
+    short = grid.describe_shortfalls(grid.shortfalls(workbook, row - 4))
+
     sheet = workbook['BASIC INFO']
     # Every date test in the workbook compares against B3, the clinic date: the
     # twenty year cut on the SOL sheet, the two year and eight year expungement
@@ -1271,7 +1306,7 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     suffix = "_Lite_CRS_" if is_lite else "_CRS_"
     path = tmp_dir + safe_name + suffix + stamp + ".xlsx"
     workbook.save(path)
-    return path, unknown, atp
+    return path, unknown, atp, short
 
 
 def download_name(def_name, is_lite):

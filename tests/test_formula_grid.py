@@ -352,7 +352,7 @@ def test_a_short_case_list_leaves_the_array_formulas_alone():
 def test_a_built_workbook_covers_all_of_its_own_cases():
     """The whole point, through the path a clinic actually takes."""
     count = SOL_LAST_ROW + 10
-    path, _, _ = tasks.build_workbook(
+    path, _, _, _ = tasks.build_workbook(
         synthetic_cases(count), 'TEST CLIENT', '01/01/1980', False)
     try:
         workbook = load_workbook(path)

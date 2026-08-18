@@ -376,6 +376,20 @@ def batch_crs():
                     "progress_url": url_for('progress', job_id=job.id)})
 
 
+def _batch_limits(clients):
+    """One list for the whole clinic list, in the order the sheets came back.
+
+    A clinic list is one page for a dozen workbooks, and the same sheet falling
+    short on four of them is one thing to fix, not four lines to read.
+    """
+    lines = []
+    for client in clients:
+        for line in client.get('limits') or []:
+            if line not in lines:
+                lines.append(line)
+    return lines
+
+
 def _finish_page(job, error=None):
     """The page a finished workbook run lands on, whichever kind of run it was.
 
@@ -397,9 +411,7 @@ def _finish_page(job, error=None):
                                can_retry=can_retry, error=error,
                                missing=sum(len(c['failed'])
                                            for c in result['clients']),
-                               limits=crs.workbook_limits(
-                                   max([c['written'] for c in result['clients']]
-                                       or [0]), result['is_lite']))
+                               limits=_batch_limits(result['clients']))
     return render_template('done.html', job=job.to_dict(),
                            atp=result.get('atp'),
                            def_name=result['def_name'],
@@ -409,8 +421,7 @@ def _finish_page(job, error=None):
                            failed=result['failed_cases'],
                            can_retry=can_retry, error=error,
                            missing=len(result['failed_cases']),
-                           limits=crs.workbook_limits(result['written_cases'],
-                                                      result['is_lite']),
+                           limits=result.get('limits') or [],
                            filename=tasks.download_name(result['def_name'],
                                                         result['is_lite']))
 
