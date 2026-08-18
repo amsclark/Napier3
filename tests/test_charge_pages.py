@@ -217,6 +217,46 @@ class TestTheStoryCountyWording:
         assert dominant['unknown_dispositions'] == []
 
 
+class TestTheJuvenileAdmissionWording:
+    """'JUVENILE ADMISSION': the juvenile court's guilty plea.
+
+    Two JVJV delinquency cases served it on 18 August 2026 and both coded OTH
+    and alerted, because neither map knew the wording. An admission is the
+    adjudication reached by the child admitting the allegation rather than the
+    court finding it, so it earns JUV at the rank ADJUDICATED already earns,
+    and the demotion on non-juvenile case numbers keys on the code, so it
+    rides along without being restated.
+    """
+
+    def test_it_codes_juv_in_both_maps(self):
+        assert case_parser.disposition_code('JUVENILE ADMISSION') == 'JUV'
+        assert case_parser.disposition_code('DNU-JUVENILE ADMISSION') == 'JUV'
+        import crs
+        assert crs.charge_code_map['JUVENILE ADMISSION'] == {'JUV': 1}
+
+    def test_a_jvjv_case_reads_juv_and_stops_alerting(self):
+        """The alerted shape: a delinquency case whose only adjudication
+        is the admission. The case number is synthetic; both real ones
+        were JVJV dockets."""
+        charge = parse(
+            ('232.2', 'SYNTHETIC DELINQUENCY', 'JUVENILE ADMISSION'))
+        import crs
+        dominant = crs.get_dominant_charge([charge], '00000  JVJV000000')
+        assert dominant['disposition'] == 'JUV'
+        # And no alert: the wording is known now, not an unknown coded OTH.
+        assert dominant['unknown_dispositions'] == []
+
+    def test_on_an_adult_case_it_loses_to_a_real_conviction(self):
+        """The clerks enter juvenile vocabulary on adult cases too; the
+        JUV_RANK_ADULT_CASE demotion has to catch this wording the same as
+        it catches ADJUDICATED."""
+        charge = parse(GUILTY,
+                       ('232.2', 'SYNTHETIC ADMISSION', 'JUVENILE ADMISSION'))
+        import crs
+        dominant = crs.get_dominant_charge([charge], '00000  FECR000000')
+        assert dominant['disposition'] == 'GTR'
+
+
 # -- the invariant the typo broke ------------------------------------------
 
 def test_every_not_adjudicated_code_is_one_the_map_can_produce():

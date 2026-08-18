@@ -228,6 +228,10 @@ charge_code_dict = {
     "NOT GUILTY": "ACQ",
     "WAIVED TO ADULT COURT": "JWV",
     "ADJUDICATED": "JUV",
+    # Alerted 2026-08-18 on two JVJV cases. The juvenile court's admission is
+    # its guilty plea, so it codes as the adjudication it is. See the twin
+    # entry in crs.charge_code_map for the full reasoning.
+    "JUVENILE ADMISSION": "JUV",
     "WITHDRAWN": "WTHD",
     "NOT FILED": "NOTF",
     "CIVIL": "CIV",
@@ -279,15 +283,26 @@ NOT_ADJUDICATED = frozenset({"WTHD", "DISM", "ACQ", "NOTF", "TNSF"})
 # suffix that says nothing is noise in a legal document. A wording not in
 # this map simply adds no suffix, so an ICOS wording we have not seen cannot
 # put a guess in column E.
+#
+# The misdemeanour suffixes are Iowa Legal Aid's, not ICOS's: their 8/18
+# review corrected the first cut's AGMD/SRMD/SMMD to the AGMS/SRMS/SMMS
+# their attorneys actually write, and added NSV for a non-scheduled
+# violation. The left-hand wordings still belong to ICOS. NON-SCHEDULED
+# VIOLATION is carried in both spellings ICOS could plausibly print because
+# no page bearing it has been captured yet -- Iowa Legal Aid named five Polk
+# NTA cases that carry one, and a wrong guess here costs nothing: a wording
+# that matches neither spelling adds no suffix.
 CHARGE_CLASS_SUFFIXES = {
     "CLASS A FELONY": "FELA",
     "CLASS B FELONY": "FELB",
     "CLASS C FELONY": "FELC",
     "CLASS D FELONY": "FELD",
-    "AGGRAVATED MISDEMEANOR": "AGMD",
-    "SERIOUS MISDEMEANOR": "SRMD",
-    "SIMPLE MISDEMEANOR": "SMMD",
+    "AGGRAVATED MISDEMEANOR": "AGMS",
+    "SERIOUS MISDEMEANOR": "SRMS",
+    "SIMPLE MISDEMEANOR": "SMMS",
     "SCHEDULED VIOLATION": "SV",
+    "NON-SCHEDULED VIOLATION": "NSV",
+    "NON SCHEDULED VIOLATION": "NSV",
     "CONTEMPT OF COURT": "CNTP",
 }
 
