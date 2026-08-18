@@ -169,23 +169,40 @@ class TestFugitiveAndParoleReadCivil:
         assert cells['G'] == 'CIV'
 
     @pytest.mark.parametrize('outcome,expected', [('WITHDRAWN', 'WTHD'),
-                                                  ('CHANGE OF VENUE', 'TNSF'),
                                                   ('DISMISSED', 'DISM')])
-    def test_a_fugitive_hold_that_was_never_adjudicated_keeps_its_code(
+    def test_a_fugitive_hold_that_ended_here_keeps_its_code(
             self, outcome, expected):
         """Deliberate, and the safer way round.
 
-        A withdrawn or transferred count has no adjudicated statute, so 820.2
-        never reaches column F and there is nothing for the statute rule to
-        read. Leaving these alone is also what protects the client: WTHD, TNSF
-        and DISM are all in the EXPUNGEMENT & 910.7 cleared set and CIV is not,
-        so recoding them would take away expungement eligibility to fix a
-        label. They already land in the same dischargeable and exempt buckets
-        CIV would have put them in.
+        A withdrawn count has no adjudicated statute, so 820.2 never reaches
+        column F and there is nothing for the statute rule to read. Leaving
+        these alone is also what protects the client: WTHD and DISM are in
+        the EXPUNGEMENT & 910.7 cleared set and CIV is not, so recoding them
+        would take away expungement eligibility to fix a label. They already
+        land in the same dischargeable and exempt buckets CIV would have put
+        them in.
         """
         cells, _ = _row(_case([('820.2', 'FUGITIVE FROM JUSTICE - 1989',
                                 outcome)]))
         assert cells['G'] == expected
+
+    def test_a_transferred_civil_case_reads_civil_anyway(self):
+        """The one cleared code the civil reading is allowed to replace.
+
+        This case used to sit in the parametrize above, with the same
+        reasoning: TNSF clears the expungement sheet and CIV does not. Then
+        Iowa Legal Aid's 8/07 workbook review flagged a real Polk parole
+        violation, 908.1 disposed CHANGE OF VENUE, reading transferred in
+        column G and asked for CIV by name. Transferred is also the one
+        cleared wording that claims the case continued somewhere else rather
+        than ending here, so for TNSF the label is the error and the
+        expungement trade is the client's own call. WTHD and DISM stay
+        protected above; nothing was said about them and their labels are
+        true.
+        """
+        cells, _ = _row(_case([('908.1', 'VIOLATION OF PAROLE - 1985',
+                                'CHANGE OF VENUE')]))
+        assert cells['G'] == 'CIV'
 
     def test_violation_of_parole_reads_civil(self):
         cells, _ = _row(_case([('908.1', 'VIOLATION OF PAROLE - 1985',
