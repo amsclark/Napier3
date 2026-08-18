@@ -93,6 +93,15 @@ charge_code_map = {
     "NOT GUILTY": {"ACQ":0},
     "WAIVED TO ADULT COURT": {"JWV":0},
     "ADJUDICATED": {"JUV":1},
+    # Alerted on a real run 2026-08-18: two juvenile delinquency cases (both
+    # JVJV numbers) carried this wording and coded OTH. It is the juvenile
+    # court's admission -- the delinquency analogue of a guilty plea, an
+    # adjudication reached by the child admitting the allegation rather than
+    # the court finding it -- so it earns JUV at the rank of a conviction,
+    # exactly as ADJUDICATED does. On a case that is not the juvenile
+    # court's, get_dominant_charge demotes any JUV to JUV_RANK_ADULT_CASE by
+    # code, not by wording, so this entry inherits that safety unchanged.
+    "JUVENILE ADMISSION": {"JUV":1},
     "WITHDRAWN": {"WTHD":0},
     "NOT FILED": {"NOTF":0},
     "CIVIL": {"CIV":0},
@@ -281,22 +290,19 @@ ORDINANCE_VEHICULAR_NOTE = (
     "it."
 )
 
-# The row has one disposition date and the case had several. Column D now holds
-# the one that goes with the code in column G, which is the pairing the sheets
-# assume, but the SOL sheet runs its twenty year test off that single date and
-# will apply it to every dollar on the row including debt from a count disposed
-# years earlier.
+# The row has one disposition date and the case had several. Column D holds the
+# earliest date on the counts behind the code in column G -- the conviction
+# date, per Iowa Legal Aid on 18 August 2026, because the expungement waiting
+# periods run off D and a contempt or probation violation was pushing it years
+# forward. The SOL sheet runs its twenty year test off that same single date
+# and now sees the oldest one, so the note sends an SOL reader back to ICOS.
+# The wording is close to the one Iowa Legal Aid supplied; two earlier drafts
+# here were misread, so the sentence naming what column D counts is hers.
 DISPOSITION_SPREAD_NOTE = (
-    "Counts on this case were disposed on different dates (%s). Column G is the "
-    "disposition code and column D is a date: %s, the day the count behind that "
-    "code was disposed. The SOL sheet applies its 20 year test to that one date "
-    "for the whole row, so if this case is near the 20 year line check the "
-    "counts separately."
+    "This case has %d disposition dates (%s). Column D counts the conviction "
+    "date: %s. For SOL analysis please review ICOS information for the "
+    "timeline of debt assessed."
 )
-
-# The wording above used to be "Column D holds X, the date of the disposition in
-# column G", which Iowa Legal Aid read as a claim that column G holds a date.
-# It does not and never did. Both halves are named now.
 
 # What column V says when a case that is not a JVJV still comes out as JUV. See
 # JUV_RANK_ADULT_CASE for why that is now rare and why it is still possible.
@@ -846,20 +852,24 @@ def get_dominant_charge(charges, case_id=None):
     # count and adjudicated on another more than a year later reported the later
     # code against the earlier date.
     #
-    # That pairing is not cosmetic. The SOL sheet asks IF(D+7300 < today) on
-    # every row, the twenty year limit on enforcing an Iowa judgment, and it
-    # sorts the row's debt into time barred or "NO ARGUMENT" on the answer.
-    # Taking the earliest date available makes a judgment look older than it is,
-    # so the error ran toward telling an attorney a debt had aged out when it
-    # had not.
-    #
-    # Where several counts share the winning code, the last of them is the day
-    # the case finished reaching that disposition, and it is also the reading
-    # that will not retire a debt early.
+    # Where several counts share the winning code, the FIRST of them dates the
+    # row. This took the last until Iowa Legal Aid overruled it on 18 August
+    # 2026, and both readings are defensible, so the choice is theirs to make:
+    # a contempt or probation violation found guilty years into the sentence
+    # shares GTR with the conviction it violates, and taking the later date
+    # made the conviction look years younger than it is. The expungement
+    # waiting periods -- the misdemeanour eight years, public intoxication,
+    # PAULA, juvenile prostitution -- all run off column D on every workbook,
+    # and a date pushed forward holds a remedy back past when the client
+    # earned it. The cost runs the other way on the SOL sheet, whose twenty
+    # year test now sees the older date and can retire enforcement of the
+    # later judgment early; Iowa Legal Aid rates that acceptable because an
+    # SOL analysis is rare and the spread note on the row sends its reader
+    # back to ICOS for the timeline.
     winning_dates = dates_by_code.get(delisted['disposition']) or []
     if winning_dates:
-        delisted['dispositionDate'] = max(
-            winning_dates, key=lambda d: parse_us_date(d) or date.min)
+        delisted['dispositionDate'] = min(
+            winning_dates, key=lambda d: parse_us_date(d) or date.max)
 
     # A row that compresses counts disposed on different days is saying less
     # than the case does, and the sheet that reads the date cannot see the
@@ -2014,7 +2024,7 @@ def process_case(case, worksheet, row, as_of=None):
     spread = charge.get('disposition_date_spread') or []
     if spread and owes_money(worksheet, i):
         append_note(worksheet, i, DISPOSITION_SPREAD_NOTE
-                    % (", ".join(spread), disposition_date))
+                    % (len(spread), ", ".join(spread), disposition_date))
     # Only where the SOL sheet has something to be wrong about. A pending case
     # with nothing outstanding puts zero in all three of its columns whatever
     # column D says, and a caveat there describes a decision nobody is making.
