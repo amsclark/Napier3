@@ -42,6 +42,16 @@ from openpyxl.worksheet.formula import ArrayFormula
 # statute lookup. None of them is a per-case analysis of CASE DATA.
 NOT_DERIVED = ('CASE DATA', 'BASIC INFO', 'CODE SECTIONS')
 
+# CASE DATA is the case list rather than a reading of it, so it is not mirrored
+# down from a template row the way the sheets above are, and its own formulas
+# name no sheet so the survey below cannot see them. Two things on it are still
+# derived and still stop at row 300: column T, each row's own =SUM(J4:S4), and
+# the totals across row 1, =SUM(J4:J300). Columns W to AH stop there too and are
+# deliberately not touched here, because statutes.write_statute_split has
+# already written every row of them as plain text by the time this runs.
+CASE_DATA = 'CASE DATA'
+FIRST_CASE_ROW = 4
+
 # Far past any case list, and there to stop a sheet whose styled region runs to
 # the bottom of the spreadsheet from being walked cell by cell.
 ROW_CAP = 5000
@@ -201,21 +211,64 @@ def _extend_sheet(sheet, last_case_row):
     if reached >= last_case_row:
         return 0, deepest, first
 
-    template = [cell for cell in sheet[deepest] if _formula(cell)]
+    # _fill_down copies each cell's style along with its formula. Without that
+    # the new rows lose the currency and date formats the filled-down ones
+    # carry, and a dollar figure printed as a bare number reads as a different
+    # kind of number.
     added = last_case_row - reached
+    _fill_down(sheet, deepest, added)
+    return added, deepest + added, first
+
+
+def _fill_down(sheet, template_row, added):
+    """Copy a row's formulas and formats down `added` rows."""
+    template = [cell for cell in sheet[template_row] if _formula(cell)]
     for step in range(1, added + 1):
         for cell in template:
-            target = sheet.cell(row=deepest + step, column=cell.column)
+            target = sheet.cell(row=template_row + step, column=cell.column)
             _write(target,
                    Translator(_formula(cell),
                               origin=cell.coordinate).translate_formula(
                                   row_delta=step, col_delta=0),
                    source=cell, row_delta=step)
-            # Without this the new rows lose the currency and date formats the
-            # filled-down ones carry, and a dollar figure printed as a bare
-            # number reads as a different kind of number.
             target._style = copy(cell._style)
-    return added, deepest + added, first
+
+
+def _deepest_formula_row(sheet, first_row):
+    """The last row at or below first_row holding a formula of any kind."""
+    deepest = None
+    for row in sheet.iter_rows(min_row=first_row,
+                               max_row=min(sheet.max_row, ROW_CAP)):
+        if any(_formula(cell) for cell in row):
+            deepest = row[0].row
+    return deepest
+
+
+def _extend_case_data(sheet, last_case_row):
+    """Fill CASE DATA's own derived cells down and widen its totals.
+
+    Returns the rows added. Column T is what the expungement sheet reads for
+    the debt subject to 910.7, and row 1 is the figure staff read off the case
+    list itself, so a case list past row 300 loses both without saying so.
+    """
+    deepest = _deepest_formula_row(sheet, FIRST_CASE_ROW)
+    if deepest is None:
+        return 0
+
+    added = 0
+    if deepest < last_case_row:
+        added = last_case_row - deepest
+        _fill_down(sheet, deepest, added)
+
+    for cell in sheet[1]:
+        formula = _formula(cell)
+        if not formula:
+            continue
+        widened = _widen_local_ranges(formula, FIRST_CASE_ROW,
+                                      max(deepest + added, last_case_row))
+        if widened != formula:
+            _write(cell, widened)
+    return added
 
 
 def extend_formula_grid(workbook, case_count):
@@ -230,6 +283,11 @@ def extend_formula_grid(workbook, case_count):
 
     last_case_row = 3 + case_count
     changed = {}
+
+    added = _extend_case_data(workbook[CASE_DATA], last_case_row)
+    if added:
+        changed[CASE_DATA] = added
+
     for sheet in workbook.worksheets:
         if sheet.title in NOT_DERIVED:
             continue
@@ -262,3 +320,110 @@ def extend_formula_grid(workbook, case_count):
         if touched:
             changed[sheet.title] = added
     return changed
+
+
+def _range_shortfalls(sheet, first_case_row, last_row, last_case_row):
+    """Ranges above the case rows that still stop before the case list ends."""
+    short = set()
+    for row in sheet.iter_rows(min_row=1,
+                               max_row=min(sheet.max_row, first_case_row - 1)):
+        for cell in row:
+            formula = _formula(cell)
+            if not formula:
+                continue
+            if _widen_local_ranges(formula, first_case_row,
+                                   last_row) != formula:
+                short.add(cell.coordinate)
+            if _widen_case_ranges(formula, last_case_row) != formula:
+                short.add(cell.coordinate)
+    return short
+
+
+def shortfalls(workbook, case_count):
+    """Every sheet whose formulas still stop before the last case, measured.
+
+    extend_formula_grid is meant to leave this empty, and this is here because
+    of what the alternative did. The finish page used to work the warning out
+    from the case count and the depths the templates shipped with, so it went
+    on telling staff the analysis sheets stop at 147 cases, and the totals at
+    97, for as long as it took somebody to notice that they had not since the
+    grid was extended. A run of 184 cases came back correct and captioned as
+    short, next to advice to split the search in two, which is both unnecessary
+    and something no screen in Napier will do.
+
+    So this asks the workbook instead of predicting it. Anything it names is a
+    real gap in the file that was saved, and a workbook nothing is wrong with
+    says nothing at all.
+    """
+    if case_count <= 0:
+        return {}
+
+    last_case_row = 3 + case_count
+    short = {}
+
+    sheet = workbook[CASE_DATA]
+    deepest = _deepest_formula_row(sheet, FIRST_CASE_ROW)
+    if deepest is not None:
+        # On CASE DATA a sheet row is a case row, so the row the totals have to
+        # cover is the last case row itself. A total that sums further down
+        # than the case list is adding up blank rows, which is not a shortfall.
+        short[CASE_DATA] = _reasons(sheet, FIRST_CASE_ROW, last_case_row,
+                                    last_case_row, deepest < last_case_row)
+
+    for sheet in workbook.worksheets:
+        if sheet.title in NOT_DERIVED:
+            continue
+        rows, deepest, furthest = _survey(sheet)
+        if deepest is None:
+            continue
+        # The sheets do not agree on where a case lands -- SOL's row 4 reads
+        # case row 4, the expungement sheet's row 3 does, LICENSE-REGIS starts
+        # two rows up -- so the row the last case sits on is found by counting
+        # back from the deepest case the sheet does reach, not by taking the
+        # case row as a sheet row. Where that lands above the sheet's own last
+        # row, the rows past it hold no case and a total that stops short of
+        # them is not short of anything.
+        reach = deepest + (last_case_row - furthest)
+        short[sheet.title] = _reasons(sheet, min(rows), reach,
+                                      last_case_row, furthest < last_case_row)
+    return {name: reasons for name, reasons in short.items() if reasons}
+
+
+def _reasons(sheet, first_case_row, reach, last_case_row, rows_short):
+    reasons = ['rows'] if rows_short else []
+    if _range_shortfalls(sheet, first_case_row, reach, last_case_row):
+        reasons.append('totals')
+    return reasons
+
+
+def describe_shortfalls(short):
+    """What to put in front of staff about the sheets shortfalls() named.
+
+    One sentence per sheet, because the two failures read differently on a
+    finished file: a missing row is a case absent from an analysis, and a short
+    total is a figure that looks right and is low.
+    """
+    lines = []
+    for name in sorted(short):
+        reasons = short[name]
+        if name == CASE_DATA:
+            # The case list itself is never missing a case; what it can be
+            # missing is column T on the rows past where the template's own
+            # formulas stop, and the totals across the top.
+            lines.append(
+                "CASE DATA's TOTAL column and the totals across its top row "
+                "cover only part of the case list, so the rows are right and "
+                "those figures are low.")
+        elif 'rows' in reasons and 'totals' in reasons:
+            lines.append(
+                "%s stops before the last case, so the cases past that point "
+                "are missing from it and its totals are low." % name)
+        elif 'rows' in reasons:
+            lines.append(
+                "%s stops before the last case, so the cases past that point "
+                "are on CASE DATA and nowhere else." % name)
+        else:
+            lines.append(
+                "%s adds up only part of the case list, so its rows are right "
+                "and its totals are low." % name)
+    return lines

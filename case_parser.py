@@ -162,6 +162,14 @@ KNOWN_PARTY_ROLES = frozenset({
     'PRO SE APPELLANT',
     'APPELLEE',
     'PRO SE APPELLEE',
+    # A party the original defendant brought into the suit for all or part of
+    # the claim against them. They answer a petition and a judgment can be
+    # entered against them, so it is their record in the same way DEFENDANT is.
+    # Unlike the suppressed COUNTER and CROSS roles, which ICOS puts on somebody
+    # already in the case under their own role, this is the only role the case
+    # lists them under, so suppressing it would lose the case rather than
+    # deduplicate it. Seen on two live searches 2026-08-18.
+    'THIRD PARTY DEFENDANT',
     # The owner named on a case about their property: condemnation, tax sale,
     # a municipal infraction, an in rem forfeiture. The case can assess costs
     # against them personally, so it is their record, unlike the LIEN FILER

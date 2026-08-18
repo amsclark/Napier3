@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ['NAPIER_DISABLE_BACKGROUND'] = '1'
 
 import alerts
+import case_parser
 import evidence
 import icos
 import tasks
@@ -665,6 +666,40 @@ def test_an_ordinary_search_says_nothing(mailbox):
     assert tasks.report_novel_roles(job, [_hit('DEFENDANT'),
                                           _hit('PRO SE DEFENDANT'),
                                           _hit('PETITIONER')]) == []
+    settle()
+    assert mailbox == []
+
+
+def test_a_third_party_defendant_is_a_party_and_stops_emailing(mailbox):
+    """Two live searches on 2026-08-18 each cost an email for this one role.
+
+    It is a party: the original defendant brought them in, they answer the
+    petition and a judgment can be entered against them, and it is the only
+    role the case lists them under. So it belongs on the known list rather
+    than the suppressed one, and saying so is the whole fix.
+    """
+    job = FakeJob('search')
+    assert tasks.report_novel_roles(job, [_hit('THIRD PARTY DEFENDANT')]) == []
+    settle()
+    assert mailbox == []
+    assert 'THIRD PARTY DEFENDANT' not in case_parser.NON_PARTY_ROLES
+
+
+def test_a_workbook_that_does_not_reach_its_last_case_reports_itself(mailbox):
+    """The finish page tells the staffer holding the file. This tells whoever
+    can fix the template, who is not in the room."""
+    job = FakeJob('crs')
+    tasks.report_short_workbook(job, ["SOL stops before the last case."], 400)
+    settle()
+    assert len(mailbox) == 1
+    assert alerts.WORKBOOK_SHORT in mailbox[0]['subject']
+    assert 'SOL' in mailbox[0]['text']
+    assert '400' in mailbox[0]['text']
+
+
+def test_a_workbook_that_reaches_its_last_case_says_nothing(mailbox):
+    job = FakeJob('crs')
+    tasks.report_short_workbook(job, [], 400)
     settle()
     assert mailbox == []
 

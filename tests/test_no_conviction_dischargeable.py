@@ -248,7 +248,7 @@ def test_an_acquittal_is_sorted_like_a_dismissal():
     """
     dispositions = ['DISMISSED', 'ACQUITTED', 'WITHDRAWN', 'NOT FILED',
                     'GUILTY']
-    path, _, _ = tasks.build_workbook(
+    path, _, _, _ = tasks.build_workbook(
         synthetic_cases(dispositions), 'TEST CLIENT', '01/01/1980', False)
     try:
         workbook = load_workbook(path)

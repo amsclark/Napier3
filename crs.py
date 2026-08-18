@@ -37,48 +37,19 @@ def iowa_today():
 MISMATCH_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 MISMATCH_FONT = Font(color="9C0006")
 
-# Where the CRS template stops, counted in cases rather than rows. Napier writes
-# CASE DATA from row 4 down and never stops, and Excel accepts every row it is
-# given, so outgrowing the template costs a number rather than raising anything:
-# the analysis sheets carry formulas only so far, and their totals sum a shorter
-# range still. Nobody has hit these on a real client, but the failure is a
-# quietly low figure carried into a hearing, so the run says something.
+# The first row of CASE DATA that holds a case. Rows 1 to 3 are the totals and
+# the two header rows.
 #
-# tests/test_workbook_limits.py reads these back out of the two .xlsx files, so
-# a new template that moves them fails the suite instead of going unnoticed.
+# What used to sit here alongside it was a set of constants recording where each
+# sheet of the shipped template runs out -- 147 cases on SOL, 97 in the totals,
+# 297 on CASE DATA -- and a workbook_limits() that warned staff whenever a run
+# was bigger than one of them. grid.extend_formula_grid has filled those sheets
+# down to the case list since, so the numbers stopped describing the workbook
+# Napier saves and the warning became a false one: a correct 184 case run came
+# back captioned as short, next to advice to split the search in two that no
+# screen here will carry out. The finish page now measures the saved workbook
+# with grid.shortfalls instead of predicting it from a case count.
 FIRST_CASE_ROW = 4
-# CASE DATA row 1 totals =SUM(x4:x300).
-CASE_DATA_TOTAL_LIMIT = 297
-# SOL, BANKRUPTCY and EXEMPTIONS each total =SUM(x4:x100). Full CRS only; the
-# Lite template does not have those sheets.
-ANALYSIS_TOTAL_LIMIT = 97
-# The first sheet to run out of rows altogether: SOL's formulas stop at row 150.
-ANALYSIS_ROW_LIMIT = 147
-# In the Lite template that is EXPUNGEMENT & 910.7, whose rows are offset by one
-# and stop at row 200, so its last case is CASE DATA row 201.
-LITE_ANALYSIS_ROW_LIMIT = 198
-
-
-def workbook_limits(written, is_lite):
-    """What this many cases outgrows in the CRS template, worst first."""
-    warnings = []
-    if written > CASE_DATA_TOTAL_LIMIT:
-        warnings.append(
-            "CASE DATA's totals on row 1 only add up the first %d cases, so "
-            "every total in this workbook is short."
-            % CASE_DATA_TOTAL_LIMIT)
-    row_limit = LITE_ANALYSIS_ROW_LIMIT if is_lite else ANALYSIS_ROW_LIMIT
-    if written > row_limit:
-        warnings.append(
-            "The analysis sheets have rows for the first %d cases only, so the "
-            "cases after that are on CASE DATA and nowhere else."
-            % row_limit)
-    if not is_lite and written > ANALYSIS_TOTAL_LIMIT:
-        warnings.append(
-            "The totals on SOL, BANKRUPTCY and EXEMPTIONS only add up the "
-            "first %d cases. The rows below that are right, the totals are "
-            "low." % ANALYSIS_TOTAL_LIMIT)
-    return warnings
 
 charge_code_map = {
     "GUILTY": {"GTR":1},
