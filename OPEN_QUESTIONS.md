@@ -368,23 +368,28 @@ other six have no disposition of any kind and are genuinely pending. Both of the
 uncoded rows leave column G empty, which BANKRUPTCY, EXEMPTIONS and SOL all read
 as "open charge", and the row says so in column V.
 
-## Two answers from 18 August 2026 waiting on a real page
+## Two answers from 18 August 2026, checked against the real pages
 
 Iowa Legal Aid's 18 August 2026 email settled the charge class suffix
 vocabulary — the misdemeanour codes end in S, not D, and a non-scheduled
 violation earns [NSV] — and supplied five real Polk county traffic cases that
-carry it. None of those pages is captured yet, so the map holds the class
-wording in two candidate spellings, hyphenated and not, and a test says it
-will narrow to whichever one the real page uses once one is replayed. Until
-then one of the two entries is a guess about ICOS's habits.
+carry it. Replayed the same day on the agreed test account: every one prints
+NON-SCHEDULED VIOLATION with the hyphen, as does the one earlier captured
+NTA page from another county, so the map holds that spelling alone and the
+spaced spelling that was briefly carried alongside it is dropped. All five
+rows render the suffix, on convictions and dismissals alike, and this one is
+closed.
 
-The same email supplied a real two-case example of OUT OF COUNTY WARRANT,
-which appears among a case's filings rather than its dispositions, and said
-the current output on such cases, other civil and CLOSED, is acceptable to
-them. That reading has not been checked against the real pages either, so the
-confirmation is theirs and not yet the corpus's. Both replays wait on an
-off-hours capture window, because live ICOS runs on the shared accounts do
-not happen during business hours.
+The same email supplied a real two-case example of OUT OF COUNTY WARRANT and
+said the current output on such cases, other civil and CLOSED, is acceptable
+to them. The same replay confirmed why that is all Napier can say: the
+warrant wording sits among the case's filings, a page Napier does not fetch,
+and appears nowhere on the summary, charges or financials pages it does. The
+charges pages carry no counts at all, so the case takes the no-charges civil
+path and both rows render other civil - CLOSED, coded CIV, with nothing
+owed, which is the output they accepted. Closed as acceptable rather than solved: reading
+the filings docket would be a new page type, and nothing on the sheets asks
+for it today.
 
 ## Smaller ones
 
