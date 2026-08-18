@@ -287,11 +287,13 @@ NOT_ADJUDICATED = frozenset({"WTHD", "DISM", "ACQ", "NOTF", "TNSF"})
 # The misdemeanour suffixes are Iowa Legal Aid's, not ICOS's: their 8/18
 # review corrected the first cut's AGMD/SRMD/SMMD to the AGMS/SRMS/SMMS
 # their attorneys actually write, and added NSV for a non-scheduled
-# violation. The left-hand wordings still belong to ICOS. NON-SCHEDULED
-# VIOLATION is carried in both spellings ICOS could plausibly print because
-# no page bearing it has been captured yet -- Iowa Legal Aid named five Polk
-# NTA cases that carry one, and a wrong guess here costs nothing: a wording
-# that matches neither spelling adds no suffix.
+# violation. The left-hand wordings still belong to ICOS: replaying the
+# five Polk NTA cases Iowa Legal Aid named, on 18 August 2026, showed every
+# one printing NON-SCHEDULED VIOLATION with the hyphen, as does the one
+# earlier captured NTA page from another county, so only that spelling is
+# mapped. A wording not in the map adds no suffix, so if some county's
+# clerk ever spells it without the hyphen the case loses its suffix rather
+# than gaining a wrong one, which is the standing no-guess rule here.
 CHARGE_CLASS_SUFFIXES = {
     "CLASS A FELONY": "FELA",
     "CLASS B FELONY": "FELB",
@@ -302,7 +304,6 @@ CHARGE_CLASS_SUFFIXES = {
     "SIMPLE MISDEMEANOR": "SMMS",
     "SCHEDULED VIOLATION": "SV",
     "NON-SCHEDULED VIOLATION": "NSV",
-    "NON SCHEDULED VIOLATION": "NSV",
     "CONTEMPT OF COURT": "CNTP",
 }
 
