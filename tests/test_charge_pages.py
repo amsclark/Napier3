@@ -72,6 +72,11 @@ NOT_ADJUDICATED_WORDINGS = [
     ('DNU-DISMISSED', 'DISM'),
     ('DNU-ACQUITTED', 'ACQ'),
     ('DNU-NOT FILED', 'NOTF'),
+    # And the prefix as Story County spaces it: 'DNU -', space before the
+    # hyphen. A literal replace of 'DNU-' cannot see it and the wording fell
+    # through to OTH, which is how 'DNU -JCS OTHER ADJ OTHER COURT' alerted
+    # on 13 August 2026.
+    ('DNU -DISMISSED', 'DISM'),
 ]
 
 
@@ -128,17 +133,88 @@ def test_the_two_maps_agree_on_what_a_prefixed_wording_means():
     """
     import crs
     for wording in case_parser.charge_code_dict:
-        for form in (wording, 'DNU-' + wording):
+        # Both prefix shapes ICOS has actually served: DNU-GUILTY from Polk
+        # and 'DNU -JCS OTHER ADJ OTHER COURT' from Story, space before the
+        # hyphen. Both sides strip with the same function now, but the test
+        # keeps feeding both shapes so a regression to a literal replace
+        # fails here instead of in an alert email.
+        for form in (wording, 'DNU-' + wording, 'DNU -' + wording):
             ours = case_parser.disposition_code(form)
-            theirs = crs.charge_code_map.get(form.replace('DNU-', ''))
+            theirs = crs.charge_code_map.get(case_parser.strip_dnu(form))
             if theirs is None:
                 continue
             assert ours == next(iter(theirs)), form
 
 
+def test_neither_map_knows_a_wording_the_other_does_not():
+    """Walking one map's keys cannot see a wording only the other learned.
+
+    GUILTY - OTHER went into crs.charge_code_map alone, so a Hamilton public
+    intoxication coded GTR in column G while its description read [OTH], and
+    the agreement test above never looked because it iterates case_parser's
+    keys. The key sets have to match before agreement on shared keys means
+    anything.
+    """
+    import crs
+    assert set(case_parser.charge_code_dict) == set(crs.charge_code_map)
+
+
 def test_a_deferred_judgment_is_adjudicated():
     """A deferred judgment is still an adjudication and still carries debt."""
     assert parse(('321J.2', 'SYNTHETIC OWI', 'DEFERRED'))['charge'] == '321J.2'
+
+
+# -- the DNU prefix ---------------------------------------------------------
+
+@pytest.mark.parametrize('form,bare', [
+    ('DNU-GUILTY', 'GUILTY'),
+    ('DNU -JCS OTHER ADJ OTHER COURT', 'JCS OTHER ADJ OTHER COURT'),
+    ('DNU - GUILTY', 'GUILTY'),
+    ('  DNU-GUILTY  ', 'GUILTY'),
+])
+def test_strip_dnu_takes_off_the_prefix_however_it_is_spaced(form, bare):
+    assert case_parser.strip_dnu(form) == bare
+
+
+def test_strip_dnu_only_reads_the_front_of_the_wording():
+    """DNU is a prefix, not a substring. A wording that merely contains the
+    letters keeps them."""
+    assert case_parser.strip_dnu('GUILTY') == 'GUILTY'
+    assert case_parser.strip_dnu('REDNU-CTION') == 'REDNU-CTION'
+    assert case_parser.strip_dnu('') == ''
+    assert case_parser.strip_dnu(None) == ''
+
+
+class TestTheStoryCountyWording:
+    """'JCS OTHER ADJ OTHER COURT': another court adjudicated, JCS is relaying.
+
+    A Story County OWI served it with the spaced DNU prefix on 13 August 2026
+    and Napier alerted on every run because neither map knew the wording. It
+    codes OTH: the adjudication happened somewhere ICOS is not showing, so the
+    row moves no money and the note still travels.
+    """
+
+    def test_it_codes_oth_in_both_maps(self):
+        assert case_parser.disposition_code('JCS OTHER ADJ OTHER COURT') == \
+            'OTH'
+        assert case_parser.disposition_code(
+            'DNU -JCS OTHER ADJ OTHER COURT') == 'OTH'
+        import crs
+        assert crs.charge_code_map['JCS OTHER ADJ OTHER COURT'] == \
+            {'OTH': crs.OTH_RANK}
+
+    def test_a_conviction_alongside_it_still_wins_the_case_code(self):
+        """The OWCR056327 shape: the count another court took stays OTH, the
+        count this court adjudicated codes the case."""
+        charge = parse(GUILTY,
+                       ('321J.2', 'SYNTHETIC OWI',
+                        'DNU -JCS OTHER ADJ OTHER COURT'))
+        assert '[OTH]' in charge['description']
+        import crs
+        dominant = crs.get_dominant_charge([charge])
+        assert dominant['disposition'] == 'GTR'
+        # And no alert: the wording is known now, not an unknown coded OTH.
+        assert dominant['unknown_dispositions'] == []
 
 
 # -- the invariant the typo broke ------------------------------------------

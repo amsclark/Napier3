@@ -1,6 +1,12 @@
 import itertools
 import re
 
+# For strip_dnu alone. The two modules keep separate disposition maps by
+# design, and the tests hold the key sets equal; the prefix strip is the one
+# reading they must share as code, because the 2026-08-13 alert was the two
+# of them agreeing on the maps and differing on the strip.
+import case_parser
+
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -111,10 +117,21 @@ charge_code_map = {
     # finding came from a trial or a plea, which is the only thing "- OTHER"
     # leaves open. What it does not leave open is that the client was found
     # guilty, and that is what every sheet actually asks.
-    "GUILTY - OTHER": {"GTR":1}
+    "GUILTY - OTHER": {"GTR":1},
+    # A Story County OWI alerted on this on 2026-08-13, behind the spaced
+    # DNU - prefix case_parser.strip_dnu now handles. JCS is Iowa's justice
+    # data system; the wording says another court adjudicated the count,
+    # without saying how it came out. OTH on purpose, at the same rank an
+    # unrecognised wording gets: the outcome lives on the other court's
+    # record, and OTH moves no money and marks the row as coded on less than
+    # a full answer. The entry exists so the wording stops alerting as
+    # unknown on every run that touches the case, and so a case that also
+    # carries a real conviction still reads as the conviction.
+    "JCS OTHER ADJ OTHER COURT": {"OTH": 0.5}
 }
 
-# The rank for a disposition string charge_code_map has never seen. It sits
+# The rank for a disposition string charge_code_map has never seen, and the
+# rank the one OTH entry above carries explicitly. It sits
 # between a dismissal and a conviction on purpose.
 #
 # It used to be 3, above everything else here. So one unrecognised word on one
@@ -390,6 +407,14 @@ def cites_section(statutes, sections):
 # against 908.11 because it refuses a trailing digit.
 CIVIL_SECTIONS = ('820.2', '908.1')
 
+# Charge wordings that mean the same thing when the clerk typed no statute
+# worth matching: the case is Iowa holding somebody for another jurisdiction,
+# not a conviction of theirs. Iowa Legal Aid's August 2026 debt review asked
+# for the civil reading to reach these by name, alongside the sections above.
+# Matched against the count's description with its [GTR]-style suffixes
+# stripped, and only when the statute check could not already answer.
+CIVIL_DESCRIPTIONS = ('OUT OF COUNTY WARRANT',)
+
 # What a clerk files a pre-electronic-docket case under. Either spelling is
 # enough on its own, because the captured case carries both and there is no
 # reading of one without the other that means anything else.
@@ -423,6 +448,57 @@ def only_civil_sections(statutes):
     if not codes:
         return False
     return all(cites_section(code, CIVIL_SECTIONS) == "YES" for code in codes)
+
+
+# The codes that already clear the EXPUNGEMENT & 910.7 sheet's DISM ACQ?
+# column on their own -- all of its cleared set except TNSF. A civil-in-nature
+# case wearing one of these keeps it: CIV is not in that cleared set, so
+# recoding a dismissed fugitive hold would take away expungement eligibility
+# to fix a label, and it already lands in the same dischargeable and exempt
+# buckets CIV would put it in. TNSF is deliberately not here. It is in the
+# sheet's cleared set too, but Iowa Legal Aid's 8/07 review flagged a parole
+# violation reading "transferred" and asked for CIV by name, and transferred
+# is also the one wording that claims the case went on somewhere else rather
+# than ending -- so for TNSF the label is the error and the trade is theirs.
+KEEPS_ITS_CLEARED_CODE = ('WTHD', 'DISM', 'ACQ', 'NOTF')
+
+
+def reads_civil(charge, disposition=''):
+    """Does this case read as civil once every count has had its say?
+
+    disposition is the code column G is about to carry. Three ways in, tried
+    in order of how much the record can be trusted:
+
+    1. The adjudicated statutes are all CIVIL_SECTIONS. Unchanged.
+    2. Nothing was adjudicated at all -- every count's statute was stripped
+       by the NOT_ADJUDICATED filter -- but the statutes ICOS listed were
+       all civil. A Polk parole violation (908.1) disposed CHANGE OF VENUE
+       had its one statute stripped as TNSF, so check 1 saw an empty string
+       and column G said the case was transferred. Falling back to the
+       pre-filter statutes only when the adjudicated set is empty keeps the
+       only_civil_sections partition intact: a case with a real conviction
+       still answers to check 1 alone, and the conviction still wins.
+    3. Every count's description, suffixes stripped, is a CIVIL_DESCRIPTIONS
+       wording. For the fugitive holds ICOS files with no statute worth
+       matching, where checks 1 and 2 have nothing to read.
+
+    Checks 2 and 3 stand down when the code already protects the client --
+    see KEEPS_ITS_CLEARED_CODE. Check 1 never meets that gate: a code in
+    that set means the count was not adjudicated, so its statute never
+    reached 'charge'.
+    """
+    if only_civil_sections(charge.get('charge')):
+        return True
+    if disposition in KEEPS_ITS_CLEARED_CODE:
+        return False
+    if (not charge.get('charge')
+            and only_civil_sections(charge.get('all_statutes'))):
+        return True
+    descriptions = [re.sub(r'(\[[A-Z]+\])+$', '', part).strip()
+                    for part in str(charge.get('description') or '').split(';')]
+    descriptions = [part for part in descriptions if part]
+    return bool(descriptions) and all(
+        part.upper() in CIVIL_DESCRIPTIONS for part in descriptions)
 
 
 # How far back to look when working out what somebody is paying now. A court
@@ -732,7 +808,7 @@ def get_dominant_charge(charges, case_id=None):
     dates_by_code = {}
     unknown = set()
     for index, disposition in enumerate(raw_charge):
-        disposition = disposition.replace("DNU-", "")
+        disposition = case_parser.strip_dnu(disposition)
         if not disposition:
             # ICOS printed no adjudication for this count. That is the absence
             # of a disposition, and it used to be recorded as NOTF, NOT FILED,
@@ -812,7 +888,7 @@ def case_level_code(status):
     unknown_dispositions, which already puts the wording in column V and tells
     the run, so the case is visibly uncoded rather than quietly miscoded.
     """
-    entry = charge_code_map.get((status or "").replace("DNU-", "").strip())
+    entry = charge_code_map.get(case_parser.strip_dnu(status))
     return next(iter(entry)) if entry else None
 
 
@@ -1273,12 +1349,28 @@ def reconcile_financials(case):
                 line_paid = sum((entry[2] for entry in entries), Decimal(0))
                 missing = category['original'] - assessed
                 visible_due = assessed - line_paid
+                # The part of the balance no identified line accounts for.
+                # This used to be `missing` itself, guarded by requiring
+                # visible_due + missing == due, which holds only when every
+                # payment in the category landed on an identified line. A
+                # Webster case pays its COSTS through blank-detail rows the
+                # itemization never names: $201.95 assessed, $30.00 of it
+                # identified (an unpaid indigent defense fee), $137.95 paid
+                # against the unidentified rest. The old equality failed and
+                # the whole $64.00 balance was spread over the one identified
+                # line, so $34.00 of money ICOS never identifies inflated
+                # INDIGENT DEFENSE. due - visible_due is the same number as
+                # `missing` whenever the old equality held, and is still the
+                # unidentified balance when payments cannot be attributed;
+                # the bound against `missing` is what keeps it honest when
+                # the summary and itemization disagree some third way.
+                unknown_gap = due - visible_due
                 identifies_something = (name == 'FINE'
                                         or assessed > Decimal('0.01'))
                 if (identifies_something
                         and missing > Decimal('0.01')
-                        and abs((visible_due + missing) - due)
-                        <= Decimal('0.01')):
+                        and unknown_gap > Decimal('0.01')
+                        and unknown_gap <= missing + Decimal('0.01')):
                     recovered.append(name)
                     if name == 'FINE':
                         # No part of this went to UNKNOWN, so it is deliberately
@@ -1296,7 +1388,7 @@ def reconcile_financials(case):
                             column = get_finance_column(detail)
                             columns[column] = columns.get(
                                 column, Decimal(0)) + owed
-                        columns['P'] = columns.get('P', Decimal(0)) + missing
+                        columns['P'] = columns.get('P', Decimal(0)) + unknown_gap
                         landed[name] = {
                             get_finance_column(detail)
                             for detail, amount, paid in entries
@@ -1867,8 +1959,8 @@ def process_case(case, worksheet, row, as_of=None):
 
         # After the clerk's wording has had its say and before anything is
         # written, because what the charge is beats how the disposition was
-        # typed. This is the only place the statute overrides the code.
-        if only_civil_sections(charge['charge']):
+        # typed. This is the only place the charge overrides the code.
+        if reads_civil(charge, disposition):
             disposition = "CIV"
 
         worksheet['C' + i] = charge['offenseDate']

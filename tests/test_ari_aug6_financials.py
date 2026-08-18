@@ -51,6 +51,35 @@ def test_known_attorney_fee_survives_and_only_residual_is_unknown():
     assert columns['P'] == Decimal('34.00')
 
 
+def test_payments_on_blank_rows_still_leave_the_unpaid_fee_identified():
+    """The Webster shape from Iowa Legal Aid's 8/07 workbook review.
+
+    On the real case the clerk posted most of the payments against
+    continuation rows that name no fee: a detail of one space, no assessed
+    amount, real money in Paid. COSTS read original 201.95, paid 137.95,
+    due 64.00, and the one fee still unpaid was a 30.00 indigent defense
+    reimbursement. Iowa Legal Aid asked what the 64.00 was. The answer the
+    row has to keep giving: the 30.00 attorney fee identified in J, and the
+    34.00 ICOS never itemizes in P as unknown. A payment-only row must not
+    be read as an assessed fee, or P grows by money nobody owes.
+    """
+    case = {
+        'summary_categories': _summary(COSTS=('201.95', '137.95')),
+        'financials': [
+            {'detail': ' ', 'amount': None, 'paid': '100.00',
+             'paidDate': '04/06/2023', 'receipt': '000001', 'tender': 'EPY'},
+            {'detail': ' ', 'amount': None, 'paid': '37.95',
+             'paidDate': '11/21/2024', 'receipt': '000002', 'tender': 'EPY'},
+            {'detail': 'INDIGENT DEFENSE-MISDM-REIMBURSE STATE',
+             'amount': '30.00', 'paid': None, 'paidDate': None,
+             'receipt': None, 'tender': None},
+        ],
+    }
+    columns, _ = crs.reconcile_financials(case)
+    assert columns['J'] == Decimal('30.00')
+    assert columns['P'] == Decimal('34.00')
+
+
 def test_summary_only_fine_goes_to_fines_not_collection_costs():
     case = {
         'summary_categories': _summary(FINE=('3100.00', '0')),

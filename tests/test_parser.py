@@ -154,6 +154,19 @@ def test_a_beneficiary_is_not_the_person_the_search_is_about():
     assert cases == []
 
 
+def test_law_enforcement_is_not_the_person_the_search_is_about():
+    """Served by a live search on 2026-08-13: someone matching the searched
+    name is on a case as LAW ENFORCEMENT, a role in neither list, so the case
+    was kept by default and the role mailed out as unrecognised on every run.
+
+    The officer is on the case professionally, like ATTORNEY, WITNESS and
+    JUDGE. Nothing on it is their record or their debt, so the case stays out
+    of the summary.
+    """
+    cases, _ = case_parser.parse_search(role_row('LAW ENFORCEMENT'))
+    assert cases == []
+
+
 def test_a_juvenile_involved_is_the_person_the_search_is_about():
     """JVIN identifies the juvenile party, not a relative or other nonparty."""
     cases, _ = case_parser.parse_search(role_row('JUVENILE - INVOLVED'))
