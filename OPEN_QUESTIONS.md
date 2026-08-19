@@ -391,6 +391,48 @@ owed, which is the output they accepted. Closed as acceptable rather than solved
 the filings docket would be a new page type, and nothing on the sheets asks
 for it today.
 
+## Two from 19 August 2026, and one judgement made on their behalf
+
+Iowa Legal Aid found the same client's cases disagreeing with each other. Three
+Polk violation-of-parole cases disposed NOT FILED read NOTF in column G, while
+three more of the same statute, the same court and the same client, disposed
+CHANGE OF VENUE, read CIV. All six were replayed off the real pages the same
+day: every one carries 908.1 on both the original and the adjudicated charge,
+and the only thing that differed was the word the clerk typed to clear it.
+
+The cause was an ordering. The civil reading stood down whenever the
+disposition code already cleared the EXPUNGEMENT & 910.7 sheet, which is every
+cleared word except CHANGE OF VENUE — that one had been let through after the
+7 August review asked for CIV on a transferred parole violation by name. So
+the gate was not protecting a principle, it was recording which wording had
+last been complained about. The statute readings now run ahead of it and the
+description reading still runs behind it, because a statute is proof of what
+the case is and a wording on its own is not.
+
+**The judgement.** Iowa Legal Aid named NOT FILED. Lifting the gate for the
+statute readings also moves DISMISSED, WITHDRAWN and ACQUITTED holds off those
+codes and onto CIV, which takes them out of the DISM ACQ? column on the
+EXPUNGEMENT & 910.7 sheet. That is beyond what was asked, and it was done on
+the strength of what they said the day before: a civil-in-nature case is not
+eligible for dismissed-or-acquitted expungement in the first place, so the
+cleared code was printing a YES no attorney could act on. If that reading is
+wrong, this is the change to reverse, and the three cleared words are the ones
+to put back in `KEEPS_ITS_CLEARED_CODE`. Nothing moves on the money sheets
+either way: CIV lands in the same dischargeable and exempt buckets those codes
+already reached.
+
+The second one was a wording nobody had seen: ARREST WITHOUT WARRANT, on a
+Polk case with no count-level adjudication at all, so column G was reading the
+summary's DISMISSED. The real page settles it without needing the wording —
+the count cites 820.14, an arrest made on the belief that somebody is a
+fugitive before the other state's warrant arrives. That is a hold under the
+same extradition chapter as 820.2, so it joins the civil sections rather than
+the civil descriptions, and is matched as a section: 820.140 and 820.1 are
+untouched, the same way 908.11 is kept clear of 908.1.
+
+All seven of that client's Polk cases now read CIV, which is what the record
+says they are.
+
 ## Smaller ones
 
 A case whose counts were adjudicated on different days is reported under the
