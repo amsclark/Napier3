@@ -369,20 +369,28 @@ def cites_section(statutes, sections):
     return "NO"
 
 
-# Two statutes that are not crimes. Fugitive from justice is an extradition
-# hold and violation of parole is an executive revocation, so neither is a
-# conviction the client carries, and Iowa Legal Aid asked for both to read as
-# civil. Napier codes off whatever the clerk typed in the disposition, so the
-# four captured fugitive cases came out under four different codes: GTR, TNSF,
-# WTHD and OTH. All five owe nothing, so no money moves today.
+# Three statutes that are not crimes. Fugitive from justice and arrest without
+# a warrant are both holds under the extradition chapter, one on a warrant from
+# another state and one on an officer's belief before the warrant arrives, and
+# violation of parole is an executive revocation. None is a conviction the
+# client carries, and Iowa Legal Aid asked for all three to read as civil.
+# Napier codes off whatever the clerk typed in the disposition, so the four
+# captured fugitive cases came out under four different codes: GTR, TNSF, WTHD
+# and OTH. All five owe nothing, so no money moves today.
 #
-# Exactly these two, never chapter 908. Violation of probation is 908.11, one
-# section over, and the same 538 cases carry 20 of those worth about $17,600,
-# most of them real guilty pleas. A chapter rule would flip all of them to
-# civil, which is the opposite of what Iowa Legal Aid asked for the last time
-# this came up. cites_section is what keeps them apart: it will not match 908.1
-# against 908.11 because it refuses a trailing digit.
-CIVIL_SECTIONS = ('820.2', '908.1')
+# 820.14 arrived on 8/19 with a real Polk case, AMCR000000, that Iowa Legal Aid
+# had never seen the wording of before. It carries no count-level adjudication
+# at all, so column G was reading the summary's DISMISSED, and the statute is
+# the only thing on the page that says what the case actually is.
+#
+# Exactly these sections, never a chapter. Violation of probation is 908.11,
+# one section over from parole, and the same 538 cases carry 20 of those worth
+# about $17,600, most of them real guilty pleas. A chapter rule would flip all
+# of them to civil, which is the opposite of what Iowa Legal Aid asked for the
+# last time this came up. cites_section is what keeps them apart: it will not
+# match 908.1 against 908.11, or 820.14 against 820.140, because it refuses a
+# trailing digit.
+CIVIL_SECTIONS = ('820.2', '820.14', '908.1')
 
 # Charge wordings that mean the same thing when the clerk typed no statute
 # worth matching: the case is Iowa holding somebody for another jurisdiction,
@@ -428,16 +436,23 @@ def only_civil_sections(statutes):
 
 
 # The codes that already clear the EXPUNGEMENT & 910.7 sheet's DISM ACQ?
-# column on their own -- all of its cleared set except TNSF. A civil-in-nature
-# case wearing one of these keeps it: CIV is not in that cleared set, so
-# recoding a dismissed fugitive hold would take away expungement eligibility
-# to fix a label, and it already lands in the same dischargeable and exempt
-# buckets CIV would put it in. TNSF is deliberately not here. It is in the
-# sheet's cleared set too, but Iowa Legal Aid's 8/07 review flagged a parole
-# violation reading "transferred" and asked for CIV by name, and transferred
-# is also the one wording that claims the case went on somewhere else rather
-# than ending -- so for TNSF the label is the error and the trade is theirs.
-KEEPS_ITS_CLEARED_CODE = ('WTHD', 'DISM', 'ACQ', 'NOTF')
+# column on their own. A case that only reads civil off a description keeps
+# one of these rather than being recoded CIV, because CIV is not in that
+# cleared set and the trade would cost expungement eligibility to fix a label
+# the description alone vouches for.
+#
+# This gate used to stand in front of the statute readings too, with TNSF
+# taken out of it after Iowa Legal Aid's 8/07 review. That is what made the
+# codes disagree with each other: on 8/19 Iowa Legal Aid found three Polk
+# parole violations disposed NOT FILED reading NOTF and said the ones reading
+# transferred were right, which is the same case coming out two ways
+# depending on which cleared word the clerk happened to type. They had
+# already settled the trade the day before -- a civil-in-nature case is not
+# eligible for dismissed-or-acquitted expungement in the first place, so
+# keeping DISM on one buys the client nothing and prints a YES in the DISM
+# ACQ? column that no attorney can act on. So the statute readings below now
+# pass this gate and only the description reading stands behind it.
+KEEPS_ITS_CLEARED_CODE = ('WTHD', 'DISM', 'ACQ', 'NOTF', 'TNSF')
 
 
 def reads_civil(charge, disposition=''):
@@ -449,28 +464,30 @@ def reads_civil(charge, disposition=''):
     1. The adjudicated statutes are all CIVIL_SECTIONS. Unchanged.
     2. Nothing was adjudicated at all -- every count's statute was stripped
        by the NOT_ADJUDICATED filter -- but the statutes ICOS listed were
-       all civil. A Polk parole violation (908.1) disposed CHANGE OF VENUE
-       had its one statute stripped as TNSF, so check 1 saw an empty string
-       and column G said the case was transferred. Falling back to the
-       pre-filter statutes only when the adjudicated set is empty keeps the
-       only_civil_sections partition intact: a case with a real conviction
-       still answers to check 1 alone, and the conviction still wins.
+       all civil. Every cleared word a clerk can type sends a civil case
+       here: CHANGE OF VENUE, NOT FILED, DISMISSED, WITHDRAWN and ACQUITTED
+       all strip the count's statute, so check 1 sees an empty string and
+       column G reports the clerk's word instead of what the case is.
+       Falling back to the pre-filter statutes only when the adjudicated set
+       is empty keeps the only_civil_sections partition intact: a case with a
+       real conviction still answers to check 1 alone, and the conviction
+       still wins.
     3. Every count's description, suffixes stripped, is a CIVIL_DESCRIPTIONS
        wording. For the fugitive holds ICOS files with no statute worth
        matching, where checks 1 and 2 have nothing to read.
 
-    Checks 2 and 3 stand down when the code already protects the client --
-    see KEEPS_ITS_CLEARED_CODE. Check 1 never meets that gate: a code in
-    that set means the count was not adjudicated, so its statute never
-    reached 'charge'.
+    Only check 3 stands down when the code already clears the expungement
+    sheet -- see KEEPS_ITS_CLEARED_CODE. The statute is proof of what the
+    case is and a wording on its own is not, so the two are not traded away
+    on the same terms.
     """
     if only_civil_sections(charge.get('charge')):
         return True
-    if disposition in KEEPS_ITS_CLEARED_CODE:
-        return False
     if (not charge.get('charge')
             and only_civil_sections(charge.get('all_statutes'))):
         return True
+    if disposition in KEEPS_ITS_CLEARED_CODE:
+        return False
     descriptions = [re.sub(r'(\[[A-Z]+\])+$', '', part).strip()
                     for part in str(charge.get('description') or '').split(';')]
     descriptions = [part for part in descriptions if part]

@@ -168,40 +168,40 @@ class TestFugitiveAndParoleReadCivil:
                                 outcome)]))
         assert cells['G'] == 'CIV'
 
-    @pytest.mark.parametrize('outcome,expected', [('WITHDRAWN', 'WTHD'),
-                                                  ('DISMISSED', 'DISM')])
-    def test_a_fugitive_hold_that_ended_here_keeps_its_code(
-            self, outcome, expected):
-        """Deliberate, and the safer way round.
+    @pytest.mark.parametrize('outcome', ['WITHDRAWN', 'DISMISSED',
+                                         'ACQUITTED', 'NOT FILED',
+                                         'CHANGE OF VENUE'])
+    def test_a_cleared_word_does_not_hide_the_statute(self, outcome):
+        """Every wording a clerk can use to clear a count, one answer.
 
-        A withdrawn count has no adjudicated statute, so 820.2 never reaches
-        column F and there is nothing for the statute rule to read. Leaving
-        these alone is also what protects the client: WTHD and DISM are in
-        the EXPUNGEMENT & 910.7 cleared set and CIV is not, so recoding them
-        would take away expungement eligibility to fix a label. They already
-        land in the same dischargeable and exempt buckets CIV would have put
-        them in.
+        None of these leaves an adjudicated statute behind, so 820.2 never
+        reaches column F and the statute rule reads the pre-filter statutes
+        instead. It used to stand down here, to keep the case in the
+        EXPUNGEMENT & 910.7 cleared set that CIV is not in. That is what made
+        the same hold come out five different ways, and Iowa Legal Aid found
+        it: 8/07 asked for CIV on a transferred parole violation, 8/19 asked
+        for it again on three disposed NOT FILED. A civil-in-nature case is
+        not eligible for dismissed-or-acquitted expungement anyway, so the
+        cleared code was buying a YES in that column that nobody could act
+        on.
         """
         cells, _ = _row(_case([('820.2', 'FUGITIVE FROM JUSTICE - 1989',
                                 outcome)]))
-        assert cells['G'] == expected
+        assert cells['G'] == 'CIV'
 
-    def test_a_transferred_civil_case_reads_civil_anyway(self):
-        """The one cleared code the civil reading is allowed to replace.
+    @pytest.mark.parametrize('outcome', ['CHANGE OF VENUE', 'NOT FILED',
+                                         'DISMISSED', 'WITHDRAWN',
+                                         'ACQUITTED'])
+    def test_a_cleared_parole_violation_reads_civil_too(self, outcome):
+        """Iowa Legal Aid's 8/19 report, and the 8/07 one it repeats.
 
-        This case used to sit in the parametrize above, with the same
-        reasoning: TNSF clears the expungement sheet and CIV does not. Then
-        Iowa Legal Aid's 8/07 workbook review flagged a real Polk parole
-        violation, 908.1 disposed CHANGE OF VENUE, reading transferred in
-        column G and asked for CIV by name. Transferred is also the one
-        cleared wording that claims the case continued somewhere else rather
-        than ending here, so for TNSF the label is the error and the
-        expungement trade is the client's own call. WTHD and DISM stay
-        protected above; nothing was said about them and their labels are
-        true.
+        Three real Polk parole violations disposed NOT FILED, 00000
+        AMCR000000, AMCR000000 and AMCR000000, came out NOTF while the ones
+        disposed CHANGE OF VENUE came out CIV. Same statute, same kind of
+        case, two answers.
         """
         cells, _ = _row(_case([('908.1', 'VIOLATION OF PAROLE - 1985',
-                                'CHANGE OF VENUE')]))
+                                outcome)]))
         assert cells['G'] == 'CIV'
 
     def test_violation_of_parole_reads_civil(self):
