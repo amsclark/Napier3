@@ -186,6 +186,33 @@ def plan_searches(keys, case_dict, people, found_by=None):
             for index, case_ids in enumerate(groups) if case_ids]
 
 
+def docket_names(keys, case_dict):
+    """Which spelling of the client's name each picked case is filed under.
+
+    Iowa Courts matches a name exactly as it is written on the case, so a
+    client whose docket spells them two ways is two rows on the picking page,
+    and ticking both is one workbook. Nothing on the finished row says which of
+    them it came from: the case number, the county and the charges read the
+    same either way, and the name is nowhere on CASE DATA at all. Iowa Legal
+    Aid asked for it on 2026-08-18, to check a merged summary against the
+    client sitting in front of them.
+
+    Empty for a workbook where every case is filed the same way. A note that is
+    the same on every row of a clinic sheet is a column staff learn to skip,
+    and that is the column the coding caveats are in.
+    """
+    names = {}
+    for key in keys:
+        _, _, name = key.partition(' ')
+        for case_id in case_dict.get(key, []):
+            # First key wins, the same way found_by does: one case can be
+            # returned under both spellings, and it is one row either way.
+            names.setdefault(case_id, name)
+    if len(set(names.values())) < 2:
+        return {}
+    return names
+
+
 def searches_behind(entry):
     """Every search that has to be repeated to pull this entry's cases.
 
@@ -210,6 +237,21 @@ def _failed_by_search(entry):
              'case_ids': [case_id for case_id in group['case_ids']
                           if case_id in failed]}
             for group in searches_behind(entry)]
+
+
+def report_short_workbook(job, short, written):
+    """Say when a saved workbook does not reach its own last case.
+
+    The finish page says this too, to the staffer holding the file. This says it
+    to whoever maintains the template, who is not in the room and would
+    otherwise hear about it only if the staffer thought to forward the page. The
+    case count is the useful part for reproducing it; no name and no case number
+    goes out with it.
+    """
+    if not short:
+        return
+    alerts.record(job.id[:8], job.kind, alerts.WORKBOOK_SHORT,
+                  cases=written, sheets=" ".join(short))
 
 
 def report_novel_roles(job, cases):
@@ -496,7 +538,7 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
 
 
 def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
-                 searches=None):
+                 searches=None, filed_as=None):
     """One client's share of what a retry needs.
 
     case_ids is everything that was asked for, in the order it was asked for,
@@ -509,13 +551,20 @@ def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
     client searched under more than one. Left out for a client searched once,
     where person carries the only search there is.
 
+    filed_as is the note each case carries about which spelling of the client's
+    name it is docketed under, empty unless there is more than one.
+
     These sit in the dyno's memory for the two hours the job lives, which is
     the same window the workbook itself sits in tmp for, so nothing is exposed
     here that the finished run was not already holding. They reach no log, no
     alert and no page.
     """
     entry = {'def_name': def_name, 'def_dob': def_dob, 'person': person,
-             'case_ids': list(case_ids), 'cases': cases, 'failed': list(failed)}
+             'case_ids': list(case_ids), 'cases': cases, 'failed': list(failed),
+             # So a rebuilt workbook keeps the attribution. The keys and the
+             # search results it was worked out from belong to the search job,
+             # which a retry does not go back to.
+             'filed_as': dict(filed_as or {})}
     if searches:
         entry['searches'] = [{'person': group['person'],
                               'case_ids': list(group['case_ids'])}
@@ -808,14 +857,16 @@ def batch_crs_task(job, session_token, picks, is_lite):
         for index, pick in enumerate(picks, start=1):
             _stop_if_asked(job)
             record = {'name': pick['def_name'], 'requested': len(pick['case_ids']),
-                      'written': 0, 'failed': [], 'file': None, 'error': None}
+                      'written': 0, 'failed': [], 'file': None, 'error': None,
+                      'limits': []}
             built.append(record)
             # Carried alongside the record rather than inside it, because this
             # holds whole parsed cases and the record is what the finish page
             # renders.
             entry = _retry_entry(pick['def_name'], pick['def_dob'],
                                  pick.get('person'), pick['case_ids'], [], [],
-                                 pick.get('searches'))
+                                 pick.get('searches'),
+                                 pick.get('filed_as'))
             retry_entries.append(entry)
 
             # Before the re-search, not after it. A dead site would otherwise
@@ -860,9 +911,9 @@ def batch_crs_task(job, session_token, picks, is_lite):
                     "cases, so there is no workbook for them.")
                 continue
             try:
-                path, unknown, atp = build_workbook(cases, pick['def_name'],
-                                                    pick['def_dob'], is_lite,
-                                                    failed)
+                path, unknown, atp, short = build_workbook(
+                    cases, pick['def_name'], pick['def_dob'], is_lite, failed,
+                    pick.get('filed_as'))
             except Exception as e:
                 # The other clients' workbooks are already built or still to
                 # come, and neither should be lost to this one.
@@ -877,9 +928,11 @@ def batch_crs_task(job, session_token, picks, is_lite):
                                    "workbook. The rest of the list is here.")
                 continue
             report_unknown_dispositions(job, unknown)
+            report_short_workbook(job, short, len(cases))
             record['written'] = len(cases)
             record['file'] = path
             record['atp'] = atp
+            record['limits'] = short
 
         if not any(record['file'] for record in built):
             raise ValueError("no workbooks could be built")
@@ -961,6 +1014,9 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
 
     try:
         searches = plan_searches(keys, case_dict, people or [person], found_by)
+        # Which spelling each case is docketed under, while the search results
+        # are still here to say so. CASE DATA carries no name of its own.
+        filed_as = docket_names(keys, case_dict)
         # The order the groups are pulled in, so the workbook's rows and the
         # retry's idea of where a recovered row goes back agree with each other.
         case_ids = [case_id for group in searches
@@ -980,13 +1036,14 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
             raise ValueError("no cases could be read")
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
-        path, unknown_dispositions, atp = build_workbook(cases, def_name,
-                                                         def_dob, is_lite,
-                                                         failed)
+        path, unknown_dispositions, atp, short = build_workbook(
+            cases, def_name, def_dob, is_lite, failed, filed_as)
         report_unknown_dispositions(job, unknown_dispositions)
+        report_short_workbook(job, short, len(cases))
         job.result = {
             "file": path,
             "atp": atp,
+            "limits": short,
             "def_name": def_name,
             "is_lite": is_lite,
             "written_cases": len(cases),
@@ -995,7 +1052,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
             "done_url": "/done/%s" % job.id,
             "retry": _retry_payload('crs', is_lite, [
                 _retry_entry(def_name, def_dob, person, case_ids, cases,
-                             failed, searches)]),
+                             failed, searches, filed_as)]),
         }
 
         if failed:
@@ -1058,7 +1115,8 @@ def retry_task(job, username, password, payload):
             _stop_if_asked(job)
             record = {'name': entry['def_name'],
                       'requested': len(entry['case_ids']),
-                      'written': 0, 'failed': [], 'file': None, 'error': None}
+                      'written': 0, 'failed': [], 'file': None, 'error': None,
+                      'limits': []}
             built.append(record)
 
             recovered, still_failed, reselect_failed = [], list(entry['failed']), False
@@ -1100,7 +1158,8 @@ def retry_task(job, username, password, payload):
             rebuilt.append(_retry_entry(entry['def_name'], entry['def_dob'],
                                         entry['person'], entry['case_ids'],
                                         cases, still_failed,
-                                        entry.get('searches')))
+                                        entry.get('searches'),
+                                        entry.get('filed_as')))
             if not cases:
                 if skipped:
                     record['error'] = ("%s before Napier reached this client, "
@@ -1118,9 +1177,9 @@ def retry_task(job, username, password, payload):
                                        "still no workbook for them.")
                 continue
             try:
-                path, unknown, atp = build_workbook(cases, entry['def_name'],
-                                                    entry['def_dob'], is_lite,
-                                                    still_failed)
+                path, unknown, atp, short = build_workbook(
+                    cases, entry['def_name'], entry['def_dob'], is_lite,
+                    still_failed, entry.get('filed_as'))
             except Exception as e:
                 print("Workbook failed on retry for client %d: %r" % (index, e),
                       flush=True)
@@ -1143,9 +1202,11 @@ def retry_task(job, username, password, payload):
                 key: [case_id for case_id in case_ids if case_id in fresh_ids]
                 for key, case_ids in unknown.items()
                 if any(case_id in fresh_ids for case_id in case_ids)})
+            report_short_workbook(job, short, len(cases))
             record['written'] = len(cases)
             record['file'] = path
             record['atp'] = atp
+            record['limits'] = short
 
         if not any(record['file'] for record in built):
             raise ValueError("no workbooks could be rebuilt")
@@ -1178,6 +1239,7 @@ def retry_task(job, username, password, payload):
             # so a retry that recovered two cases raises the balance the
             # calculator is about to be given.
             "atp": record.get('atp'),
+            "limits": record.get('limits', []),
             "def_name": record['name'],
             "is_lite": is_lite,
             "written_cases": record['written'],
@@ -1192,14 +1254,26 @@ def retry_task(job, username, password, payload):
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
-def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
-    """Returns the path written, the dispositions Napier could not read, and
-    the two figures the ability-to-pay calculator asks for.
+# What the notes column says on a workbook built out of more than one spelling
+# of the client's name. Past tense and no punctuation games, because it sits in
+# the same cell as the reconciliation and coding caveats and staff read the
+# column in one pass.
+FILED_AS_NOTE = "Filed under %s."
+
+
+def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
+    """Returns the path written, the dispositions Napier could not read, the
+    two figures the ability-to-pay calculator asks for, and anything the saved
+    workbook is still short of.
 
     failed is the cases that would not come off Iowa Courts, so the workbook
     can say what is not in it. The file travels further than any page Napier
     serves, and one that is quietly short two cases is worse than one that
     says it is short two cases.
+
+    filed_as maps a case number to the spelling of the client's name it is
+    docketed under, and is empty unless the workbook holds more than one. See
+    docket_names for why the notes column is where that goes.
 
     The second value maps the ICOS wording, paired with whether the row it
     landed on came out with a code in column G, to the case numbers it turned up
@@ -1207,6 +1281,10 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     sheet under a guessed code or on it with no code at all, and somebody needs
     to know which before the workbook is used, so the caller reports it rather
     than the file quietly carrying it.
+
+    The last value is one sentence per sheet that still stops before the last
+    case, measured off the workbook after the formula grid is extended. Empty
+    on every run the extension handles, which so far is all of them.
     """
     workbook = load_workbook('CRS Lite 3.5.5.xlsx' if is_lite else 'CRS 3.5.5.xlsx')
     sheet = workbook['CASE DATA']
@@ -1217,9 +1295,14 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     clinic_date = crs.iowa_today()
     row = 4
     unknown = {}
+    filed_as = filed_as or {}
     for case in cases:
         for key in crs.process_case(case, sheet, row, clinic_date) or []:
             unknown.setdefault(key, []).append(case['id'])
+        # Before the statute and coding notes below, so the row reads as which
+        # client this is and then what to watch on it.
+        if filed_as.get(case['id']):
+            crs.append_note(sheet, row, FILED_AS_NOTE % filed_as[case['id']])
         row += 1
 
     # Columns W to AH take column F apart one statute per column, and the
@@ -1242,6 +1325,14 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     # row down to the case list and widens the totals to match. It changes no
     # formula's meaning, and does nothing at all to a workbook that fits.
     grid.extend_formula_grid(workbook, row - 4)
+
+    # And then measure what that left, rather than working it out from the case
+    # count and the depths the template shipped at. The finish page used to do
+    # the arithmetic, so it went on quoting ceilings the extension had already
+    # lifted: a 184 case run came back complete and captioned as short. Anything
+    # named here is a gap in the file about to be saved, so a run that fits says
+    # nothing at all.
+    short = grid.describe_shortfalls(grid.shortfalls(workbook, row - 4))
 
     sheet = workbook['BASIC INFO']
     # Every date test in the workbook compares against B3, the clinic date: the
@@ -1271,7 +1362,7 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     suffix = "_Lite_CRS_" if is_lite else "_CRS_"
     path = tmp_dir + safe_name + suffix + stamp + ".xlsx"
     workbook.save(path)
-    return path, unknown, atp
+    return path, unknown, atp, short
 
 
 def download_name(def_name, is_lite):

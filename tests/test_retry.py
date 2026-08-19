@@ -138,7 +138,7 @@ def fake_icos(monkeypatch):
 WRITTEN = []
 
 
-def _fake_build(cases, name, dob, lite, failed=()):
+def _fake_build(cases, name, dob, lite, failed=(), filed_as=None):
     # failed is recorded because a rebuilt workbook that still does not name
     # what is missing from it is the whole point of this going in.
     WRITTEN.append({'name': name, 'ids': [case['id'] for case in cases],
@@ -147,7 +147,8 @@ def _fake_build(cases, name, dob, lite, failed=()):
                         'test_retry_%s.xlsx' % name.split(',')[0].strip())
     with open(path, 'wb') as f:
         f.write(b'PK\x03\x04 stub workbook')
-    return path, dict(UNKNOWN), {'balance': '$0.00', 'monthly': None, 'months': 12}
+    return (path, dict(UNKNOWN),
+            {'balance': '$0.00', 'monthly': None, 'months': 12}, [])
 
 
 @pytest.fixture(autouse=True)

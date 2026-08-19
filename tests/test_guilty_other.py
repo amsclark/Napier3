@@ -145,7 +145,7 @@ def test_the_licence_sheet_can_now_answer_about_the_case():
     clears, so this builds the workbook, takes the code off CASE DATA, and
     looks for it.
     """
-    path, unknown, _ = tasks.build_workbook(
+    path, unknown, _, _ = tasks.build_workbook(
         [synthetic_case(WORDING, WORDING)], 'TEST CLIENT', '01/01/1980', False)
     try:
         cases = load_workbook(path)['CASE DATA']

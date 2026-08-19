@@ -318,7 +318,7 @@ def test_the_build_hands_back_which_kind_each_wording_was(tmp_path, monkeypatch)
     it. Both cases in one workbook, because that is the run that was losing an
     email as well as mislabelling one."""
     monkeypatch.setattr(tasks, 'tmp_dir', str(tmp_path) + os.sep)
-    _, unknown, _ = tasks.build_workbook(
+    _, unknown, _, _ = tasks.build_workbook(
         [_case(UNADJUDICATED, CLOSED, case_id='00000  SRCR000000'),
          _case(UNREADABLE, '', case_id='00000  FECR000000')],
         'TEST CLIENT', '01/01/1980', False)
