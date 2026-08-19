@@ -34,7 +34,7 @@ from test_ari_aug5_items import _cells, _case, _row
 
 
 def unruled_page(statute, description):
-    """AMCR361161's shape, which no other fixture here has.
+    """The arrest-without-warrant shape, which no other fixture here has.
 
     ICOS filled the adjudication charge and the adjudication date and left
     the adjudication wording empty, so the count carries a statute and no
@@ -70,8 +70,9 @@ TRANSFERRED = 'CHANGE OF VENUE'
 
 
 class TestParoleViolationsAgreeWithEachOther:
-    """05771 AMCR326653, AMCR356299 and AMCR395742 against AMCR329214,
-    AMCR352570 and AMCR361278. Same statute, same court, same client."""
+    """The three Polk parole violations Iowa Legal Aid named against the
+    three of the same statute that were already right. Same statute, same
+    court, same client."""
 
     @pytest.mark.parametrize('outcome', [NOT_FILED, TRANSFERRED])
     def test_both_ways_the_clerk_cleared_it_read_civil(self, outcome):
@@ -97,8 +98,9 @@ class TestParoleViolationsAgreeWithEachOther:
 
 
 class TestArrestWithoutWarrant:
-    """05771 AMCR361161. No adjudication on the count, DISMISSED on the
-    summary, and 820.14 the only thing on the page that says what it is."""
+    """The aggravated misdemeanour Iowa Legal Aid had not seen before. No
+    adjudication on the count, DISMISSED on the summary, and 820.14 the only
+    thing on the page that says what it is."""
 
     def test_it_reads_civil(self):
         cells, _ = _row(unruled_case('820.14', 'ARREST WITHOUT WARRANT'))
