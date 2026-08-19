@@ -93,7 +93,7 @@ def run(monkeypatch, case_ids, unavailable=()):
     written = []
     TOLD_MISSING[:] = []
 
-    def fake_build(cases, name, dob, lite, failed=()):
+    def fake_build(cases, name, dob, lite, failed=(), filed_as=None):
         written.extend(case['id'] for case in cases)
         TOLD_MISSING.extend(failed)
         return (os.path.join(tasks.tmp_dir, 'stub.xlsx'), {},

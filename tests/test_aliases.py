@@ -32,6 +32,11 @@ import roster
 import tasks
 from icos import IcosError
 
+# tasks.build_workbook is monkeypatched away for this whole file, so the
+# tests that want a real CRS keep hold of it here.
+real_build_workbook = tasks.build_workbook
+from test_formula_grid import synthetic_cases   # noqa: E402
+
 DOB = "01/01/1900"
 
 # The shared case. It is on the docket under both spellings, which is the
@@ -117,6 +122,7 @@ def fake_icos(monkeypatch):
     FakeClient.fail_searches = ()
     FakeClient.fail_cases = ()
     written.clear()
+    attributed.clear()
     monkeypatch.setattr(tasks, 'IcosClient', FakeClient)
     monkeypatch.setattr(tasks.case_parser, 'parse_case_summary',
                         lambda html, case: case.update(county='DUBUQUE'))
@@ -130,12 +136,15 @@ def fake_icos(monkeypatch):
 
 
 written = []
+# The filed_as map each of those builds was handed.
+attributed = []
 
 
-def record_workbook(cases, name, dob, lite, failed=()):
+def record_workbook(cases, name, dob, lite, failed=(), filed_as=None):
     """What actually reached the workbook, which is the question the dedup
     test is asking. A case counted twice here is a client billed twice."""
     written.append([case['id'] for case in cases])
+    attributed.append(dict(filed_as or {}))
     path = os.path.join(tasks.tmp_dir, 'test_alias_stub.xlsx')
     with open(path, 'wb') as handle:
         handle.write(b'PK\x03\x04 stub workbook')
@@ -452,3 +461,97 @@ class TestAClinicListWithAnAka:
         entry = jobs.get(search_id).result['clients'][0]
         assert entry['keys'] == [JOINED_KEY]
         assert entry['error'] is None
+
+
+class TestWhichSpellingARowCameFrom:
+    """Iowa Legal Aid asked for this on 2026-08-18.
+
+    Two spellings merge into one workbook, and the finished rows do not say
+    which of them each case came from. CASE DATA has no name column at all: the
+    client is named once, on BASIC INFO, and def_name there is whichever key
+    sorted first. So a staffer checking a merged summary against the person in
+    front of them has no way to tell the two dockets apart.
+    """
+
+    def test_a_case_says_which_spelling_it_is_docketed_under(self, client):
+        build_from(client)
+        assert attributed[-1][ONLY_JOINED] == 'ALHAMEED, ALI'
+        assert attributed[-1][ONLY_SPACED] == 'AL HAMEED, ALI'
+
+    def test_a_case_on_both_dockets_is_attributed_once_to_one_of_them(self,
+                                                                     client):
+        """It is one row. Naming both spellings on it would be truthful and
+        would also be the row nobody can act on."""
+        build_from(client)
+        assert attributed[-1][SHARED] in ('ALHAMEED, ALI', 'AL HAMEED, ALI')
+        assert len(written[-1]) == len(attributed[-1])
+
+    def test_one_spelling_attributes_nothing(self, client):
+        """Every ordinary run. A note repeated on every row of a clinic sheet
+        is a column staff learn to skip, and the coding caveats are in it."""
+        build_from(client, spellings=[('Jane', '', 'Doe')])
+        assert attributed[-1] == {}
+
+    def test_picking_only_one_of_two_spellings_attributes_nothing(self,
+                                                                  client):
+        """Nothing merged, so there is nothing to tell apart."""
+        build_from(client, keys=[JOINED_KEY])
+        assert attributed[-1] == {}
+
+    def test_a_clinic_list_attributes_the_merged_client(self, client):
+        """Where it is least visible. The finish page shows one row per client
+        and names them by the first key, so the second spelling appears
+        nowhere else at all."""
+        TestAClinicListWithAnAka().run_list(
+            client, "Alhameed, Ali aka Al Hameed, Ali")
+        assert attributed[-1][ONLY_SPACED] == 'AL HAMEED, ALI'
+
+    def test_the_note_survives_a_rebuild(self, client):
+        """A retry rebuilds the workbook from the retry payload and never goes
+        back to the search job, which is the only thing that knew this."""
+        FakeClient.fail_cases = (ONLY_SPACED,)
+        search_id, job_id, _ = build_from(client)
+        FakeClient.fail_cases = ()
+        response = client.post('/retry/' + job_id,
+                               data={'username': 'ILATEST',
+                                     'password': 'secret'})
+        await_job(client, response.headers['Location'].rsplit('/', 1)[-1])
+        assert attributed[-1][ONLY_SPACED] == 'AL HAMEED, ALI'
+
+
+class TestTheNoteInTheWorkbook:
+    """The note itself, written into a real CRS rather than a stub."""
+
+    def _built(self, filed_as):
+        from openpyxl import load_workbook
+        path, _, _, _ = real_build_workbook(
+            synthetic_cases(2), 'ALHAMEED, ALI', DOB, False,
+            filed_as=filed_as)
+        return load_workbook(path)['CASE DATA']
+
+    def test_it_lands_in_the_notes_column(self):
+        sheet = self._built({'00000  FECR000000': 'ALHAMEED, ALI',
+                             '00000  FECR000001': 'AL HAMEED, ALI'})
+        assert 'ALHAMEED, ALI' in sheet['V4'].value
+        assert 'AL HAMEED, ALI' in sheet['V5'].value
+
+    def test_nothing_is_written_without_it(self):
+        # Column V is not empty on an ordinary row -- process_financials has
+        # its own say about the fee columns -- so this is about the one
+        # sentence, not about the cell.
+        sheet = self._built({})
+        assert 'Filed under' not in (sheet['V4'].value or '')
+
+    def test_it_does_not_displace_a_coding_caveat(self):
+        """Column V already carries what process_financials and the coding
+        guesses put there, and append_note joins rather than replaces."""
+        import crs
+        cases = synthetic_cases(1)
+        path, _, _, _ = real_build_workbook(
+            cases, 'ALHAMEED, ALI', DOB, False,
+            filed_as={'00000  FECR000000': 'ALHAMEED, ALI'})
+        from openpyxl import load_workbook
+        sheet = load_workbook(path)['CASE DATA']
+        crs.append_note(sheet, 4, 'A later caveat.')
+        assert 'ALHAMEED, ALI' in sheet['V4'].value
+        assert 'A later caveat.' in sheet['V4'].value
