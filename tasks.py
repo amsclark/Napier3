@@ -186,6 +186,33 @@ def plan_searches(keys, case_dict, people, found_by=None):
             for index, case_ids in enumerate(groups) if case_ids]
 
 
+def docket_names(keys, case_dict):
+    """Which spelling of the client's name each picked case is filed under.
+
+    Iowa Courts matches a name exactly as it is written on the case, so a
+    client whose docket spells them two ways is two rows on the picking page,
+    and ticking both is one workbook. Nothing on the finished row says which of
+    them it came from: the case number, the county and the charges read the
+    same either way, and the name is nowhere on CASE DATA at all. Iowa Legal
+    Aid asked for it on 2026-08-18, to check a merged summary against the
+    client sitting in front of them.
+
+    Empty for a workbook where every case is filed the same way. A note that is
+    the same on every row of a clinic sheet is a column staff learn to skip,
+    and that is the column the coding caveats are in.
+    """
+    names = {}
+    for key in keys:
+        _, _, name = key.partition(' ')
+        for case_id in case_dict.get(key, []):
+            # First key wins, the same way found_by does: one case can be
+            # returned under both spellings, and it is one row either way.
+            names.setdefault(case_id, name)
+    if len(set(names.values())) < 2:
+        return {}
+    return names
+
+
 def searches_behind(entry):
     """Every search that has to be repeated to pull this entry's cases.
 
@@ -511,7 +538,7 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
 
 
 def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
-                 searches=None):
+                 searches=None, filed_as=None):
     """One client's share of what a retry needs.
 
     case_ids is everything that was asked for, in the order it was asked for,
@@ -524,13 +551,20 @@ def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
     client searched under more than one. Left out for a client searched once,
     where person carries the only search there is.
 
+    filed_as is the note each case carries about which spelling of the client's
+    name it is docketed under, empty unless there is more than one.
+
     These sit in the dyno's memory for the two hours the job lives, which is
     the same window the workbook itself sits in tmp for, so nothing is exposed
     here that the finished run was not already holding. They reach no log, no
     alert and no page.
     """
     entry = {'def_name': def_name, 'def_dob': def_dob, 'person': person,
-             'case_ids': list(case_ids), 'cases': cases, 'failed': list(failed)}
+             'case_ids': list(case_ids), 'cases': cases, 'failed': list(failed),
+             # So a rebuilt workbook keeps the attribution. The keys and the
+             # search results it was worked out from belong to the search job,
+             # which a retry does not go back to.
+             'filed_as': dict(filed_as or {})}
     if searches:
         entry['searches'] = [{'person': group['person'],
                               'case_ids': list(group['case_ids'])}
@@ -831,7 +865,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
             # renders.
             entry = _retry_entry(pick['def_name'], pick['def_dob'],
                                  pick.get('person'), pick['case_ids'], [], [],
-                                 pick.get('searches'))
+                                 pick.get('searches'),
+                                 pick.get('filed_as'))
             retry_entries.append(entry)
 
             # Before the re-search, not after it. A dead site would otherwise
@@ -877,7 +912,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
                 continue
             try:
                 path, unknown, atp, short = build_workbook(
-                    cases, pick['def_name'], pick['def_dob'], is_lite, failed)
+                    cases, pick['def_name'], pick['def_dob'], is_lite, failed,
+                    pick.get('filed_as'))
             except Exception as e:
                 # The other clients' workbooks are already built or still to
                 # come, and neither should be lost to this one.
@@ -978,6 +1014,9 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
 
     try:
         searches = plan_searches(keys, case_dict, people or [person], found_by)
+        # Which spelling each case is docketed under, while the search results
+        # are still here to say so. CASE DATA carries no name of its own.
+        filed_as = docket_names(keys, case_dict)
         # The order the groups are pulled in, so the workbook's rows and the
         # retry's idea of where a recovered row goes back agree with each other.
         case_ids = [case_id for group in searches
@@ -998,7 +1037,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
         path, unknown_dispositions, atp, short = build_workbook(
-            cases, def_name, def_dob, is_lite, failed)
+            cases, def_name, def_dob, is_lite, failed, filed_as)
         report_unknown_dispositions(job, unknown_dispositions)
         report_short_workbook(job, short, len(cases))
         job.result = {
@@ -1013,7 +1052,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
             "done_url": "/done/%s" % job.id,
             "retry": _retry_payload('crs', is_lite, [
                 _retry_entry(def_name, def_dob, person, case_ids, cases,
-                             failed, searches)]),
+                             failed, searches, filed_as)]),
         }
 
         if failed:
@@ -1119,7 +1158,8 @@ def retry_task(job, username, password, payload):
             rebuilt.append(_retry_entry(entry['def_name'], entry['def_dob'],
                                         entry['person'], entry['case_ids'],
                                         cases, still_failed,
-                                        entry.get('searches')))
+                                        entry.get('searches'),
+                                        entry.get('filed_as')))
             if not cases:
                 if skipped:
                     record['error'] = ("%s before Napier reached this client, "
@@ -1139,7 +1179,7 @@ def retry_task(job, username, password, payload):
             try:
                 path, unknown, atp, short = build_workbook(
                     cases, entry['def_name'], entry['def_dob'], is_lite,
-                    still_failed)
+                    still_failed, entry.get('filed_as'))
             except Exception as e:
                 print("Workbook failed on retry for client %d: %r" % (index, e),
                       flush=True)
@@ -1214,7 +1254,14 @@ def retry_task(job, username, password, payload):
         alerts.digest(job.id[:8], job.kind, alerts.recent_progress(job))
 
 
-def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
+# What the notes column says on a workbook built out of more than one spelling
+# of the client's name. Past tense and no punctuation games, because it sits in
+# the same cell as the reconciliation and coding caveats and staff read the
+# column in one pass.
+FILED_AS_NOTE = "Filed under %s."
+
+
+def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
     """Returns the path written, the dispositions Napier could not read, the
     two figures the ability-to-pay calculator asks for, and anything the saved
     workbook is still short of.
@@ -1223,6 +1270,10 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     can say what is not in it. The file travels further than any page Napier
     serves, and one that is quietly short two cases is worse than one that
     says it is short two cases.
+
+    filed_as maps a case number to the spelling of the client's name it is
+    docketed under, and is empty unless the workbook holds more than one. See
+    docket_names for why the notes column is where that goes.
 
     The second value maps the ICOS wording, paired with whether the row it
     landed on came out with a code in column G, to the case numbers it turned up
@@ -1244,9 +1295,14 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=()):
     clinic_date = crs.iowa_today()
     row = 4
     unknown = {}
+    filed_as = filed_as or {}
     for case in cases:
         for key in crs.process_case(case, sheet, row, clinic_date) or []:
             unknown.setdefault(key, []).append(case['id'])
+        # Before the statute and coding notes below, so the row reads as which
+        # client this is and then what to watch on it.
+        if filed_as.get(case['id']):
+            crs.append_note(sheet, row, FILED_AS_NOTE % filed_as[case['id']])
         row += 1
 
     # Columns W to AH take column F apart one statute per column, and the

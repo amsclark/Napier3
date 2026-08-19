@@ -363,7 +363,12 @@ def batch_crs():
         # be somebody the staffer never saw on the roster page.
         picks.append({'def_name': def_name, 'def_dob': def_dob,
                       'case_ids': case_ids, 'person': entry.get('person'),
-                      'searches': searches})
+                      'searches': searches,
+                      # A clinic list is where two spellings merging into one
+                      # workbook is least visible: the finish page shows one
+                      # row per client and def_name is the first key's name, so
+                      # the second spelling is named nowhere at all otherwise.
+                      'filed_as': tasks.docket_names(keys, entry['cases'])})
 
     if not picks:
         return jsonify({"error": "Pick a match for at least one client."}), 400
