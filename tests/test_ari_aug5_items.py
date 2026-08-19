@@ -195,10 +195,9 @@ class TestFugitiveAndParoleReadCivil:
     def test_a_cleared_parole_violation_reads_civil_too(self, outcome):
         """Iowa Legal Aid's 8/19 report, and the 8/07 one it repeats.
 
-        Three real Polk parole violations disposed NOT FILED, 00000
-        AMCR000000, AMCR000000 and AMCR000000, came out NOTF while the ones
-        disposed CHANGE OF VENUE came out CIV. Same statute, same kind of
-        case, two answers.
+        Three real Polk parole violations disposed NOT FILED came out NOTF
+        while three more of the same statute disposed CHANGE OF VENUE came
+        out CIV. Same statute, same kind of case, two answers.
         """
         cells, _ = _row(_case([('908.1', 'VIOLATION OF PAROLE - 1985',
                                 outcome)]))

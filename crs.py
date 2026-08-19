@@ -378,10 +378,11 @@ def cites_section(statutes, sections):
 # captured fugitive cases came out under four different codes: GTR, TNSF, WTHD
 # and OTH. All five owe nothing, so no money moves today.
 #
-# 820.14 arrived on 8/19 with a real Polk case, AMCR000000, that Iowa Legal Aid
-# had never seen the wording of before. It carries no count-level adjudication
-# at all, so column G was reading the summary's DISMISSED, and the statute is
-# the only thing on the page that says what the case actually is.
+# 820.14 arrived on 8/19 from a Polk aggravated misdemeanour whose wording,
+# ARREST WITHOUT WARRANT, Iowa Legal Aid had never seen before. It carries no
+# count-level adjudication at all, so column G was reading the summary's
+# DISMISSED, and the statute is the only thing on the page that says what the
+# case actually is.
 #
 # Exactly these sections, never a chapter. Violation of probation is 908.11,
 # one section over from parole, and the same 538 cases carry 20 of those worth
