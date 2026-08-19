@@ -179,7 +179,7 @@ def test_a_short_run_puts_its_cases_on_the_first_rows():
     """What a staffer sees. Four cases, the money on the first two, and the
     licence sheet has to open with them rather than with blank rows."""
     owed = ['197.43', '89.50', '0.00', '0.00']
-    path, _, _ = tasks.build_workbook(
+    path, _, _, _ = tasks.build_workbook(
         synthetic_cases(owed), 'TEST CLIENT', '01/01/1980', False)
     try:
         workbook = load_workbook(path)

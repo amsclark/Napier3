@@ -251,7 +251,7 @@ def test_a_case_that_fits_is_reported_as_nothing():
 
 def test_a_built_workbook_has_no_errors_waiting_in_the_split():
     """The whole point, through the path a clinic actually takes."""
-    path, _, _ = tasks.build_workbook(
+    path, _, _, _ = tasks.build_workbook(
         synthetic_cases(3, '715A.2'), 'TEST CLIENT', '01/01/1980', False)
     try:
         sheet = load_workbook(path)['CASE DATA']
@@ -274,7 +274,7 @@ def test_a_built_workbook_has_no_errors_waiting_in_the_split():
 def test_the_overflow_note_reaches_the_staffer():
     """Column V is the only place the workbook talks to whoever opens it."""
     charge = ';'.join('719.%d' % n for n in range(statutes.SLOTS + 2))
-    path, _, _ = tasks.build_workbook(
+    path, _, _, _ = tasks.build_workbook(
         synthetic_cases(1, charge), 'TEST CLIENT', '01/01/1980', False)
     try:
         sheet = load_workbook(path)['CASE DATA']

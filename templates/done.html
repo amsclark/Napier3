@@ -115,17 +115,18 @@
   {% if limits %}
     <div class="notice" role="alert">
       <p class="notice-title">
-        This run is bigger than the CRS template counts.
+        Part of this workbook does not reach the end of the case list.
       </p>
       <p>
-        Every case is in the workbook and every row is right. The template's own
-        formulas stop before the end of them, and Excel does not say so:
+        Every case Iowa Courts gave up is on CASE DATA. Napier fills the rest of
+        the workbook down to match, and on this one it could not finish:
       </p>
       <ul>
         {% for limit in limits %}<li>{{ limit }}</li>{% endfor %}
       </ul>
       <p>
-        Splitting the search into two workbooks is the way around it.
+        Napier has emailed Alex about it. Nothing here needs working around at
+        the clinic, but check with him before this workbook is relied on.
       </p>
     </div>
   {% endif %}
