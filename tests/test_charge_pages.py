@@ -159,6 +159,19 @@ def test_neither_map_knows_a_wording_the_other_does_not():
     assert set(case_parser.charge_code_dict) == set(crs.charge_code_map)
 
 
+def test_the_juvenile_table_is_the_same_table_in_both_modules():
+    """The same trap one table over. JUVENILE_DISPOSITIONS overrides the code
+    map on a JV docket, and it is written out twice: crs decides column G and
+    case_parser decides the [CODE] suffix on column E. A wording learned in one
+    copy and not the other puts the two columns of the same row in
+    disagreement, which is exactly what GUILTY - OTHER did above."""
+    import crs
+    assert set(case_parser.JUVENILE_DISPOSITIONS) == set(
+        crs.JUVENILE_DISPOSITIONS)
+    for wording, code in case_parser.JUVENILE_DISPOSITIONS.items():
+        assert next(iter(crs.JUVENILE_DISPOSITIONS[wording])) == code, wording
+
+
 def test_a_deferred_judgment_is_adjudicated():
     """A deferred judgment is still an adjudication and still carries debt."""
     assert parse(('321J.2', 'SYNTHETIC OWI', 'DEFERRED'))['charge'] == '321J.2'

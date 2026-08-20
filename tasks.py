@@ -1299,7 +1299,8 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
     case, measured off the workbook after the formula grid is extended. Empty
     on every run the extension handles, which so far is all of them.
     """
-    workbook = load_workbook('CRS Lite 3.5.5.xlsx' if is_lite else 'CRS 3.5.5.xlsx')
+    template = 'CRS Lite 3.5.5.xlsx' if is_lite else 'CRS 3.5.5.xlsx'
+    workbook = load_workbook(template)
     sheet = workbook['CASE DATA']
     # One clinic date for the whole workbook, read once. Column I asks whether a
     # probation term is still running, which is only answerable against a day,
@@ -1317,6 +1318,14 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
         if filed_as.get(case['id']):
             crs.append_note(sheet, row, FILED_AS_NOTE % filed_as[case['id']])
         row += 1
+
+    # A code the chosen template has no formula for counts for nothing, on
+    # every sheet, and the row looks finished. CRS Lite names neither JWV nor
+    # CIV, and Napier produces both, so a Lite workbook could carry a waived
+    # juvenile or a cleared parole violation and score it nowhere without
+    # saying a word. Silent on the full CRS and on the Lite runs that hold no
+    # such case, which is nearly all of them.
+    crs.note_unscored_codes(template, sheet, row - 1)
 
     # Columns W to AH take column F apart one statute per column, and the
     # expungement sheet's second screen reads them with LEFT(). The template
