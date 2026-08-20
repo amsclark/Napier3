@@ -175,6 +175,13 @@ KNOWN_PARTY_ROLES = frozenset({
     # against them personally, so it is their record, unlike the LIEN FILER
     # and INTERESTED PARTY bystander roles. Seen on a live search 2026-08-12.
     'PROPERTY OWNER',
+    # ICOS's wording when the property has more than one owner on it. Nothing
+    # in the reasoning above turns on being the only owner: the case is still
+    # about their property and can still assess costs against them personally.
+    # So it was always going to need the same answer as PROPERTY OWNER, and was
+    # simply missed when that went in on 2026-08-12. Six separate searches
+    # alerted on it on 2026-08-20.
+    'PROPERTY CO-OWNER',
 })
 
 # The notice ICOS shows when a name matches more cases than it will list. The

@@ -189,6 +189,19 @@ def test_a_property_owner_is_the_person_the_search_is_about():
     assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
 
 
+def test_a_property_co_owner_is_the_person_the_search_is_about():
+    """The same case as PROPERTY OWNER above, which is the point.
+
+    ICOS writes this when the property has more than one owner on it. Nothing
+    in the reasoning for PROPERTY OWNER turns on being the only owner, so the
+    two were always going to need the same answer, and only one of them got it
+    on 2026-08-12. Six searches on 2026-08-20 alerted on the variant.
+    """
+    cases, _ = case_parser.parse_search(role_row('PROPERTY CO-OWNER'))
+    assert ids(cases) == ['00000  FECR000000']
+    assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
+
+
 def test_the_two_role_lists_do_not_overlap():
     """A role in both would be suppressed and vouched for at the same time."""
     assert not (case_parser.NON_PARTY_ROLES & case_parser.KNOWN_PARTY_ROLES)
