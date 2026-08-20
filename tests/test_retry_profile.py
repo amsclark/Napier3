@@ -71,7 +71,16 @@ class TestWhatItCounts:
         client.case_bundle(CASE_ID)
 
         assert client.landed_on == {1: 2, 2: 1}
-        assert client.retry_summary().startswith("Iowa Courts answered 2 first time")
+        assert "Iowa Courts answered 2 first time" in client.retry_summary()
+
+    def test_the_line_says_it_is_counting_requests_not_cases(self):
+        """A case costs three requests, so the bare number reads as cases."""
+        client, _, _ = build([FetchResult(OK, CASE_PAGE),
+                              FetchResult(TIMEOUT), FetchResult(OK, CASE_PAGE),
+                              FetchResult(OK, CASE_PAGE)])
+        client.case_bundle(CASE_ID)
+
+        assert client.retry_summary().startswith("Of the page requests")
 
     def test_a_whole_bundle_that_worked_is_still_quiet(self):
         client, _, _ = build([FetchResult(OK, CASE_PAGE)] * 3)
