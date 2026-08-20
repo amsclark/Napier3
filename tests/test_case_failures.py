@@ -75,6 +75,11 @@ class StubClient:
 # the copy that gets emailed and kept.
 TOLD_MISSING = []
 
+# The job the last run drove, kept so a test can read the progress log of a run
+# that raised on its way out. The runs that end in nothing are exactly the ones
+# whose last line matters most.
+LAST_JOB = []
+
 
 def run(monkeypatch, case_ids, unavailable=()):
     """Drive crs_task directly; parsing and workbook building are stubbed."""
@@ -102,6 +107,7 @@ def run(monkeypatch, case_ids, unavailable=()):
     monkeypatch.setattr(tasks, 'build_workbook', fake_build)
 
     job = FakeJob()
+    LAST_JOB[:] = [job]
     tasks.crs_task(job, 'tok', [KEY], {KEY: list(case_ids)},
                    'TESTER, PAT Q', '01/01/1900', False)
     return job, stub, written
@@ -174,6 +180,42 @@ def test_a_run_where_no_case_comes_back_still_fails(monkeypatch):
     case_ids = ids(4)
     with pytest.raises(ValueError):
         run(monkeypatch, case_ids, unavailable=case_ids)
+
+
+def test_the_skipped_cases_line_does_not_promise_a_workbook(monkeypatch):
+    """It used to end "The workbook has the rest", and it cannot know that.
+
+    The line is written where the cases are pulled, which happens once per
+    spelling group and knows neither the client's full total nor whether a
+    workbook gets built at all. On 2026-08-20 Iowa Courts served its own outage
+    page, every case of a 24 case run failed, the run ended in an error with no
+    file, and this was the last thing the staffer was told.
+    """
+    case_ids = ids(11)
+    job, _, _ = run(monkeypatch, case_ids, unavailable=case_ids[2:])
+
+    skipped = [line['message'] for line in job.progress
+               if 'could not be pulled' in line['message']]
+    assert skipped, [line['message'] for line in job.progress]
+    assert not any('workbook has the rest' in line for line in skipped)
+
+
+def test_a_run_that_gets_nothing_says_there_is_no_workbook(monkeypatch):
+    """The staffer reads the progress log, not the traceback.
+
+    Without this the run's last word is about the cases it skipped and nothing
+    anywhere says the outcome was nothing at all, which is how a failed run
+    reads like a finished one.
+    """
+    case_ids = ids(4)
+    with pytest.raises(ValueError):
+        run(monkeypatch, case_ids, unavailable=case_ids)
+
+    job = LAST_JOB[0]
+    assert any('no workbook to build' in line['message']
+               for line in job.progress), [l['message'] for l in job.progress]
+    assert any('run the search again' in line['message']
+               for line in job.progress)
 
 
 def test_a_session_that_is_already_gone_is_not_reported_as_a_bug(monkeypatch):
