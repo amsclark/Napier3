@@ -251,6 +251,12 @@ charge_code_dict = {
     "NOT FILED": "NOTF",
     "CIVIL": "CIV",
     "CHANGE OF VENUE": "TNSF",
+    # Alerted 2026-08-20 on an adult criminal case. A charge that left this
+    # court for another one is what CHANGE OF VENUE already says, so it earns
+    # the same code. On the juvenile docket the same word means the child was
+    # waived up to adult court, and JUVENILE_DISPOSITIONS below overrides it.
+    # See the twin entry in crs.charge_code_map.
+    "TRANSFERRED": "TNSF",
     # crs.charge_code_map learned this wording first, so a Hamilton public
     # intoxication ICOS disposed GUILTY - OTHER coded GTR in column G while
     # its charge description read [OTH]: the maps disagreed about the same
@@ -267,6 +273,25 @@ charge_code_dict = {
     # wording stops alerting as unknown on every run that touches the case.
     "JCS OTHER ADJ OTHER COURT": "OTH"
 }
+
+# What three of those wordings mean when the docket is the juvenile court's,
+# settled by Iowa Legal Aid on 20 August. The twin of crs.JUVENILE_DISPOSITIONS,
+# which carries the reasoning and the ranks; a test holds the two key sets and
+# the codes they produce equal, because the two maps disagreeing about one count
+# on one row is the failure this pair of tables exists to prevent.
+JUVENILE_DISPOSITIONS = {
+    "CONSENT DECREE": "JUV",
+    "OTHER JUDGMENT": "JUV",
+    "TRANSFERRED": "JWV",
+}
+
+
+def is_juvenile_case(case_id):
+    """Whether this docket is the juvenile court's. The twin of
+    crs.is_juvenile_case, which carries the reasoning for taking the whole JV
+    family rather than JVJV alone."""
+    case_id = (case_id or '').strip()
+    return case_id[7:11].upper().startswith('JV') if len(case_id) >= 11 else False
 
 # The outcomes that mean no adjudicated charge, so the statutory code is not
 # the client's to carry. Column F feeds the expungement sheet, and a charge
@@ -337,8 +362,16 @@ def strip_dnu(wording):
     return re.sub(r'^DNU\s*-\s*', '', (wording or '').strip())
 
 
-def disposition_code(wording):
+def disposition_code(wording, case_id=None):
     """The CRS code for one ICOS disposition wording, or OTH if unrecognised.
+
+    case_id is read for one thing only: whether this is a juvenile docket, for
+    JUVENILE_DISPOSITIONS. Omitting it reads as not juvenile, which is the way
+    round that cannot put a juvenile code on an adult case. Column E's
+    disposition suffix and column G's code both come from this, by way of
+    crs.get_dominant_charge on the other side, so a wording that means one
+    thing on the juvenile docket has to mean it in both places or the row
+    contradicts itself -- which is exactly what GUILTY - OTHER did in August.
 
     ICOS prefixes some dispositions DNU-, and the wording after the prefix is
     the outcome. crs.py has stripped it since the beginning. This map instead
@@ -353,7 +386,10 @@ def disposition_code(wording):
     next wording Iowa prefixes is already handled, and the two maps cannot
     answer differently about the same count again.
     """
-    return charge_code_dict.get(strip_dnu(wording), "OTH")
+    wording = strip_dnu(wording)
+    if is_juvenile_case(case_id) and wording in JUVENILE_DISPOSITIONS:
+        return JUVENILE_DISPOSITIONS[wording]
+    return charge_code_dict.get(wording, "OTH")
 
 
 def parse_search(html):
@@ -476,6 +512,10 @@ def parse_sentences(soup):
 
 def parse_case_charges(html, case):
     html = html.decode('utf-8', errors='ignore')
+    # Which docket this is decides what a few wordings mean; see
+    # JUVENILE_DISPOSITIONS. Read once here so every disposition on the page is
+    # read on the same docket.
+    case_id = case.get('id')
     _dump(case['id'] + "_charges.html", html)
     soup = BeautifulSoup(html, 'html.parser')
     case['sentences'] = parse_sentences(soup)
@@ -582,8 +622,8 @@ def parse_case_charges(html, case):
                 cur_charge['disposition'] = charge_list
                 charge_date_list.insert(0, texts[3])
                 cur_charge['disposition_dates'] = charge_date_list
-                prior_description = prior_description + "[" + disposition_code(texts[1]) + "];"
-                cur_charge['description'] = cur_charge['description'] + "[" + disposition_code(texts[1]) + "]"
+                prior_description = prior_description + "[" + disposition_code(texts[1], case_id) + "];"
+                cur_charge['description'] = cur_charge['description'] + "[" + disposition_code(texts[1], case_id) + "]"
                 if 'prior_dispositionDate' not in vars():
                     cur_charge['dispositionDate'] = texts[3]
                     prior_dispositionDate = cur_charge['dispositionDate']
@@ -624,7 +664,7 @@ def parse_case_charges(html, case):
                 cur_charge['description'] = cur_charge['description'][
                     :cur_charge['description'].index("[")]
             #print("Disposition: " + disposition_code(cur_charge['disposition'][0]))
-            disp_code = disposition_code(cur_charge['disposition'][0])
+            disp_code = disposition_code(cur_charge['disposition'][0], case_id)
             if disp_code in NOT_ADJUDICATED:
                 cur_charge['charge'] = ""
         else:
@@ -726,6 +766,33 @@ def parse_financial_summary(soup):
     return total_due, categories
 
 
+def _itemization_rows(soup):
+    """The rows of the itemization table, whichever form ICOS wrapped it in.
+
+    This used to be soup.find('form'), on the understanding that the
+    itemization is the only form on a financials page. It is not always. A case
+    carrying a support or alimony obligation gets a "Pay Rec" button inside the
+    summary table at the top, and that button is its own <FORM>, so the page
+    ends up with three forms rather than two and the first one holds no rows at
+    all. The itemization was then read as empty, the reconciliation bailed for
+    want of rows, and every dollar on the case fell through to the summary and
+    landed in COSTS -- which is how a Linn County sheriff's fee of $62.66
+    reported on 20 August was still coming out in the wrong column after the
+    sheriff fix went in. The fix was fine; it was never being reached.
+
+    So find the table by its own header instead of by its position: the
+    itemization is the one whose first row says Detail.
+    """
+    for form in soup.find_all('form'):
+        rows = form.find_all('tr')
+        if not rows:
+            continue
+        header = rows[0].find_all('td')
+        if len(header) > 1 and header[1].get_text().strip() == 'Detail':
+            return rows
+    return []
+
+
 def parse_case_financials(html, case):
     html = html.decode('utf-8', errors='ignore')
     _dump(case['id'] + "_financials.html", html)
@@ -739,7 +806,7 @@ def parse_case_financials(html, case):
 
     # Extract the financial details from the bottom half of the page
     financials = []
-    rows = soup.find('form').find_all('tr')
+    rows = _itemization_rows(soup)
     for row in rows:
         cols = row.find_all('td')
         if cols[1].string == 'Detail':

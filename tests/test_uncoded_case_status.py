@@ -5,7 +5,7 @@ Napier's production alert fired on a real run with two of these:
     unrecognised disposition on an ICOS case (disposition CLOSED)
 
 The status ICOS prints for a case as a whole is its own vocabulary, and
-case_level_code deliberately translates only the one wording that overlaps the
+case_level_code deliberately translates only the wordings that overlap the
 per-count vocabulary. Everything else returns None, which leaves column G empty
 and raises the alert rather than guessing at a conviction code. That part is
 working as intended and the question of what CLOSED deserves belongs to Iowa
@@ -82,14 +82,17 @@ UNREADABLE = [('714.2(3)', 'SYNTHETIC THEFT',
 
 # -- the shape the alert is firing on ----------------------------------------
 
-@pytest.mark.parametrize('status', [CLOSED, TRANSFERRED])
+@pytest.mark.parametrize('status', [CLOSED, 'DEFERRED JUDGEMENT'])
 def test_an_untranslated_case_status_leaves_column_g_empty(status):
     """The guard on the deliberate half. Guessing a code here is the error this
-    is avoiding, so the fix must not start filling the cell in."""
+    is avoiding, so the fix must not start filling the cell in.
+
+    TRANSFERRED used to be one of these and is now answered; see
+    test_a_transferred_case_is_coded_now below for what replaced it."""
     assert not _row(UNADJUDICATED, status)['G']
 
 
-@pytest.mark.parametrize('status', [CLOSED, TRANSFERRED])
+@pytest.mark.parametrize('status', [CLOSED, 'DEFERRED JUDGEMENT'])
 def test_the_row_says_the_three_sheets_will_call_it_an_open_charge(status):
     """What the attorney has to know to use the row: it is about to appear on
     BANKRUPTCY, EXEMPTIONS and SOL as a charge still pending."""
@@ -116,7 +119,7 @@ def test_a_paid_off_case_is_told_as_well():
     """One of the two captured cases owes nothing. The mislabelling is on the
     three sheets that sort a case, not only on the ones that sort its money, so
     this note is not conditional on the row owing anything."""
-    note = _row(UNADJUDICATED, TRANSFERRED, costs='0')['V'] or ''
+    note = _row(UNADJUDICATED, CLOSED, costs='0')['V'] or ''
     assert 'open charge' in note, note
 
 
@@ -156,13 +159,39 @@ CASE_LEVEL_STATUSES = [
 ]
 
 
-def test_dismissed_is_the_only_wording_that_translates():
+def test_only_the_two_answered_wordings_translate():
     """The claim case_level_code's docstring makes, enforced rather than
     asserted. A later change to the code map that starts translating one of
-    these silently changes what five sheets compute."""
-    translated = {s: crs.case_level_code(s) for s in CASE_LEVEL_STATUSES}
+    these silently changes what five sheets compute.
+
+    Two are answered. DISMISSED always was, because it is the same word the
+    per-count vocabulary uses. TRANSFERRED was answered on 20 August, and it is
+    the one status on this list whose answer depends on the docket, so it is
+    checked on a case number rather than on the wording alone."""
+    translated = {s: crs.case_level_code(s, '00000  FECR000000')
+                  for s in CASE_LEVEL_STATUSES}
     assert translated.pop('DISMISSED') == 'DISM'
+    assert translated.pop('TRANSFERRED') == 'TNSF'
     assert set(translated.values()) == {None}, translated
+
+
+def test_a_transferred_case_is_coded_now():
+    """What used to be an uncoded status. The case left this court, so it holds
+    no outcome, which is what TNSF has always said and what CHANGE OF VENUE has
+    always produced. The row is coded rather than being called an open charge."""
+    cells = _row(UNADJUDICATED, TRANSFERRED)
+    assert cells['G'] == 'TNSF'
+    assert 'open charge' not in (cells['V'] or '')
+
+
+def test_a_transferred_juvenile_case_is_not_coded_tnsf():
+    """On the juvenile docket the same word means the child was waived up to
+    adult court, which is JWV. Iowa Legal Aid settled this on 20 August."""
+    sheet = load_workbook(FULL)['CASE DATA']
+    crs.process_case(_case(UNADJUDICATED, TRANSFERRED,
+                           case_id='00000  JVJV000000'),
+                     sheet, crs.FIRST_CASE_ROW)
+    assert sheet['G' + str(crs.FIRST_CASE_ROW)].value == 'JWV'
 
 
 def test_deferred_judgement_at_case_level_is_still_not_a_code():

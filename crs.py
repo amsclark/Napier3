@@ -1,5 +1,6 @@
 import itertools
 import re
+import zipfile
 
 # For strip_dnu alone. The two modules keep separate disposition maps by
 # design, and the tests hold the key sets equal; the prefix strip is the one
@@ -9,6 +10,7 @@ import case_parser
 
 from calendar import monthrange
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from openpyxl.styles import Alignment # Added import
 from openpyxl.styles import Font, PatternFill
@@ -107,8 +109,55 @@ charge_code_map = {
     # a full answer. The entry exists so the wording stops alerting as
     # unknown on every run that touches the case, and so a case that also
     # carries a real conviction still reads as the conviction.
+    # Alerted as unknown on a real run 2026-08-20, on an adult criminal case.
+    # Iowa Legal Aid had already reached for TNSF for the juvenile side of the
+    # same wording the day before, and TNSF is what CHANGE OF VENUE has always
+    # produced: the charge left this court and was decided somewhere else, so
+    # this record carries no outcome. Ranked with the other non-convictions,
+    # so a case that also carries a guilty count still reads as guilty. On the
+    # juvenile docket this wording means something else entirely and
+    # JUVENILE_DISPOSITIONS overrides it below.
+    "TRANSFERRED": {"TNSF":0},
     "JCS OTHER ADJ OTHER COURT": {"OTH": 0.5}
 }
+
+# What three wordings mean when the docket is the juvenile court's, decided by
+# Iowa Legal Aid on 20 August after they turned up on a real clinic run.
+#
+# All three exist on adult and civil dockets too and mean different things
+# there, which is the reason for a separate table rather than three more
+# entries in charge_code_map. TRANSFERRED on an adult case is a change of venue
+# and codes TNSF above; TRANSFERRED on a juvenile case is the child being
+# waived up to adult court, which is JWV. OTHER JUDGMENT and CONSENT DECREE are
+# both juvenile dispositions of the delinquency petition, so they earn JUV at
+# the rank of a conviction, exactly as ADJUDICATED and JUVENILE ADMISSION do.
+#
+# Outside the juvenile docket, OTHER JUDGMENT and CONSENT DECREE are still not
+# translated. Iowa Legal Aid answered for juveniles and only for juveniles, and
+# a wrong guess here is not cheap: CIV, the code a civil judgment would want,
+# is in the expungement sheet's cleared set, so guessing it would clear every
+# fee column on the row. Unrecognised is the honest answer, and it travels out
+# through unknown_dispositions, which puts the wording in column V and tells
+# the run. Visibly uncoded beats quietly miscoded.
+JUVENILE_DISPOSITIONS = {
+    "CONSENT DECREE": {"JUV":1},
+    "OTHER JUDGMENT": {"JUV":1},
+    "TRANSFERRED": {"JWV":0},
+}
+
+
+def disposition_entry(disposition, case_id=None):
+    """The charge_code_map entry for a wording, read on the right docket.
+
+    One lookup for both callers -- the per-count ranking in
+    get_dominant_charge and the case-level status in case_level_code -- so a
+    wording cannot mean one thing per count and another for the case.
+    """
+    if case_id is not None and is_juvenile_case(case_id):
+        entry = JUVENILE_DISPOSITIONS.get(disposition)
+        if entry is not None:
+            return entry
+    return charge_code_map.get(disposition)
 
 # The rank for a disposition string charge_code_map has never seen, and the
 # rank the one OTH entry above carries explicitly. It sits
@@ -818,12 +867,13 @@ def get_dominant_charge(charges, case_id=None):
             # workbook's own way of saying it: SOL, BANKRUPTCY and EXEMPTIONS
             # each render column G as IF(G=0, "open charge", G).
             continue
-        elif disposition not in charge_code_map:
+        elif disposition_entry(disposition, case_id) is None:
             charge_dict["OTH"] = OTH_RANK
             unknown.add(disposition)
             charge_key = "OTH"
         else:
-            charge_key, rank = next(iter(charge_code_map[disposition].items()))
+            entry = disposition_entry(disposition, case_id)
+            charge_key, rank = next(iter(entry.items()))
             if charge_key == "JUV" and not is_juvenile_case(case_id):
                 rank = JUV_RANK_ADULT_CASE
             charge_dict[charge_key] = rank
@@ -868,7 +918,7 @@ def get_dominant_charge(charges, case_id=None):
     return delisted
 
 
-def case_level_code(status):
+def case_level_code(status, case_id=None):
     """The CRS code for ICOS's case-level status, or None if it is not one.
 
     The status ICOS prints on the case summary is its own vocabulary. Across 300
@@ -876,9 +926,10 @@ def case_level_code(status):
     DISMISSED, BY TRIAL TO COURT, CLOSED, OTHER JUDGMENT, TRANSFERRED, SMALL
     CLAIM-DISPOSED BY CLERK, DEFAULTED, DEFERRED JUDGEMENT, DISCHARGE and
     CONVERTED TO SIMPLE MISDEMEANR, and it overlaps the per-count adjudication
-    wordings at DISMISSED and nowhere else. The last four appeared only after the
-    corpus passed 90 pages, which is the reason for reading it this way: the
-    vocabulary is still growing and a guess made now would be wrong later.
+    wordings at DISMISSED and, since Iowa Legal Aid settled the transfer wording
+    on 20 August, at TRANSFERRED. The last four appeared only after the corpus
+    passed 90 pages, which is the reason for reading it this way: the vocabulary
+    is still growing and a guess made now would be wrong later.
 
     Only the overlap is read. The rest are not translated here, because whether
     VIOLATIONS HANDLED BY CLERK is a guilty plea is a question about Iowa
@@ -886,8 +937,15 @@ def case_level_code(status):
     answer. An unrecognised status returns None and travels out through
     unknown_dispositions, which already puts the wording in column V and tells
     the run, so the case is visibly uncoded rather than quietly miscoded.
+
+    case_id is the ICOS case number, and the only thing read off it is whether
+    this is a juvenile docket, for JUVENILE_DISPOSITIONS. TRANSFERRED is a
+    case-level status, and it means a change of venue on an adult case and a
+    waiver up to adult court on a juvenile one, so the two cannot share an
+    answer. Omitting the number reads as not juvenile, which is the way round
+    that cannot invent a JWV on an adult case.
     """
-    entry = charge_code_map.get(case_parser.strip_dnu(status))
+    entry = disposition_entry(case_parser.strip_dnu(status), case_id)
     return next(iter(entry)) if entry else None
 
 
@@ -1859,6 +1917,64 @@ def process_financials(case, worksheet, row):
         if flagged:
             cell_v.font = MISMATCH_FONT
 
+# What column V says on a row whose code the workbook it is going into cannot
+# see. Names the code and the remedy, because the person reading it is looking
+# at a row that otherwise looks finished.
+UNSCORED_CODE_NOTE = ("%s is not in this template, so no sheet in this Lite "
+                      "workbook counts this case. Build it on the full CRS to "
+                      "score it.")
+
+# The one code that is meant to appear in no formula. OTH is what Napier writes
+# when it does not know the disposition, and it is deliberately in no cleared
+# set in either template so that not knowing moves no money. A row carrying it
+# already says so in column V through unknown_dispositions.
+DELIBERATELY_UNSCORED = ('OTH',)
+
+
+@lru_cache(maxsize=None)
+def codes_the_template_scores(template):
+    """Every disposition code named anywhere in a template's formulas.
+
+    Read off the file rather than listed here, because the templates are the
+    authority on their own vocabulary and they are replaced by their author,
+    not by this repo. A code this does not return is a code the workbook has
+    no formula for, which means a row carrying it is silently counted by
+    nothing at all.
+
+    The two templates really do differ. CRS Lite names neither JWV nor CIV in
+    a single formula, and Napier can produce both: JWV since Iowa Legal Aid
+    settled the juvenile transfer wording on 20 August, and CIV on every
+    extradition hold and cleared parole violation since 19 August. On a Lite
+    workbook those rows were scoring nothing and saying nothing about it.
+    """
+    blob = []
+    with zipfile.ZipFile(template) as archive:
+        for name in archive.namelist():
+            if name.endswith('.xml'):
+                blob.append(archive.read(name).decode('utf-8', 'replace'))
+    blob = ''.join(blob)
+    scored = set()
+    for entry in charge_code_map.values():
+        scored.update(entry)
+    scored.update(*JUVENILE_DISPOSITIONS.values())
+    return frozenset(code for code in scored
+                     if '"%s"' % code in blob or '&quot;%s&quot;' % code in blob)
+
+
+def note_unscored_codes(template, sheet, last_row):
+    """Say so on any row whose column G code this template cannot score.
+
+    Silent on the full CRS, and silent on a Lite workbook that happens to hold
+    no such case, which is almost all of them.
+    """
+    scored = codes_the_template_scores(template)
+    for row in range(FIRST_CASE_ROW, last_row + 1):
+        code = sheet['G' + str(row)].value
+        if not code or code in DELIBERATELY_UNSCORED or code in scored:
+            continue
+        append_note(sheet, row, UNSCORED_CODE_NOTE % code)
+
+
 def append_note(worksheet, row, text):
     """Add to column V without displacing what process_financials put there.
 
@@ -1962,7 +2078,7 @@ def process_case(case, worksheet, row, as_of=None):
                 'summary_disposition_date') or ''
             status = (case.get('summary_dispo_status') or '').strip()
             if status:
-                code = case_level_code(status)
+                code = case_level_code(status, case.get('id'))
                 if code is None:
                     charge.setdefault('unknown_dispositions', [])
                     if status not in charge['unknown_dispositions']:
