@@ -35,6 +35,13 @@ BACKOFF = [2, 5, 10, 30, 60, 120, 120, 300]
 # that before giving up, and slowly -- hammering it does not release the lock.
 CONCURRENT_INTERVAL = 75
 
+# How often to look at the waiting line. Far shorter than CONCURRENT_INTERVAL
+# because it is not the same kind of wait: the concurrent poll is a request to
+# the court site and this is a list in this process. Making a job that is next
+# in line sit out another seventy-five seconds after the account came free
+# would give back most of what the line was added to win.
+QUEUE_INTERVAL = 5
+
 BAD_CREDS_MARKER = "The userID or password could not be validated"
 CONCURRENT_MARKER = "Concurrent Login Error"
 
@@ -404,11 +411,68 @@ class IcosClient:
     # -- operations --------------------------------------------------------
 
     def login(self, username, password):
-        """Log in, waiting out a concurrent-session lock if we hit one.
+        """Log in, waiting for our turn on the account and then out any lock.
 
         The password is used here and never stored on the client, on disk, or
         in a log line.
         """
+        # Joined before anything is asked of ESA, and given back in the finally
+        # whatever happens. A job that keeps its ticket after it has stopped
+        # trying holds up everybody standing behind it.
+        ticket = accounts.take_ticket(username)
+        try:
+            self._login(username, password, ticket)
+        finally:
+            accounts.drop_ticket(ticket)
+
+    def _await_turn(self, username, ticket, started):
+        """Hold this job behind the earlier ones on the same ICOS login.
+
+        ICOS allows one session per account and simply refuses the second, so
+        several jobs on one login run one at a time whatever happens here. What
+        this decides is the order. Without it every waiting job polls and the
+        account goes to whichever one happens to ask in the right half second,
+        which on 19 August let a job that arrived first lose to three that
+        arrived after it and then time out after fifteen minutes.
+
+        Checked often, because checking costs nothing: the answer is a list in
+        this process, not a request to the court site.
+        """
+        announced = None
+        while True:
+            ahead = accounts.ahead_of(username, ticket)
+            if not ahead:
+                return
+            if self._should_stop():
+                raise IcosStopped(STOPPED_MESSAGE)
+            elapsed = self._monotonic() - started
+            if elapsed + QUEUE_INTERVAL > self.concurrent_budget:
+                self._alert(
+                    alerts.CONCURRENT_EXHAUSTED,
+                    account=alerts.username_prefix(username),
+                    elapsed=_describe(elapsed),
+                    note="%d earlier %s on this login never finished, so this "
+                         "one never got a turn. More searches were started on "
+                         "one Iowa Courts account than it can run at once. Not "
+                         "an outside session."
+                         % (ahead, "search" if ahead == 1 else "searches"))
+                raise IcosAccountLocked(
+                    "This Iowa Courts account is still busy with %s started "
+                    "before this one. Iowa Courts allows one session per "
+                    "account, so they run one at a time. Nothing is lost; run "
+                    "this search again once they have finished."
+                    % ("a search" if ahead == 1 else "%d searches" % ahead))
+            if ahead != announced:
+                self._log(
+                    "%d earlier %s on this Iowa Courts account %s still "
+                    "running. Nothing is lost; this one starts as soon as they "
+                    "finish."
+                    % (ahead, "search" if ahead == 1 else "searches",
+                       "is" if ahead == 1 else "are"))
+                announced = ahead
+            self._sleep(QUEUE_INTERVAL)
+
+    def _login(self, username, password, ticket):
         self._log("Connecting to Iowa Courts Online...")
 
         # Said before ICOS is asked, not after it refuses. If Napier is holding
@@ -419,11 +483,27 @@ class IcosClient:
         if held_by_napier:
             self._log(held_by_napier)
 
-        self._retry("search", self.reader.init_request)
+        # Whether Napier was ever the one holding this account, rather than
+        # whether it happens to be holding it at the instant the budget runs
+        # out. The difference was a real misdiagnosis on 19 August: four
+        # searches on one login queued up, three of them took the account in
+        # turn and gave it back, and the fourth gave up twelve minutes after
+        # the last of them had finished. The end-of-wait sample found an empty
+        # registry and the alert blamed somebody signed in outside Napier, when
+        # Napier had held the account for nearly the whole wait. Once seen,
+        # this stays seen.
+        napier_ever_held = bool(held_by_napier)
 
         started = self._monotonic()
         waited_for_lock = False
         retried_trimmed = False
+
+        # Before init_request, so a job that is not going to run for ten
+        # minutes does not open a session on the court site and sit on it.
+        self._await_turn(username, ticket, started)
+
+        self._retry("search", self.reader.init_request)
+
         while True:
             # Without the validator a problem report lands on the size check
             # below, because it is well under MIN_SIGNED_IN_BYTES, and staff
@@ -446,23 +526,41 @@ class IcosClient:
                 # Asked again rather than reused, because a run can pick this
                 # account up or put it down while somebody is waiting on it.
                 napier_holds = accounts.describe(username)
+                napier_ever_held = napier_ever_held or bool(napier_holds)
                 if elapsed + CONCURRENT_INTERVAL > self.concurrent_budget:
+                    if napier_holds:
+                        note = ("Napier's own run held the account for the "
+                                "whole wait. Two staff on one login.")
+                    elif napier_ever_held:
+                        note = ("Napier's own runs held the account during the "
+                                "wait and gave it back before this one could "
+                                "get in. More searches were started on one "
+                                "Iowa Courts account than it can run at once. "
+                                "Not an outside session.")
+                    else:
+                        note = ("ESA never released the lock, and Napier was "
+                                "not holding the account at any point in the "
+                                "wait. Somebody is signed in to Iowa Courts "
+                                "outside Napier.")
                     self._alert(
                         alerts.CONCURRENT_EXHAUSTED,
                         account=alerts.username_prefix(username),
                         elapsed=_describe(elapsed),
-                        note="Napier's own run held the account for the whole "
-                             "wait. Two staff on one login."
-                             if napier_holds else
-                             "ESA never released the lock, and Napier was not "
-                             "holding the account. Somebody is signed in to "
-                             "Iowa Courts outside Napier.")
+                        note=note)
                     if napier_holds:
                         raise IcosAccountLocked(
                             "This Iowa Courts account has been busy with another "
                             "Napier run for the whole wait. Whoever started it can "
                             "stop it from their own progress page, or you can sign "
                             "in with a different Iowa Courts account.")
+                    if napier_ever_held:
+                        raise IcosAccountLocked(
+                            "Other searches on this Iowa Courts login kept it "
+                            "busy for the whole wait, and have finished now. "
+                            "Nothing is lost; run this search again. Starting "
+                            "several at once on one account does not make them "
+                            "go faster, because Iowa Courts allows one session "
+                            "per account.")
                     raise IcosAccountLocked(
                         "This Iowa Courts account is still logged in from another "
                         "session and Iowa Courts has not released it. Try again in a "
@@ -486,6 +584,10 @@ class IcosClient:
                             "as the account frees up.")
                     waited_for_lock = True
                 self._sleep(CONCURRENT_INTERVAL)
+                # Somebody may have joined the line ahead of us and taken the
+                # account while we slept. Asking again here is what keeps the
+                # order after the first attempt, not just before it.
+                self._await_turn(username, ticket, started)
                 continue
 
             if len(body) < MIN_SIGNED_IN_BYTES:
