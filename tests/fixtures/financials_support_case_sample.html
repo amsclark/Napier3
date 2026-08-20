@@ -1,0 +1,434 @@
+<!--
+  Real ICOS financials page captured 2026-08-20 from the live ESA app
+  (TViewFinancials), then scrubbed of everything that identifies the case or
+  the parties. This repo is public; the original is not in it.
+
+  Scrubbing applied, and nothing else:
+    * both party names are replaced with TEST PETITIONER and TEST RESPONDENT;
+    * the case number is replaced with DRCV000000 in county 00000, which is
+      not a case, and the county name with TEST;
+    * the payment date is replaced with 01/01/2020.
+  The markup is otherwise what the server returned, CRLF line endings and all.
+
+  Why this page is kept: it is a domestic case carrying a support obligation,
+  and that gives the summary table at the top its own "Pay Rec" button. The
+  button is a <FORM>, so the page has THREE forms where an ordinary criminal
+  financials page has two, and the first one holds no rows. Anything that
+  reaches for the itemization as soup.find('form') reads this case as having
+  no itemization at all, drops a $62.66 sheriff fee, and reports the whole
+  balance out of the summary rollup. That is exactly what happened to a case
+  reported by staff on 20 August.
+
+  The amounts are the server's own and are ordinary statutory fees: a $195.00
+  petition filing fee, a $1.00 support payment, and $62.66 of local sheriff's
+  fees, totalling the $257.66 in COSTS.
+-->
+
+
+<!doctype html>
+<!-- paulirish.com/2008/conditional-stylesheets-vs-css-hacks-answer-neither/ -->
+<!--[if lt IE 7 ]> <html class="no-js ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]>    <html class="no-js ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]>    <html class="no-js ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!-->
+
+<html class="no-js" lang="en">
+<!--<![endif]-->
+<head>
+<meta charset="utf-8">
+
+<!-- Always force latest IE rendering engine (even in intranet) & Chrome Frame Remove this if you use the .htaccess -->
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+
+
+
+
+
+
+
+	
+	
+
+
+
+<title>Financials</title>
+<meta name="description" content="">
+<meta name="author" content="">
+
+<!-- Mobile viewport optimized: j.mp/bplateviewport -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- CSS: implied media="all" -->
+<link rel="stylesheet" href="css/style.css?v=2">
+<link rel="stylesheet" type="text/css" href="js/libs/jquery-ui-1.12.1.custom/jquery-ui.css">
+<link rel="stylesheet" href="css/ICO.css">
+
+<!-- All JavaScript at the bottom, except for Modernizr which enables HTML5 elements & feature detects -->
+<script src="js/libs/modernizr-1.7.min.js"></script>
+
+</head>
+
+<body>
+<br>
+
+
+<table id="one_col">
+	<TR>
+		<TD colspan=9><B>Financials</B><BR>
+		Title: TEST PETITIONER AC TEST RESPONDENT<BR>
+		Case: 00000  DRCV000000 (TEST)<BR>
+		Citation Number: </TD>
+	</TR>
+	<TR>
+		<TD class="header"></TD>
+		<TD class="header_left">Summary</TD>
+		<TD class="header_right">Orig</TD>
+		<TD class="header_right">Paid</TD>
+		<TD class="header_right">Due</TD>
+		<TD class="header" colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>COSTS</TD>
+		<TD class="number">257.66</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">257.66</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>FINE</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>SURCHARGE</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>RESTITUTION</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD>OTHER</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD class="number">0.00</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	<TR>
+		<TD></TD>
+		<TD></TD>
+		<TD class="number">
+		<HR>
+		</TD>
+		<TD class="number">
+		<HR>
+		</TD>
+		<TD class="number">
+		<HR>
+		</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	<TR>
+		<TD>&nbsp;</TD>
+		<TD></TD>
+		<TD class="number">$258.66</TD>
+		<TD class="number">$1.00</TD>
+		<TD class="number">$257.66</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD></TD>
+		<TD></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD colspan="4"></TD>
+	</TR>
+	
+	<TR>
+		<TD>
+			<FORM action="/ESAWebApp/PayRecInput" METHOD="POST">
+				<INPUT type="Submit" name="Pay Rec" value="Pay Rec">
+				<INPUT type="hidden" name="sid" value="ALL"> </FORM>
+		</TD>
+		<TD>SUPPORT/ALIMONY</TD>
+		<TD class="number">N/A</TD>
+		<TD class="number">1.00</TD>
+		<TD class="number">N/A</TD>
+		<TD colspan="4"></TD>
+	</TR>
+	<TR>
+		<TD></TD>
+		<TD></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD class="number"></TD>
+		<TD colspan="4"></TD>
+	</TR>
+</table>
+
+<div class="hidden" id="payLaterDiv" title="Add Case to Shopping Cart">
+	<div>Adding Case: <span id="payLaterCaseId"></span></div>
+	<div style="border: 5px solid #1C6EA4;color:#FF0004;background-color:#B2BEB5;"  id="warrantWarning">
+		WARNING: Payment of fines does not satisfy outstanding WARRANT!!  Contact Clerk of Court or Sheriff
+	</div>
+	<div>Enter the amount to pay:</div>
+	<div id="payLaterAmountDiv">
+		<span></span>
+		<input type="text" id="payLaterAmount" />
+	</div>
+	<div>
+		<button type="button" id="addToCart">Add to Cart</button>
+		<button type="button" id="addToCartAndCheckout">Add to Cart and Checkout</button>
+	</div>
+</div>
+
+<br>
+
+
+
+<FORM action="/ESAWebApp/PayRecInput" METHOD="POST">
+<table id="one_col">
+	<TR>
+		<TD class="header"></TD>
+		<TD class="header_left">Detail</TD>
+		<TD class="header_left">Payor/Payee</TD>
+		<TD class="header_left">Obligor/Obligee</TD>
+		<TD class="header_right">Original Amount</TD>
+		<TD class="header_right">Paid Amount</TD>
+		<TD class="header_right">Date</TD>
+		<TD class="header_right">Receipt</TD>
+		<TD class="header_right">Type</TD>
+	</TR>
+	
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>FILING AND DOCKETING PETITION EXCL DISSO</TD>
+			<TD>TEST RESPONDENT /  STATE OF IOWA</TD>
+			<TD>TEST RESPONDENT /  STATE OF IOWA</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">195.00</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=1">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+		<TR>
+			<TD>
+				<INPUT type="Submit" name="Pay Rec" value="Pay Rec">
+			</TD>
+			
+			<TD>CHILD SUPPORT</TD>
+			<TD>TEST RESPONDENT / TEST PETITIONER</TD>
+			<TD>TEST RESPONDENT / TEST PETITIONER</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">1.00</TD>
+			<TD align="right">1.00</TD>
+			<TD>01/01/2020</TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=3-1">
+				52490
+				</A>
+			
+			</TD>
+			<TD>JRN</TD>
+		</TR>
+	
+		<TR>
+			<TD></TD>
+			
+			<TD>SHERIFFS FEES - LOCAL</TD>
+			<TD>TEST RESPONDENT /  TEST COUNTY</TD>
+			<TD>TEST RESPONDENT /  TEST COUNTY</TD>
+			<!--  <TD align="right"></TD>  -->
+			<TD align="right">62.66</TD>
+			<TD align="right"></TD>
+			<TD></TD>
+			<TD>
+			
+			
+				<A href="/ESAWebApp/TViewDisbursements?tableIndicator=t&rownum=2">
+				
+				</A>
+			
+			</TD>
+			<TD></TD>
+		</TR>
+	
+  </table>
+</FORM>
+
+
+
+
+
+
+
+
+
+ 
+    <script language=javascript>
+        function login(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/ESALogin.jsp"
+        }
+        function registration(){
+            parent.location.href = "https://www.iowacourts.state.ia.us/ESAWebApp/Registration"
+        }
+ 
+        function goToPassword() {
+            parent.location.href = "/ESAWebApp/ChangePasswordServlet";
+        }
+ 
+        function goToEditUser() {
+            parent.location.href = "/ESAWebApp/EditUserServlet?getEditPage=true";
+        }
+    </script>
+
+<table width="100%">
+    <tr>
+		<td align=right><font face=Arial size=1>CN=ila04,O=JUDICIAL</font></td>
+    </tr>
+</table>
+
+
+
+<div style="text-align: center;">
+	<form name="logoffForm" action="/ESAWebApp/EPALogout" target="_parent" method=POST>
+		<input type=submit name="logoffButton" value="Logoff" style="inline-block"> 
+		<input type=button name="changePassword" value="Change Password" onclick="javaScript:goToPassword()" style="inline-block">
+	</form>
+</div>
+
+
+
+<table width=100%>
+	<tr>
+		<td width=100%>
+
+			<p align=center><font size=2>Please Logoff when you are through accessing case detail information.</font></p>
+			<p align=center><font size=2>For exclusive use by the Iowa Courts<br>� State of Iowa,&nbsp; All Rights Reserved</font></p>
+
+		</td>
+	</tr>
+</table>
+
+
+
+
+<!-- JavaScript at the bottom for fast page loading -->
+
+<script src="js/libs/jquery-3.3.1.min.js"></script>
+<script src="js/libs/jquery-ui-1.12.1.custom/jquery-ui.min.js"></script>
+<script src="js/plugins.js"></script>
+<script src="js/Registration.js"></script>
+<script>
+	var varCaseID = '00000  DRCV000000';
+	var varMaxAmt = '$257.66';
+	var shoppingCartId = "null";
+	
+	varMaxAmt = varMaxAmt.replace('$', '');
+	$("#payNowButton").click(function() {
+		document.TrialForm.caseId.value = varCaseID;
+		document.TrialForm.citationNbr.value='';
+		document.TrialForm.deny.value = 'N'; //part of fix for bug 1679
+		document.TrialForm.denyMssg.value = '';
+		document.TrialForm.submit();
+	});
+	$("#payLaterButton").click(function() {
+		$('#payLaterCaseId').text(varCaseID);
+		$('#payLaterAmount').val(varMaxAmt);
+		$("#payLaterDiv").removeClass('hidden');
+		$('#payLaterDiv').dialog();
+	});
+	$("#reviewShoppingCartButton").click(function() {
+		top.location.href = "/ESAWebApp/ReviewShoppingCart";
+	});
+	$("#addToCart").click(function() {
+		var varPayAmt = $('#payLaterAmount').val();
+		if (parseInt(varPayAmt) > parseInt(varMaxAmt)) {
+			alert('You cannot pay more than is owed.');
+			$('#payLaterAmount').val(varMaxAmt).focus();
+		} else {
+			$.post("/ESAWebApp/AddPayLater", 
+				{ caseID: varCaseID, payAmt: varPayAmt
+				}, 
+				function (data, status) {
+					$('#payLaterResponseDiv').html(data);
+				}
+			);
+			$('#payLaterDiv').dialog('close');
+			$('#reviewShoppingCartButton').prop("disabled", false);
+		};
+	});
+	$('#addToCartAndCheckout').click(function() {
+		var varPayAmt = $('#payLaterAmount').val();
+		if (parseInt(varPayAmt) > parseInt(varMaxAmt)) {
+			alert('You cannot pay more than is owed.');
+			$('#payLaterAmount').val(varMaxAmt).focus();
+		} else {
+			$.post("/ESAWebApp/AddPayLater", 
+				{ caseID: varCaseID, payAmt: varPayAmt
+				}, 
+				function (data, status) {
+					$('#payLaterResponseDiv').html(data);
+				}
+			);
+			$('#payLaterDiv').dialog('close');
+		};
+		top.location.href = "/ESAWebApp/ReviewShoppingCart";
+	});
+	
+	$( document ).ready(function() {
+		$('#reviewShoppingCartButton').prop("disabled", true);
+		if ("null" != shoppingCartId) {
+			$('#reviewShoppingCartButton').prop("disabled", false);
+		}
+		console.log('warrantCheck = ' + 0);
+		var warrantCheck = 0;
+		if (warrantCheck < 1) {
+			$('#warrantWarning').hide();
+		}
+	});
+	
+</script>
+<!-- end scripts-->
+<!--[if lt IE 7 ]>
+    <script src="js/libs/dd_belatedpng.js"></script>
+    <script>DD_belatedPNG.fix('img, .png_bg');  </script>
+  <![endif]-->
+</body>
+</html>
