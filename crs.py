@@ -1245,6 +1245,30 @@ def _bucket_partition(rows, keep_third_party, skip=frozenset()):
     return buckets
 
 
+def _nonzero(columns):
+    return {column: amount for column, amount in columns.items() if amount}
+
+
+def _beats_summary(columns, case):
+    """Whether reconciling placed money somewhere the summary alone would not.
+
+    A category that does not add up still gets its balance placed by the
+    itemization: spread_over_fee_columns reads the fee names on the lines and
+    puts the category total in the column they point at. Only when it cannot --
+    no lines, or lines that disagree -- does the balance fall back to mapping
+    the bucket's own label, which is what summary_financials does for the whole
+    row.
+
+    A Linn domestic case that owed one sheriff fee came out of the loop above
+    as SHERIFF, and then the row was handed back because no category had
+    reconciled. The fallback mapped the bucket label COSTS, which matches no
+    fee and so lands in MISCELLANEOUS, and the note said the itemization could
+    not be reconciled. Both halves were true and the pair of them read as
+    Napier ignoring a fee ICOS names plainly.
+    """
+    return _nonzero(columns) != _nonzero(summary_financials(case))
+
+
 def reconcile_financials(case):
     """Per-column amounts owed, keeping the fee breakdown and the ICOS balance.
 
@@ -1458,12 +1482,15 @@ def reconcile_financials(case):
             column = get_finance_column(detail)
             columns[column] = columns.get(column, Decimal(0)) + owed
 
-    if (carrying
-            and not set(carrying) - (set(unreconciled) - set(recovered))
-            and not recovered):
-        # Nothing on this row reconciled, so what came out is the summary with
-        # extra steps. Hand it back to the caller, which says so in one sentence
-        # rather than five.
+    nothing_reconciled = (carrying
+                          and not set(carrying) - (set(unreconciled)
+                                                   - set(recovered))
+                          and not recovered)
+    if nothing_reconciled and not _beats_summary(columns, case):
+        # Nothing on this row reconciled and the columns came out where the
+        # summary alone would have put them, so what came out is the summary
+        # with extra steps. Hand it back to the caller, which says so in one
+        # sentence rather than five.
         return None, None
 
     notes = []
@@ -1489,8 +1516,16 @@ def reconcile_financials(case):
         elif stranded:
             text += (", and %s is in MISCELLANEOUS rather than in its own "
                      "columns" % stranded[0])
-        notes.append(text + ". The rest of the row is fee by fee and the ICOS "
-                            "total is still right.")
+        if nothing_reconciled:
+            # There is no rest of the row: every category carrying money is in
+            # this sentence. Claiming otherwise sends an attorney looking for a
+            # fee by fee breakdown that is not on the row.
+            notes.append(text + ". Each balance is in the fee column its "
+                                "itemized lines name, and the ICOS total is "
+                                "still right.")
+        else:
+            notes.append(text + ". The rest of the row is fee by fee and the "
+                                "ICOS total is still right.")
     if recovered_gaps:
         notes.append(
             "The part of %s that ICOS does not identify in the itemization is "
