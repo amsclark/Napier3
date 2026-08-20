@@ -530,8 +530,15 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
 
     if not_attempted:
         failed.extend(not_attempted)
-        job.log("%s, so the last %d case%s could not be pulled. The workbook "
-                "has the rest."
+        # Says what happened and stops there. It used to finish "The workbook
+        # has the rest", which it is in no position to know: this runs once per
+        # spelling group, so cases here is that group's share and not the
+        # client's, and the caller is the one that decides whether a workbook
+        # gets built at all. On 2026-08-20 Iowa Courts served its own outage
+        # page, every case of a 24 case run failed, the run raised "no cases
+        # could be read", and the last line the staffer saw promised them a
+        # workbook that was never written.
+        job.log("%s, so the last %d case%s could not be pulled."
                 % (stopped_responding(outage), len(not_attempted),
                    "" if len(not_attempted) == 1 else "s"))
     return cases, failed
@@ -1033,6 +1040,12 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
                 raise IcosError("Iowa Courts would not answer that name a "
                                 "second time, so none of the cases could be "
                                 "pulled. Please try the search again.")
+            # The staffer reads the progress log, not the traceback. Without
+            # this the run's last word is about the cases it skipped, and
+            # nothing anywhere says the outcome was nothing at all.
+            job.log("Iowa Courts did not give up a single one of these cases, "
+                    "so there is no workbook to build. Nothing is lost: run "
+                    "the search again once Iowa Courts is answering.")
             raise ValueError("no cases could be read")
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))

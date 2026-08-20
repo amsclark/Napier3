@@ -580,10 +580,15 @@ class IcosClient:
         slow = sorted(n for n in self.landed_on if n > 1)
         if not slow and not self.given_up:
             return None
+        # "requests", not a bare number. These count page requests, and a
+        # case costs three of them, so the bare version sat under a line about
+        # 22 cases that could not be pulled and read as though four of them
+        # had worked. None of them had.
         parts = ["%d first time" % self.landed_on.get(1, 0)]
         for n in slow:
             parts.append("%d on try %d" % (self.landed_on[n], n))
-        line = "Iowa Courts answered " + ", ".join(parts)
+        line = ("Of the page requests this run made, Iowa Courts answered "
+                + ", ".join(parts))
         if self.given_up:
             line += ", and never answered %d" % self.given_up
         return line + "."
