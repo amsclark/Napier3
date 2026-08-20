@@ -310,17 +310,28 @@ def test_reconciliation_refuses_a_partition_that_does_not_add_up(felony_case):
     assert 'OTHER' in note
 
 
-def test_a_row_where_nothing_reconciles_falls_back_whole(felony_case):
-    # Every bucket broken is a summary row with extra steps, and it reads better
-    # as one sentence than as five.
+def test_a_row_where_nothing_reconciles_still_keeps_the_fee_columns(felony_case):
+    # No bucket adds up, but the itemization still names the fees, and a fee
+    # column the page states beats a lump in MISCELLANEOUS. This used to fall
+    # back to the summary whole and put $719.00 in MISC under a note blaming
+    # the itemization -- which is how a plainly labelled sheriff fee ended up
+    # filed as miscellaneous on a Linn case in August.
     for row in felony_case['financials']:
         if row['amount'] is not None:
             row['amount'] = str(Decimal(row['amount']) + 1)
-    assert crs.reconcile_financials(felony_case) == (None, None)
+    columns, note = crs.reconcile_financials(felony_case)
+    assert columns is not None
     sheet = FakeSheet()
     crs.process_financials(felony_case, sheet, 4)
-    assert sheet.value_of('O4') == Decimal('719.00')   # COSTS 629 + OTHER 90
-    assert 'not a per-fee breakdown' in sheet.value_of('V4')
+    assert sheet.value_of('M4') == Decimal('578.24')   # sheriff fees
+    assert sheet.value_of('J4') == Decimal('50.76')    # indigent defense
+    assert sheet.value_of('S4') == Decimal('500.00')   # restitution
+    assert sheet.value_of('O4') is None                # not lumped into MISC
+    assert sheet.value_of('U4') == Decimal('1219.00')  # ICOS balance unchanged
+    # The row still says the categories did not add up, and no longer promises
+    # a fee-by-fee breakdown of a row that has none.
+    assert 'did not add up against the itemization' in sheet.value_of('V4')
+    assert 'rest of the row' not in sheet.value_of('V4')
 
 
 def test_ambiguous_payment_is_flagged_not_guessed():
