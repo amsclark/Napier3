@@ -344,13 +344,16 @@ that was excluded is assessed and paid at the same amount on every line.
 ## ICOS case statuses with no CRS code
 
 Napier reads the case level status only where it overlaps the per count
-adjudication wordings, which is at DISMISSED and nowhere else. These are left
-uncoded, and the case goes onto the sheet with the wording in column V so it is
-visibly uncoded rather than quietly miscoded:
+adjudication wordings. That overlap has grown twice since this section was
+written, at CHANGE OF VENUE on 3 August 2026 and at TRANSFERRED on 20 August,
+so it is now DISMISSED, CHANGE OF VENUE and TRANSFERRED, and on a juvenile
+docket OTHER JUDGMENT as well. The rest are still left uncoded, and the case goes onto the sheet with the
+wording in column V so it is visibly uncoded rather than quietly miscoded:
 
-GUILTY PLEA/DEFAULT, VIOLATIONS HANDLED BY CLERK, BY TRIAL TO COURT, OTHER
-JUDGMENT, TRANSFERRED, SMALL CLAIM-DISPOSED BY CLERK, CHANGE OF VENUE, CLOSED,
-DEFAULTED, DEFERRED JUDGEMENT, DISCHARGE, CONVERTED TO SIMPLE MISDEMEANR.
+GUILTY PLEA/DEFAULT, VIOLATIONS HANDLED BY CLERK, BY TRIAL TO COURT, SMALL
+CLAIM-DISPOSED BY CLERK, CLOSED, DEFAULTED, DEFERRED JUDGEMENT, DISCHARGE,
+CONVERTED TO SIMPLE MISDEMEANR, and OTHER JUDGMENT anywhere but a juvenile
+docket.
 
 Whether VIOLATIONS HANDLED BY CLERK is a guilty plea decides what five sheets
 compute, which is why the code will not guess.
@@ -362,11 +365,12 @@ expungement sheets both test for, and it is the only wording here that names a
 CRS code outright.
 
 On the 300 case corpus this costs almost nothing, because a case-level status is
-only consulted where no count was adjudicated, and that is 8 cases. Two carry a
-status Napier cannot code, CLOSED with $197.43 and TRANSFERRED with none. The
-other six have no disposition of any kind and are genuinely pending. Both of the
-uncoded rows leave column G empty, which BANKRUPTCY, EXEMPTIONS and SOL all read
-as "open charge", and the row says so in column V.
+only consulted where no count was adjudicated, and that is 8 cases. One still
+carries a status Napier cannot code, CLOSED with $197.43; the TRANSFERRED case
+beside it, which carries nothing, now reads TNSF. The other six have no
+disposition of any kind and are genuinely pending. The uncoded row leaves column
+G empty, which BANKRUPTCY, EXEMPTIONS and SOL all read as "open charge", and the
+row says so in column V.
 
 ## Two answers from 18 August 2026, checked against the real pages
 
@@ -432,6 +436,50 @@ untouched, the same way 908.11 is kept clear of 908.1.
 
 All seven of that client's Polk cases now read CIV, which is what the record
 says they are.
+
+## Three from 20 August 2026, and two still open
+
+Iowa Legal Aid answered three of the wordings "ICOS case statuses with no CRS
+code" had been holding, and answered them for the juvenile docket only: *"If a Juvenile case says
+CONSENT DECREE or OTHER JUDGMENT that can be [JUV]. If a Juvenile case says
+TRANSFERRED that most likely a waiver to adult court so that can be [JWV]."*
+
+That is a separate table, `JUVENILE_DISPOSITIONS`, rather than three more
+entries in `charge_code_map`, because all three wordings exist on adult and
+civil dockets too and mean different things there. It is written out twice, in
+crs for column G and in case_parser for the `[CODE]` suffix on column E, and a
+test holds the two copies to the same keys and the same codes -- a wording
+learned in one and not the other puts two columns of the same row in
+disagreement.
+
+**The judgement.** TRANSFERRED on an *adult* case was not asked about and is now
+coded TNSF. They answered only for juveniles, but a case-level status cannot be
+answered for one docket and left unread on another: the same wording was already
+reaching column G on adult cases and coming out blank. TNSF is what CHANGE OF
+VENUE has always earned, and both mean the case left this court with no outcome
+recorded here. Told to them on 20 August with the offer to change it. If that is
+wrong, the fix is to drop TRANSFERRED back out of `charge_code_map` and leave it
+to `JUVENILE_DISPOSITIONS` alone.
+
+Two are open and neither should be decided without them.
+
+**Civil OTHER JUDGMENT.** Their answer covers the juvenile docket. On a DRCV
+case it is still not translated, and the guess is not cheap: CIV, the code a
+civil judgment would want, is one of the eight codes BANKRUPTCY and EXEMPTIONS
+read as no conviction, so guessing it would move the client's whole balance into
+fully dischargeable and zero every other column on the row. Asked on 20 August
+against a real DRCV case; awaiting the answer.
+
+**PROPERTY CO-OWNER.** Added to `KNOWN_PARTY_ROLES` on 20 August on the reasoning
+that nothing in the case for PROPERTY OWNER turns on being the only owner, and
+put to them the same day. Their reply -- *"We are cool with not catching the
+PROPERTY CO-OWNER ones"* -- reads as not wanting them, especially beside *"I
+think we should keep the RESP/PROTECTED PERSON just in case"* about the role in
+the same question. It was left in, because that is what they were told would
+happen absent an answer, and because a role list decides whose convictions land
+in a client's file and that is not a thing to change on a reading of an
+ambiguous sentence. Worth asking again in plain terms rather than leaving it to
+stand by default.
 
 ## Smaller ones
 
