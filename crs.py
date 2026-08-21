@@ -462,16 +462,24 @@ CIVIL_DESCRIPTIONS = ('OUT OF COUNTY WARRANT',)
 
 # Docket types that are civil whatever the clerk typed on the counts.
 #
-# Iowa Legal Aid asked for both on 21 August 2026. AMCR is the appeal
+# Iowa Legal Aid asked for AMCR and DRCV on 21 August 2026. AMCR is the appeal
 # misdemeanour docket the county files parole holds, contempts and fugitive
 # warrants under, and they report a recent decision reading the whole type as
 # civil. DRCV is the protective order docket, which is civil on its face.
 #
-# This is the one reading that does not go through the counts at all, and it is
-# deliberately a whitelist of exactly two four-character types rather than a
-# prefix rule. "AM" alone would also take AMCV and anything else Iowa adds, and
-# "DR" would take the DRCV cases' criminal neighbours on the domestic relations
-# docket. case_type gives the four characters, so the test is equality.
+# They asked for AMCV and DRCR in the same afternoon, on seeing the first two
+# land. That is every AM and DR docket type ICOS has shown us, so the reading
+# is now "the AM and DR dockets are civil" rather than "these two are". Their
+# ground is the docket, not the suffix: the recent decision reads the appeal
+# misdemeanour type as civil however the clerk styled it, and DR is the
+# domestic relations docket, whose criminal-styled cases are the contempts off
+# a protective order rather than convictions of their own.
+#
+# Still a whitelist of four-character types rather than a prefix rule, and
+# deliberately. "AM" and "DR" alone would take whatever Iowa adds next as
+# civil the day it appears, with no one deciding it. A fifth type wanted here
+# should cost an email, the way these four did. case_type gives the four
+# characters, so the test is equality.
 #
 # What it costs, so it is written down somewhere other than an inbox: CIV is
 # one of the eight codes BANKRUPTCY and EXEMPTIONS read as no conviction, so a
@@ -480,7 +488,7 @@ CIVIL_DESCRIPTIONS = ('OUT OF COUNTY WARRANT',)
 # them stops answering YES there. Iowa Legal Aid has settled both trades before
 # -- see KEEPS_ITS_CLEARED_CODE -- on the ground that a civil case is not
 # eligible for dismissed-or-acquitted expungement in the first place.
-CIVIL_CASE_TYPES = ('AMCR', 'DRCV')
+CIVIL_CASE_TYPES = ('AMCR', 'AMCV', 'DRCR', 'DRCV')
 
 # What a clerk files a pre-electronic-docket case under. Either spelling is
 # enough on its own, because the captured case carries both and there is no
@@ -1962,9 +1970,24 @@ def process_financials(case, worksheet, row):
 # What column V says on a row whose code the workbook it is going into cannot
 # see. Names the code and the remedy, because the person reading it is looking
 # at a row that otherwise looks finished.
-UNSCORED_CODE_NOTE = ("%s is not in this template, so no sheet in this Lite "
-                      "workbook counts this case. Build it on the full CRS to "
-                      "score it.")
+#
+# It says what is actually lost rather than "no sheet counts this case", which
+# is what it used to say and is more than Lite gets wrong. Measured on
+# 2026-08-21 against both files: on every sheet CRS Lite carries, its formulas
+# are character for character the full CRS's, so a CIV or JWV row gets the
+# same eligibility answers in either workbook. CIV and JWV are named only on
+# BANKRUPTCY and EXEMPTIONS, and what Lite is short of is those two sheets --
+# so the debt on the row is not sorted as dischargeable or exempt anywhere.
+# See TestWhatLiteIsActuallyShortOf, which holds that measurement.
+#
+# Telling staff to rebuild on the full CRS to fix answers that are already
+# right is the sort of thing a guide gets written around, so the note names
+# the one reading Lite cannot give.
+UNSCORED_CODE_NOTE = ("%s is in no formula in this Lite workbook. The "
+                      "eligibility answers on this row are the ones the full "
+                      "CRS gives; what Lite has no sheet for is sorting this "
+                      "case's debt as dischargeable or exempt. Build it on "
+                      "the full CRS if you need that.")
 
 # The one code that is meant to appear in no formula. OTH is what Napier writes
 # when it does not know the disposition, and it is deliberately in no cleared
@@ -1988,6 +2011,15 @@ def codes_the_template_scores(template):
     settled the juvenile transfer wording on 20 August, and CIV on every
     extradition hold and cleared parole violation since 19 August. On a Lite
     workbook those rows were scoring nothing and saying nothing about it.
+
+    What "scoring nothing" is worth knowing about precisely, because Lite is
+    what Drake Legal Clinic runs on. Both codes are named only on BANKRUPTCY
+    and EXEMPTIONS, the two sheets Lite does not carry, and every sheet it
+    does carry has the full CRS's formulas character for character. So the
+    row's eligibility answers are not wrong on Lite; its debt is simply not
+    sorted as dischargeable or exempt, because there is no sheet to sort it
+    on. UNSCORED_CODE_NOTE says that, and TestWhatLiteIsActuallyShortOf in
+    tests/test_lite_unscored_codes.py measures it off the two files.
     """
     blob = []
     with zipfile.ZipFile(template) as archive:

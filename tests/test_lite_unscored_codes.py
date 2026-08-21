@@ -26,6 +26,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import crs
+from openpyxl import load_workbook
 
 FULL = 'CRS 3.5.5.xlsx'
 LITE = 'CRS Lite 3.5.5.xlsx'
@@ -118,3 +119,87 @@ class TestTheFullCrsIsSilent:
     @pytest.mark.parametrize('code', ['JWV', 'CIV', 'GTR', 'TNSF', 'OTH'])
     def test_nothing_is_marked(self, code):
         assert _notes(FULL, [code]) == [None]
+
+
+# The columns on the shared sheet that name a disposition code, in each file.
+# They are the same columns in a different order: CRS Lite drops the four
+# columns that read BANKRUPTCY and SOL, and everything after them shifts left.
+SHARED_CODE_COLUMNS = [('E', 'E'), ('F', 'F'), ('I', 'I'), ('M', 'L'),
+                       ('T', 'Q')]
+
+# The three sheets the full CRS has and CRS Lite does not, which is the whole
+# of the difference between them.
+SHEETS_ONLY_THE_FULL_CRS_HAS = ['BANKRUPTCY', 'EXEMPTIONS', 'SOL']
+
+
+def _formula(cell):
+    """A cell's text whether the template stored it as an array formula."""
+    value = cell.value
+    return getattr(value, 'text', value)
+
+
+class TestWhatLiteIsActuallyShortOf:
+    """Iowa Legal Aid asked on 21 August whether the changes on the full CRS
+    could be matched on Lite, which is what Drake Legal Clinic runs.
+
+    Almost all of them already are, and not by anyone porting them: Napier
+    writes the same columns into whichever template was chosen, so the notes
+    column, the charge classes in column E, the disposition codes in column G,
+    the court debt and the contempt and juvenile readings land in a Lite
+    workbook exactly as they land in a full one.
+
+    What does not is anything that needs a sheet Lite has not got. These tests
+    measure that boundary off the two files rather than describing it, so the
+    answer stays true when a template is replaced by its author -- which is
+    how these files change, since this repo does not own them.
+    """
+
+    def test_the_shared_sheet_asks_the_same_questions_in_both(self):
+        """Every code-bearing formula on EXPUNGEMENT & 910.7, character for
+        character. This is the test behind UNSCORED_CODE_NOTE: a CIV or JWV
+        row gets the same eligibility answers on Lite as on the full CRS, so a
+        note telling staff to rebuild on the full CRS to fix those answers
+        would be sending them after nothing."""
+        full = load_workbook(FULL)['EXPUNGEMENT & 910.7']
+        lite = load_workbook(LITE)['EXPUNGEMENT & 910.7']
+        for full_column, lite_column in SHARED_CODE_COLUMNS:
+            row = str(crs.FIRST_CASE_ROW - 1)
+            assert (_formula(full[full_column + row])
+                    == _formula(lite[lite_column + row])), full_column
+
+    def test_the_codes_lite_cannot_see_are_named_only_on_its_missing_sheets(self):
+        """So the gap is those sheets, not a formula anybody forgot to update.
+        Adding CIV to a Lite formula is not a change that exists to make: the
+        formulas that name it are on BANKRUPTCY and EXEMPTIONS, and putting
+        those sheets in is what would stop the file being Lite."""
+        missing = crs.codes_the_template_scores(FULL) - \
+            crs.codes_the_template_scores(LITE)
+        assert missing == {'CIV', 'JWV'}
+        for code in missing:
+            named_on = _sheets_naming(FULL, code)
+            assert named_on, code
+            assert named_on <= set(SHEETS_ONLY_THE_FULL_CRS_HAS), (code,
+                                                                   named_on)
+
+    def test_that_is_the_only_difference_in_sheets(self):
+        """If a later template adds one of these back, the note above and the
+        answer given to Iowa Legal Aid both need revisiting."""
+        full = set(load_workbook(FULL).sheetnames)
+        lite = set(load_workbook(LITE).sheetnames)
+        assert full - lite == set(SHEETS_ONLY_THE_FULL_CRS_HAS)
+        assert lite - full == set()
+
+
+def _sheets_naming(template, code):
+    """Which sheets of a template mention a disposition code in a formula."""
+    workbook = load_workbook(template)
+    found = set()
+    for sheet in workbook.worksheets:
+        rows = sheet.iter_rows(min_row=1, max_row=crs.FIRST_CASE_ROW + 200)
+        for row in rows:
+            for cell in row:
+                text = _formula(cell)
+                if isinstance(text, str) and '"%s"' % code in text:
+                    found.add(sheet.title)
+                    break
+    return found
