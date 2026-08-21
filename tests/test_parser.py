@@ -189,17 +189,20 @@ def test_a_property_owner_is_the_person_the_search_is_about():
     assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
 
 
-def test_a_property_co_owner_is_the_person_the_search_is_about():
-    """The same case as PROPERTY OWNER above, which is the point.
+def test_a_property_co_owner_case_is_left_out():
+    """The variant Iowa Legal Aid answered the other way on 2026-08-21.
 
-    ICOS writes this when the property has more than one owner on it. Nothing
-    in the reasoning for PROPERTY OWNER turns on being the only owner, so the
-    two were always going to need the same answer, and only one of them got it
-    on 2026-08-12. Six searches on 2026-08-20 alerted on the variant.
+    Read here as the same question as PROPERTY OWNER when it first alerted on
+    2026-08-20, on the reasoning that nothing about being the sole owner is
+    what makes the case theirs. Iowa Legal Aid asked for the co-owner wording
+    to be excluded instead: they are content not to catch these. PROPERTY
+    OWNER is untouched by that and still keeps its case, so the two now differ
+    on purpose and the test above is what holds them apart.
     """
     cases, _ = case_parser.parse_search(role_row('PROPERTY CO-OWNER'))
-    assert ids(cases) == ['00000  FECR000000']
-    assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
+    assert cases == []
+    assert 'PROPERTY CO-OWNER' in case_parser.NON_PARTY_ROLES
+    assert 'PROPERTY CO-OWNER' not in case_parser.KNOWN_PARTY_ROLES
 
 
 def test_a_protective_order_respondent_is_the_person_the_search_is_about():
