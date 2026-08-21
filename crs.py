@@ -218,6 +218,15 @@ JUV_RANK_ADULT_CASE = 0.75
 # What column V says about that row. The workbook outlives the alert and gets
 # read by whoever has the client in front of them, so the guess has to be
 # visible in the file itself and not only in Alex's inbox.
+#
+# Every note below is explained for staff on the wiki, and that page is the
+# only copy of that explanation:
+#
+#     https://github.com/amsclark/Napier3/wiki/CRS-Notes-Column
+#
+# Iowa Legal Aid hands it to the person reading the workbook, so a note whose
+# wording changes here and not there sends them looking for a message that no
+# longer exists. Edit both in the same sitting.
 UNKNOWN_DISPOSITION_NOTE = (
     "Iowa Courts recorded a disposition Napier does not recognise (%s), so this "
     "case is coded OTH, and the sheets do not agree on what that means. The "
