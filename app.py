@@ -368,7 +368,11 @@ def batch_crs():
                       # workbook is least visible: the finish page shows one
                       # row per client and def_name is the first key's name, so
                       # the second spelling is named nowhere at all otherwise.
-                      'filed_as': tasks.docket_names(keys, entry['cases'])})
+                      'filed_as': tasks.docket_names(keys, entry['cases']),
+                      # Same window and the same reason as filed_as: the
+                      # results page is the only thing that ever knew.
+                      'no_dob': sorted(tasks.dob_unknown_cases(
+                          keys, entry['cases']))})
 
     if not picks:
         return jsonify({"error": "Pick a match for at least one client."}), 400
