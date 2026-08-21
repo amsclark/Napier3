@@ -175,6 +175,14 @@ KNOWN_PARTY_ROLES = frozenset({
     # against them personally, so it is their record, unlike the LIEN FILER
     # and INTERESTED PARTY bystander roles. Seen on a live search 2026-08-12.
     'PROPERTY OWNER',
+    # ICOS's role on a protective order case. It reads as a bystander role and
+    # it is not: a no contact order and any contempt off it are the person's
+    # own court record, and the client is who it was entered against. Iowa
+    # Legal Aid was asked on 2026-08-20 whether to drop these and said to keep
+    # them. Naming it here changes nothing about which cases are written --
+    # it was never in NON_PARTY_ROLES -- and stops a decided role mailing an
+    # unrecognised-role alert on every run that touches one.
+    'RESP/PROTECTED PERSON',
     # ICOS's wording when the property has more than one owner on it. Nothing
     # in the reasoning above turns on being the only owner: the case is still
     # about their property and can still assess costs against them personally.

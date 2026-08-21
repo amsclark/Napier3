@@ -140,7 +140,7 @@ written = []
 attributed = []
 
 
-def record_workbook(cases, name, dob, lite, failed=(), filed_as=None):
+def record_workbook(cases, name, dob, lite, failed=(), filed_as=None, no_dob=()):
     """What actually reached the workbook, which is the question the dedup
     test is asking. A case counted twice here is a client billed twice."""
     written.append([case['id'] for case in cases])
