@@ -99,7 +99,7 @@ class StubClient:
 WRITTEN = []
 
 
-def _fake_build(cases, name, dob, lite, failed=(), filed_as=None):
+def _fake_build(cases, name, dob, lite, failed=(), filed_as=None, no_dob=()):
     WRITTEN.append({'name': name, 'ids': [case['id'] for case in cases],
                    'failed': list(failed)})
     path = os.path.join(tasks.tmp_dir, 'test_outage.xlsx')

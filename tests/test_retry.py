@@ -138,7 +138,7 @@ def fake_icos(monkeypatch):
 WRITTEN = []
 
 
-def _fake_build(cases, name, dob, lite, failed=(), filed_as=None):
+def _fake_build(cases, name, dob, lite, failed=(), filed_as=None, no_dob=()):
     # failed is recorded because a rebuilt workbook that still does not name
     # what is missing from it is the whole point of this going in.
     WRITTEN.append({'name': name, 'ids': [case['id'] for case in cases],
