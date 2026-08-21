@@ -132,11 +132,18 @@ if platform.system() == 'Windows':
     tmp_dir = '.\\tmp\\'
 
 
+# What stands in for the date of birth in a defendant key when Iowa Courts'
+# results page left the column empty. It is the word the picking page shows and
+# the word BASIC INFO B6 ends up carrying, so anywhere else that has to say the
+# same thing says it with this rather than a second spelling of it.
+DOB_UNKNOWN = 'DOB-UNKNOWN'
+
+
 def _defendant_key(case):
     if case['dob'] and not case['dob'].isspace():
         month, day, year = [part.strip() for part in case['dob'].split('/')]
         return "{}-{}-{} {}".format(year, month, day, case['name'].strip())
-    return 'DOB-UNKNOWN ' + case['name']
+    return DOB_UNKNOWN + ' ' + case['name']
 
 
 def group_cases(cases):
@@ -211,6 +218,34 @@ def docket_names(keys, case_dict):
     if len(set(names.values())) < 2:
         return {}
     return names
+
+
+def dob_unknown_cases(keys, case_dict):
+    """Which picked cases Iowa Courts gave no date of birth for.
+
+    A results row with an empty date of birth column groups under DOB-UNKNOWN,
+    and ticking that group puts the case on the client's file on the strength
+    of the name and nothing else. That is the one thing on the finished row
+    that cannot be checked against the person sitting in the clinic, and until
+    now it was said only in BASIC INFO B6, which is one cell for the whole
+    workbook and is not the sheet anybody reads the cases off. Iowa Legal Aid
+    asked for it on the rows on 2026-08-20.
+
+    Marked even when every row carries it, unlike docket_names. Two spellings
+    of a name is a fact about the workbook, so saying it on every row of a
+    workbook that has only one spelling says nothing; no date of birth is a
+    fact about the case, and a sheet where it is true of every row is a sheet
+    where nothing at all was matched on a date of birth.
+
+    A case listed under both a dated key and an undated one is not marked. The
+    date of birth is known for it either way, and one result row missing the
+    column is not a reason to caveat a case the row above confirmed.
+    """
+    dated, undated = set(), set()
+    for key in keys:
+        into = undated if key.startswith(DOB_UNKNOWN + ' ') else dated
+        into.update(case_dict.get(key, []))
+    return undated - dated
 
 
 def searches_behind(entry):
@@ -545,7 +580,7 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
 
 
 def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
-                 searches=None, filed_as=None):
+                 searches=None, filed_as=None, no_dob=None):
     """One client's share of what a retry needs.
 
     case_ids is everything that was asked for, in the order it was asked for,
@@ -561,6 +596,9 @@ def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
     filed_as is the note each case carries about which spelling of the client's
     name it is docketed under, empty unless there is more than one.
 
+    no_dob is the cases Iowa Courts listed without a date of birth. Both are
+    read off the search results, which a retry never sees again.
+
     These sit in the dyno's memory for the two hours the job lives, which is
     the same window the workbook itself sits in tmp for, so nothing is exposed
     here that the finished run was not already holding. They reach no log, no
@@ -571,7 +609,8 @@ def _retry_entry(def_name, def_dob, person, case_ids, cases, failed,
              # So a rebuilt workbook keeps the attribution. The keys and the
              # search results it was worked out from belong to the search job,
              # which a retry does not go back to.
-             'filed_as': dict(filed_as or {})}
+             'filed_as': dict(filed_as or {}),
+             'no_dob': list(no_dob or ())}
     if searches:
         entry['searches'] = [{'person': group['person'],
                               'case_ids': list(group['case_ids'])}
@@ -873,7 +912,8 @@ def batch_crs_task(job, session_token, picks, is_lite):
             entry = _retry_entry(pick['def_name'], pick['def_dob'],
                                  pick.get('person'), pick['case_ids'], [], [],
                                  pick.get('searches'),
-                                 pick.get('filed_as'))
+                                 pick.get('filed_as'),
+                                 pick.get('no_dob'))
             retry_entries.append(entry)
 
             # Before the re-search, not after it. A dead site would otherwise
@@ -920,7 +960,7 @@ def batch_crs_task(job, session_token, picks, is_lite):
             try:
                 path, unknown, atp, short = build_workbook(
                     cases, pick['def_name'], pick['def_dob'], is_lite, failed,
-                    pick.get('filed_as'))
+                    pick.get('filed_as'), pick.get('no_dob'))
             except Exception as e:
                 # The other clients' workbooks are already built or still to
                 # come, and neither should be lost to this one.
@@ -1024,6 +1064,10 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
         # Which spelling each case is docketed under, while the search results
         # are still here to say so. CASE DATA carries no name of its own.
         filed_as = docket_names(keys, case_dict)
+        # Same window, same reason: CASE DATA has no date of birth column of
+        # its own and the case page cannot be asked what the results page did
+        # not say.
+        no_dob = dob_unknown_cases(keys, case_dict)
         # The order the groups are pulled in, so the workbook's rows and the
         # retry's idea of where a recovered row goes back agree with each other.
         case_ids = [case_id for group in searches
@@ -1050,7 +1094,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
 
         job.log("Building the CRS workbook...", count=len(case_ids), total=len(case_ids))
         path, unknown_dispositions, atp, short = build_workbook(
-            cases, def_name, def_dob, is_lite, failed, filed_as)
+            cases, def_name, def_dob, is_lite, failed, filed_as, no_dob)
         report_unknown_dispositions(job, unknown_dispositions)
         report_short_workbook(job, short, len(cases))
         job.result = {
@@ -1065,7 +1109,7 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
             "done_url": "/done/%s" % job.id,
             "retry": _retry_payload('crs', is_lite, [
                 _retry_entry(def_name, def_dob, person, case_ids, cases,
-                             failed, searches, filed_as)]),
+                             failed, searches, filed_as, no_dob)]),
         }
 
         if failed:
@@ -1172,7 +1216,8 @@ def retry_task(job, username, password, payload):
                                         entry['person'], entry['case_ids'],
                                         cases, still_failed,
                                         entry.get('searches'),
-                                        entry.get('filed_as')))
+                                        entry.get('filed_as'),
+                                        entry.get('no_dob')))
             if not cases:
                 if skipped:
                     record['error'] = ("%s before Napier reached this client, "
@@ -1192,7 +1237,7 @@ def retry_task(job, username, password, payload):
             try:
                 path, unknown, atp, short = build_workbook(
                     cases, entry['def_name'], entry['def_dob'], is_lite,
-                    still_failed, entry.get('filed_as'))
+                    still_failed, entry.get('filed_as'), entry.get('no_dob'))
             except Exception as e:
                 print("Workbook failed on retry for client %d: %r" % (index, e),
                       flush=True)
@@ -1273,8 +1318,15 @@ def retry_task(job, username, password, payload):
 # column in one pass.
 FILED_AS_NOTE = "Filed under %s."
 
+# And what it says on a row Iowa Courts listed with no date of birth. Named the
+# way the picking page names it, because the staffer who ticked DOB-UNKNOWN
+# there is the one reading this, and the second clause is why it is worth a
+# note: every other row was confirmed against a date and this one was not.
+DOB_UNKNOWN_NOTE = "DOB-Unknown: matched on the name alone."
 
-def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
+
+def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None,
+                   no_dob=()):
     """Returns the path written, the dispositions Napier could not read, the
     two figures the ability-to-pay calculator asks for, and anything the saved
     workbook is still short of.
@@ -1287,6 +1339,10 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
     filed_as maps a case number to the spelling of the client's name it is
     docketed under, and is empty unless the workbook holds more than one. See
     docket_names for why the notes column is where that goes.
+
+    no_dob is the case numbers Iowa Courts listed without a date of birth, so
+    the row can say the client was matched on the name and nothing else. See
+    dob_unknown_cases.
 
     The second value maps the ICOS wording, paired with whether the row it
     landed on came out with a code in column G, to the case numbers it turned up
@@ -1310,6 +1366,7 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
     row = 4
     unknown = {}
     filed_as = filed_as or {}
+    no_dob = set(no_dob or ())
     for case in cases:
         for key in crs.process_case(case, sheet, row, clinic_date) or []:
             unknown.setdefault(key, []).append(case['id'])
@@ -1317,6 +1374,8 @@ def build_workbook(cases, def_name, def_dob, is_lite, failed=(), filed_as=None):
         # client this is and then what to watch on it.
         if filed_as.get(case['id']):
             crs.append_note(sheet, row, FILED_AS_NOTE % filed_as[case['id']])
+        if case['id'] in no_dob:
+            crs.append_note(sheet, row, DOB_UNKNOWN_NOTE)
         row += 1
 
     # A code the chosen template has no formula for counts for nothing, on

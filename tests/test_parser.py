@@ -202,6 +202,22 @@ def test_a_property_co_owner_is_the_person_the_search_is_about():
     assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
 
 
+def test_a_protective_order_respondent_is_the_person_the_search_is_about():
+    """Alerted as unrecognised on runs through 2026-08-20. The role reads like
+    a bystander and is not one: a no contact order and any contempt off it are
+    the person's own court record, and the client is who it was entered
+    against.
+
+    Iowa Legal Aid was asked on 2026-08-20 whether to drop these and said to
+    keep them. The case was always kept -- the role is in neither list, and
+    neither list is what decides that -- so this is about the alert: a role
+    somebody has ruled on should stop mailing out on every run that meets it.
+    """
+    cases, _ = case_parser.parse_search(role_row('RESP/PROTECTED PERSON'))
+    assert ids(cases) == ['00000  FECR000000']
+    assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
+
+
 def test_the_two_role_lists_do_not_overlap():
     """A role in both would be suppressed and vouched for at the same time."""
     assert not (case_parser.NON_PARTY_ROLES & case_parser.KNOWN_PARTY_ROLES)
