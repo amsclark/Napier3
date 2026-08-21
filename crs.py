@@ -135,10 +135,11 @@ charge_code_map = {
 # Outside the juvenile docket, OTHER JUDGMENT and CONSENT DECREE are still not
 # translated. Iowa Legal Aid answered for juveniles and only for juveniles, and
 # a wrong guess here is not cheap: CIV, the code a civil judgment would want,
-# is in the expungement sheet's cleared set, so guessing it would clear every
-# fee column on the row. Unrecognised is the honest answer, and it travels out
-# through unknown_dispositions, which puts the wording in column V and tells
-# the run. Visibly uncoded beats quietly miscoded.
+# is one of the eight codes BANKRUPTCY and EXEMPTIONS read as no conviction, so
+# guessing it would move the whole balance into fully dischargeable and zero
+# every other column on the row. Unrecognised is the honest answer, and it
+# travels out through unknown_dispositions, which puts the wording in column V
+# and tells the run. Visibly uncoded beats quietly miscoded.
 JUVENILE_DISPOSITIONS = {
     "CONSENT DECREE": {"JUV":1},
     "OTHER JUDGMENT": {"JUV":1},
