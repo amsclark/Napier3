@@ -174,35 +174,27 @@ def test_a_juvenile_involved_is_the_person_the_search_is_about():
     assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
 
 
-def test_a_property_owner_is_the_person_the_search_is_about():
-    """Found by a live search on 2026-08-12: ICOS answered with PROPERTY OWNER,
-    which was in neither list, so the case was kept by default and the role
-    mailed out as unrecognised.
+@pytest.mark.parametrize('role', ['PROPERTY OWNER', 'PROPERTY CO-OWNER'])
+def test_a_property_role_case_is_left_out(role):
+    """Both wordings are suppressed, and it took two answers to get there.
 
-    The owner is named on a case about their own property — condemnation, tax
-    sale, a municipal infraction, an in rem forfeiture — and those cases can
-    assess costs against them personally, so the case belongs in their record
-    summary and the role is vouched for rather than suppressed.
+    PROPERTY OWNER turned up on a live search on 2026-08-12 in neither list,
+    so the case was kept by default and the role mailed out as unrecognised.
+    It was vouched for on the reading that a condemnation, tax sale, municipal
+    infraction or in rem forfeiture can assess costs against the owner
+    personally. PROPERTY CO-OWNER alerted the same way on 2026-08-20 and was
+    read as the same question; Iowa Legal Aid excluded the co-owner on
+    2026-08-21 and, later the same afternoon, the owner as well.
+
+    So the distinction this file used to hold apart is gone on purpose. What
+    it costs is a real property case dropped rather than written, which Iowa
+    Legal Aid asked for over the error they were actually seeing: somebody
+    else's property case in a client's record summary.
     """
-    cases, _ = case_parser.parse_search(role_row('PROPERTY OWNER'))
-    assert ids(cases) == ['00000  FECR000000']
-    assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
-
-
-def test_a_property_co_owner_case_is_left_out():
-    """The variant Iowa Legal Aid answered the other way on 2026-08-21.
-
-    Read here as the same question as PROPERTY OWNER when it first alerted on
-    2026-08-20, on the reasoning that nothing about being the sole owner is
-    what makes the case theirs. Iowa Legal Aid asked for the co-owner wording
-    to be excluded instead: they are content not to catch these. PROPERTY
-    OWNER is untouched by that and still keeps its case, so the two now differ
-    on purpose and the test above is what holds them apart.
-    """
-    cases, _ = case_parser.parse_search(role_row('PROPERTY CO-OWNER'))
+    cases, _ = case_parser.parse_search(role_row(role))
     assert cases == []
-    assert 'PROPERTY CO-OWNER' in case_parser.NON_PARTY_ROLES
-    assert 'PROPERTY CO-OWNER' not in case_parser.KNOWN_PARTY_ROLES
+    assert role in case_parser.NON_PARTY_ROLES
+    assert role not in case_parser.KNOWN_PARTY_ROLES
 
 
 def test_a_protective_order_respondent_is_the_person_the_search_is_about():
