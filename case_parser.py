@@ -125,14 +125,25 @@ NON_PARTY_ROLES = frozenset({
     'OBLIGEE',
     'PAYOR',
     'PAYEE',
-    # A co-owner named on a case about the property, not about them. Read as
-    # the same question as PROPERTY OWNER when it first alerted on 2026-08-20
-    # and answered the same way. Iowa Legal Aid settled it the other way on
-    # 2026-08-21: they are content not to catch these, and asked for the
-    # co-owner wording to be excluded. PROPERTY OWNER itself is unchanged and
-    # stays a party role -- the sole owner is who the case is against, and a
-    # co-owner is on the page because of what they part-own.
+    # Named on a case about the property, not about them.
+    #
+    # These two were read as the same question when PROPERTY CO-OWNER first
+    # alerted on 2026-08-20, then split apart: the co-owner was excluded and
+    # the sole owner kept, on the reading that a condemnation or tax sale is
+    # against whoever owns the thing. Iowa Legal Aid closed the split on
+    # 2026-08-21 and asked for PROPERTY OWNER to come out too, so both
+    # wordings are suppressed and the distinction is gone.
+    #
+    # What it costs, since suppression is the expensive direction: a case
+    # reaching the workbook under either role is now dropped rather than
+    # written, so a municipal infraction or in rem forfeiture that assessed
+    # costs against the client personally will not appear on the sheet. Iowa
+    # Legal Aid asked for that knowing it -- they had already said on
+    # 2026-08-20 they were content not to catch the co-owner ones. The
+    # opposite error, a stranger's property case in a client's record summary,
+    # is the one they were actually seeing.
     'PROPERTY CO-OWNER',
+    'PROPERTY OWNER',
     'TRUSTEE',
     'WARD',
     'WITNESS',
@@ -178,11 +189,6 @@ KNOWN_PARTY_ROLES = frozenset({
     # lists them under, so suppressing it would lose the case rather than
     # deduplicate it. Seen on two live searches 2026-08-18.
     'THIRD PARTY DEFENDANT',
-    # The owner named on a case about their property: condemnation, tax sale,
-    # a municipal infraction, an in rem forfeiture. The case can assess costs
-    # against them personally, so it is their record, unlike the LIEN FILER
-    # and INTERESTED PARTY bystander roles. Seen on a live search 2026-08-12.
-    'PROPERTY OWNER',
     # ICOS's role on a protective order case. It reads as a bystander role and
     # it is not: a no contact order and any contempt off it are the person's
     # own court record, and the client is who it was entered against. Iowa
