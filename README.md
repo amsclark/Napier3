@@ -94,6 +94,8 @@ ICOS itemized no payments for is reported as having no itemization rather than
 as having paid zero, because a hearing where someone is recorded as paying
 nothing on a debt they have been paying goes the wrong way.
 
+**The notes column** of CASE DATA, column V, is where a row says anything the other columns cannot. Most rows say nothing. Every message it can carry is written out in plain language, with what to do about each one, in [docs/CRS-Notes-Column.md](docs/CRS-Notes-Column.md). That file is written for the staff reading the workbook rather than for this repository, so it is the one to hand to a clinic.
+
 ## Why the retries and the logoff matter
 
 Two different failures were making a majority of searches fail in mid-2026:

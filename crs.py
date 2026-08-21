@@ -451,6 +451,28 @@ CIVIL_SECTIONS = ('820.2', '820.14', '908.1')
 # stripped, and only when the statute check could not already answer.
 CIVIL_DESCRIPTIONS = ('OUT OF COUNTY WARRANT',)
 
+# Docket types that are civil whatever the clerk typed on the counts.
+#
+# Iowa Legal Aid asked for both on 21 August 2026. AMCR is the appeal
+# misdemeanour docket the county files parole holds, contempts and fugitive
+# warrants under, and they report a recent decision reading the whole type as
+# civil. DRCV is the protective order docket, which is civil on its face.
+#
+# This is the one reading that does not go through the counts at all, and it is
+# deliberately a whitelist of exactly two four-character types rather than a
+# prefix rule. "AM" alone would also take AMCV and anything else Iowa adds, and
+# "DR" would take the DRCV cases' criminal neighbours on the domestic relations
+# docket. case_type gives the four characters, so the test is equality.
+#
+# What it costs, so it is written down somewhere other than an inbox: CIV is
+# one of the eight codes BANKRUPTCY and EXEMPTIONS read as no conviction, so a
+# guilty count on one of these types now sorts as dischargeable, and CIV is not
+# in the expungement sheet's DISM ACQ? cleared set, so a dismissal on one of
+# them stops answering YES there. Iowa Legal Aid has settled both trades before
+# -- see KEEPS_ITS_CLEARED_CODE -- on the ground that a civil case is not
+# eligible for dismissed-or-acquitted expungement in the first place.
+CIVIL_CASE_TYPES = ('AMCR', 'DRCV')
+
 # What a clerk files a pre-electronic-docket case under. Either spelling is
 # enough on its own, because the captured case carries both and there is no
 # reading of one without the other that means anything else.
@@ -820,6 +842,16 @@ def is_juvenile_case(case_id):
     prevent. Nothing but JV reaches it.
     """
     return case_type(case_id).startswith('JV')
+
+
+def is_civil_case_type(case_id):
+    """Whether the docket type alone decides this case is civil.
+
+    See CIVIL_CASE_TYPES. Read off the case number rather than the counts, so
+    it answers the same way on a case whose counts Napier could not read at
+    all, which is the shape Iowa Legal Aid raised it on.
+    """
+    return case_type(case_id) in CIVIL_CASE_TYPES
 
 
 def get_dominant_charge(charges, case_id=None):
@@ -2111,8 +2143,23 @@ def process_case(case, worksheet, row, as_of=None):
         # After the clerk's wording has had its say and before anything is
         # written, because what the charge is beats how the disposition was
         # typed. This is the only place the charge overrides the code.
-        if reads_civil(charge, disposition):
+        civil_by_case_type = is_civil_case_type(case['id'])
+        if civil_by_case_type or reads_civil(charge, disposition):
             disposition = "CIV"
+        if civil_by_case_type:
+            # The wording is no longer worth reporting on this row. The two
+            # unknown-disposition notes and the two lines they send Alex both
+            # describe a row coded on a guess -- one says the case reads OTH,
+            # the other that column G is empty -- and neither is true here:
+            # the docket type answered, and it answers the same way whatever
+            # the clerk typed. Left in place, an unread wording on a
+            # protective order case would put a note on the row saying it was
+            # coded OTH while column G reads CIV.
+            #
+            # The vocabulary is not lost. It alerts the first time the same
+            # wording lands on any other docket type, which is the run where
+            # Napier would actually have to code it.
+            charge['unknown_dispositions'] = []
 
         worksheet['C' + i] = charge['offenseDate']
         worksheet['D' + i] = disposition_date

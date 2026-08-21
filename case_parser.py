@@ -125,6 +125,14 @@ NON_PARTY_ROLES = frozenset({
     'OBLIGEE',
     'PAYOR',
     'PAYEE',
+    # A co-owner named on a case about the property, not about them. Read as
+    # the same question as PROPERTY OWNER when it first alerted on 2026-08-20
+    # and answered the same way. Iowa Legal Aid settled it the other way on
+    # 2026-08-21: they are content not to catch these, and asked for the
+    # co-owner wording to be excluded. PROPERTY OWNER itself is unchanged and
+    # stays a party role -- the sole owner is who the case is against, and a
+    # co-owner is on the page because of what they part-own.
+    'PROPERTY CO-OWNER',
     'TRUSTEE',
     'WARD',
     'WITNESS',
@@ -183,13 +191,6 @@ KNOWN_PARTY_ROLES = frozenset({
     # it was never in NON_PARTY_ROLES -- and stops a decided role mailing an
     # unrecognised-role alert on every run that touches one.
     'RESP/PROTECTED PERSON',
-    # ICOS's wording when the property has more than one owner on it. Nothing
-    # in the reasoning above turns on being the only owner: the case is still
-    # about their property and can still assess costs against them personally.
-    # So it was always going to need the same answer as PROPERTY OWNER, and was
-    # simply missed when that went in on 2026-08-12. Six separate searches
-    # alerted on it on 2026-08-20.
-    'PROPERTY CO-OWNER',
 })
 
 # The notice ICOS shows when a name matches more cases than it will list. The
