@@ -340,6 +340,29 @@ class TestPullingWhatWasPicked:
         assert ('search', 'AL HAMEED') not in \
             FakeClient.instances[0].trace[2:]
 
+    def test_cases_found_by_an_earlier_spelling_get_it_put_back_first(self, client):
+        """Today's failure, 2026-08-25. Two spellings searched, every ticked
+        case found under the first. That is one group, and counting groups
+        said no re-search was needed -- but ICOS was standing on the second
+        spelling, so every case page came back empty and the run got nothing.
+        Three runs in a row, until the staffer typed the names the other way."""
+        _, job_id, _ = build_from(client, keys=[JOINED_KEY])
+        trace = FakeClient.instances[0].trace
+        first_pull = next(i for i, (kind, _) in enumerate(trace)
+                          if kind == 'case')
+        standing = [what for kind, what in trace[:first_pull]
+                    if kind == 'search'][-1]
+        assert standing == 'ALHAMEED', trace
+        assert jobs.get(job_id).result['written_cases'] == 2
+
+    def test_cases_found_by_the_last_spelling_pull_straight_away(self, client):
+        """The mirror image needs nothing: the last search is the one ICOS is
+        already holding, and the ordinary-run economy still applies."""
+        build_from(client, keys=[SPACED_KEY])
+        assert FakeClient.instances[0].trace == [
+            ('search', 'ALHAMEED'), ('search', 'AL HAMEED'),
+            ('case', SHARED), ('case', ONLY_SPACED)]
+
 
 class TestFinishingAShortRun:
     def test_the_retry_carries_the_spelling_behind_each_missing_case(self, client):

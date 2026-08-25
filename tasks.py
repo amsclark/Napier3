@@ -795,6 +795,23 @@ def _reselect(job, client, pick):
     return True, False
 
 
+def _standing_on(searches, spellings):
+    """Whether ICOS is already looking at the result set these cases came from.
+
+    True only for one group of cases found by the last spelling searched. Any
+    other shape needs each spelling put back in front of ICOS before its share
+    is asked for, including a single group found by an earlier spelling: the
+    result set ICOS is holding is the one from whichever search ran last, not
+    the one that found anything.
+    """
+    if len(searches) != 1:
+        return False
+    spellings = list(spellings or [])
+    if len(spellings) < 2:
+        return True
+    return searches[0]['person'] is spellings[-1]
+
+
 def _pull_grouped(job, client, searches, reselect, offset=0, total=None,
                   outage=None, dead_searches=None):
     """Pull one client's cases a spelling at a time.
@@ -1073,11 +1090,18 @@ def crs_task(job, session_token, keys, case_dict, def_name, def_dob, is_lite,
         case_ids = [case_id for group in searches
                     for case_id in group['case_ids']]
 
-        # Only when there is more than one, because a single search is already
-        # the last thing ICOS answered and re-running it would cost every
-        # ordinary run a request to serve the rare one.
+        # Skipped only when the one search behind these cases is already the
+        # last thing ICOS answered, because re-running it would cost every
+        # ordinary run a request to serve the rare one. That used to be
+        # decided by counting groups, and on 2026-08-25 a client searched
+        # under two spellings, with every ticked case found under the first,
+        # came out as one group and no re-search: ICOS was standing on the
+        # second spelling, every case page came back empty, and three runs in
+        # a row failed until the staffer happened to type the spellings the
+        # other way round.
         cases, failed, refused_a_name = _pull_grouped(
-            job, client, searches, reselect=len(searches) > 1)
+            job, client, searches,
+            reselect=not _standing_on(searches, people or [person]))
 
         if not cases:
             if refused_a_name:
