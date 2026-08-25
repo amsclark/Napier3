@@ -154,6 +154,10 @@ NON_PARTY_ROLES = frozenset({
     'WITNESS - DEFENSE',
     'JUVENILE - MOTHER OF',
     'JUVENILE - FATHER OF',
+    # BROTHER OF alerted as unrecognised on 2026-08-25; SISTER OF is the same
+    # relationship the other way and is not worth a second email to learn.
+    'JUVENILE - BROTHER OF',
+    'JUVENILE - SISTER OF',
     'ATTORNEY',
     'INTERESTED PARTY'
 })
