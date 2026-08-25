@@ -1433,6 +1433,13 @@ def reconcile_financials(case):
     columns = {}
     unresolved = []
     unreconciled = []
+    # Unreconciled categories with nothing left owing. They still count as
+    # unreconciled for deciding whether the row fell back to the summary,
+    # but the note leaves them out: on 2026-08-25 Iowa Legal Aid read "OTHER
+    # did not add up" on a client who owed nothing under OTHER and asked
+    # where that money had gone. Nowhere; there was none. A warning about a
+    # balance that is zero sends somebody to look at an empty cell.
+    settled = []
     # Categories whose gap was recovered at all, and the subset of those that
     # put the unidentified part in UNKNOWN. FINE is in the first and not the
     # second, because its recovery lands in the fine column instead.
@@ -1456,6 +1463,8 @@ def reconcile_financials(case):
             due = category.get('due')
             if due is None:
                 due = category['original'] - (category.get('paid') or Decimal(0))
+            if not due:
+                settled.append(name)
             if due:
                 # A positive gap is money the summary says exists but the
                 # itemization never identifies. Keep every line ICOS *does*
@@ -1602,11 +1611,12 @@ def reconcile_financials(case):
         return None, None
 
     notes = []
-    if unreconciled:
+    named = [name for name in unreconciled if name not in settled]
+    if named:
         text = ("%s did not add up against the itemization, so %s "
                 "ICOS's category total rather than a per-fee breakdown"
-                % (_and_list(unreconciled),
-                   "those balances are" if len(unreconciled) > 1
+                % (_and_list(named),
+                   "those balances are" if len(named) > 1
                    else "that balance is"))
         # Only the categories whose balance really did end up in MISCELLANEOUS.
         # Deciding this from the category's label instead said MISCELLANEOUS
@@ -1616,7 +1626,7 @@ def reconcile_financials(case):
         # BOARD and then told the attorney it was a lump sum, which is the
         # reading that loses a room-and-board appeal. A category that placed no
         # money anywhere is not named at all: there is no cell to go look at.
-        stranded = [name for name in unreconciled
+        stranded = [name for name in named
                     if name not in apportioned and landed.get(name) == {'O'}]
         if len(stranded) > 1:
             text += (", and %s are in MISCELLANEOUS rather than in their own "
