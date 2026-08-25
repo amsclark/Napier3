@@ -680,3 +680,21 @@ def test_an_unattributable_payment_is_apportioned_not_dumped():
     columns, note = crs.reconcile_financials(case)
     assert columns == {'P': Decimal('12.50'), 'K': Decimal('12.50')}
     assert note is not None and 'estimates' in note
+
+
+def test_a_settled_category_that_did_not_add_up_is_not_named(felony_case):
+    """Iowa Legal Aid, 2026-08-25: a row said "OTHER did not add up" on a client
+    who owed nothing under OTHER, and asked where that money had gone. The
+    itemization still disagrees with the summary, so the row is still handled
+    as a category total, but a warning about a zero balance points at an empty
+    cell. The row says nothing about a category with nothing owing."""
+    felony_case['financials'][0]['amount'] = '31.00'   # OTHER no longer adds up
+    other = next(c for c in felony_case['summary_categories']
+                 if c['label'] == 'OTHER')
+    other['paid'] = other['original']
+    other['due'] = Decimal('0')
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    note = sheet.value_of('V4') or ''
+    assert 'OTHER did not add up' not in note
+    assert 'did not add up' not in note
