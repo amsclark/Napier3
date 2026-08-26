@@ -1572,8 +1572,8 @@ def reconcile_financials(case):
             continue
 
         amounts = [entry[1] for entry in entries]
-        settled = _unique_paid_subset(amounts, paid)
-        if settled is None:
+        paid_indices = _unique_paid_subset(amounts, paid)
+        if paid_indices is None:
             # Cannot say which line was paid. The balance still belongs to this
             # bucket, though, so it goes to the column the bucket's lines share
             # and only falls back to MISC when they disagree. Sending a
@@ -1593,7 +1593,7 @@ def reconcile_financials(case):
                 columns[column] = columns.get(column, Decimal(0)) + share
             continue
         for index, (detail, amount, _line_paid) in enumerate(entries):
-            owed = Decimal(0) if index in settled else amount
+            owed = Decimal(0) if index in paid_indices else amount
             if owed == 0:
                 continue
             column = get_finance_column(detail)
