@@ -182,6 +182,29 @@ def test_a_paid_off_case_does_not_warn_about_a_breakdown_of_nothing(felony_case)
     assert sheet.value_of('V4') is None
 
 
+def test_a_reconciled_bucket_before_a_paid_off_one_does_not_crash(felony_case):
+    """Reported 2026-08-26: two clinic runs died with AttributeError.
+
+    COSTS reconciles, with its payment recorded on the category rather than
+    the line, so the bucket works out which line was paid. Then OTHER carries
+    a summary balance with no itemization and nothing owed. Working out the
+    paid line used to reuse the name of the list that collects paid-off
+    unreconciled buckets, so the second bucket appended to a frozenset and
+    the whole workbook build fell over on a case that owes nothing.
+    """
+    felony_case['total_due'] = '$0.00'
+    felony_case['summary_categories'] = _five_buckets(
+        COSTS=(Decimal('50.00'), Decimal('50.00')),
+        OTHER=(Decimal('100.00'), Decimal('100.00')))
+    felony_case['financials'] = [
+        {'detail': 'SHERIFFS FEES - LOCAL', 'amount': Decimal('50.00'),
+         'paid': None},
+    ]
+    sheet = FakeSheet()
+    crs.process_financials(felony_case, sheet, 4)
+    assert sheet.value_of('V4') is None
+
+
 def test_the_same_collapsed_row_still_warns_when_money_is_owed(felony_case):
     """What silences the caveat is the balance, not the fallback that wrote it.
 
