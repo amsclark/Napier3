@@ -198,6 +198,43 @@ def test_strip_dnu_only_reads_the_front_of_the_wording():
     assert case_parser.strip_dnu(None) == ''
 
 
+class TestTheDeferredMistrialWording:
+    """'DEFERRED MISTRIAL': one juvenile count, alerted 27 August 2026.
+
+    The two words disagree. DEFERRED alone is DEF, a deferred judgment four
+    sheets test for by name; a mistrial reached no verdict at all and belongs
+    with the dismissals. Neither guess is cheap, so the wording keeps the OTH
+    the row was already getting as an unknown, and the entry exists only so it
+    stops mailing an unrecognised-disposition alert on every run that touches
+    the case. Column V still carries the ICOS wording, and
+    OPEN_QUESTIONS.md carries it for Iowa Legal Aid to overrule.
+    """
+
+    def test_it_codes_oth_in_both_maps(self):
+        assert case_parser.disposition_code('DEFERRED MISTRIAL') == 'OTH'
+        import crs
+        assert crs.charge_code_map['DEFERRED MISTRIAL'] == \
+            {'OTH': crs.OTH_RANK}
+
+    def test_it_is_not_read_as_a_plain_deferred_judgment(self):
+        """The failure this entry is guarding against: prefix matching, or
+        anyone later 'tidying' it into the DEFERRED row, would put a deferred
+        judgment on a client whose trial produced no verdict."""
+        import crs
+        assert case_parser.disposition_code('DEFERRED MISTRIAL') != 'DEF'
+        assert crs.charge_code_map['DEFERRED'] == {'DEF': 2}
+
+    def test_a_conviction_alongside_it_still_wins_the_case_code(self):
+        charge = parse(GUILTY,
+                       ('321J.2', 'SYNTHETIC OWI', 'DEFERRED MISTRIAL'))
+        assert '[OTH]' in charge['description']
+        import crs
+        dominant = crs.get_dominant_charge([charge])
+        assert dominant['disposition'] == 'GTR'
+        # And no alert: the wording is known now, not an unknown coded OTH.
+        assert dominant['unknown_dispositions'] == []
+
+
 class TestTheStoryCountyWording:
     """'JCS OTHER ADJ OTHER COURT': another court adjudicated, JCS is relaying.
 
