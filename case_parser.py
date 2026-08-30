@@ -156,6 +156,12 @@ NON_PARTY_ROLES = frozenset({
     # is the one they were actually seeing.
     'PROPERTY CO-OWNER',
     'PROPERTY OWNER',
+    # Alerted 2026-08-26. A third-party plaintiff is a defendant who has
+    # brought somebody else into the suit, and Iowa Legal Aid answered the
+    # same day: leave the case off, as for victims and witnesses. Same cost
+    # as PROPERTY OWNER above -- a case reaching the workbook under this role
+    # is dropped rather than written -- and asked for knowing it.
+    'THIRD PARTY PLAINTIFF',
     'TRUSTEE',
     'WARD',
     'WITNESS',
@@ -337,6 +343,9 @@ JUVENILE_DISPOSITIONS = {
     "CONSENT DECREE": "JUV",
     "OTHER JUDGMENT": "JUV",
     "TRANSFERRED": "JWV",
+    # Answered by Iowa Legal Aid 2026-08-26. See the twin entry in
+    # crs.JUVENILE_DISPOSITIONS.
+    "DISCHARGE": "JUV",
 }
 
 

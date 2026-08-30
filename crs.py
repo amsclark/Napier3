@@ -159,6 +159,13 @@ JUVENILE_DISPOSITIONS = {
     "CONSENT DECREE": {"JUV":1},
     "OTHER JUDGMENT": {"JUV":1},
     "TRANSFERRED": {"JWV":0},
+    # A juvenile docket showed DISCHARGE on 2026-08-26 and Napier left it
+    # uncoded rather than guess. Iowa Legal Aid answered the same day: JUV,
+    # and JUV for a JVJV case generally unless it was waived to adult court,
+    # which is JWV. Only the juvenile reading is taken here; DISCHARGE on an
+    # adult docket stays uncoded, since a discharged adult case says nothing
+    # about how it was adjudicated. Same rank as the other adjudications.
+    "DISCHARGE": {"JUV":1},
 }
 
 
