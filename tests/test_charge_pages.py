@@ -172,6 +172,17 @@ def test_the_juvenile_table_is_the_same_table_in_both_modules():
         assert next(iter(crs.JUVENILE_DISPOSITIONS[wording])) == code, wording
 
 
+def test_a_discharged_juvenile_case_is_an_adjudication():
+    """A JVJV docket carried the case status DISCHARGE on 2026-08-26 and went
+    out uncoded. Iowa Legal Aid said JUV: a juvenile case is JUV unless it was
+    waived to adult court. The adult reading is unchanged, because a
+    discharged adult case does not say how it was adjudicated."""
+    import crs
+    assert crs.case_level_code('DISCHARGE', '07701  JVJV003889') == 'JUV'
+    assert crs.case_level_code('DISCHARGE', '07701  FECR003889') is None
+    assert case_parser.disposition_code('DISCHARGE', '07701  JVJV003889') == 'JUV'
+
+
 def test_a_deferred_judgment_is_adjudicated():
     """A deferred judgment is still an adjudication and still carries debt."""
     assert parse(('321J.2', 'SYNTHETIC OWI', 'DEFERRED'))['charge'] == '321J.2'

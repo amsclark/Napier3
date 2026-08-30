@@ -347,13 +347,20 @@ Napier reads the case level status only where it overlaps the per count
 adjudication wordings. That overlap has grown twice since this section was
 written, at CHANGE OF VENUE on 3 August 2026 and at TRANSFERRED on 20 August,
 so it is now DISMISSED, CHANGE OF VENUE and TRANSFERRED, and on a juvenile
-docket OTHER JUDGMENT as well. The rest are still left uncoded, and the case goes onto the sheet with the
+docket OTHER JUDGMENT and, since 26 August, DISCHARGE as well. The rest are still left uncoded, and the case goes onto the sheet with the
 wording in column V so it is visibly uncoded rather than quietly miscoded:
 
 GUILTY PLEA/DEFAULT, VIOLATIONS HANDLED BY CLERK, BY TRIAL TO COURT, SMALL
 CLAIM-DISPOSED BY CLERK, CLOSED, DEFAULTED, DEFERRED JUDGEMENT, DISCHARGE,
-CONVERTED TO SIMPLE MISDEMEANR, and OTHER JUDGMENT anywhere but a juvenile
-docket.
+CONVERTED TO SIMPLE MISDEMEANR, and OTHER JUDGMENT and DISCHARGE anywhere but
+a juvenile docket.
+
+Iowa Legal Aid's 26 August answer on DISCHARGE was broader than the one
+wording: JUV for every JVJV case unless it was waived to adult court. Napier
+still codes a juvenile docket wording by wording, so a JVJV status it has not
+seen still goes out uncoded rather than as JUV. Whether a DISMISSED or
+WITHDRAWN count on a JVJV docket should also read JUV is the open half of
+that answer.
 
 Whether VIOLATIONS HANDLED BY CLERK is a guilty plea decides what five sheets
 compute, which is why the code will not guess.
