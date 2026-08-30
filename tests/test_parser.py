@@ -225,6 +225,41 @@ def test_a_protective_order_respondent_is_the_person_the_search_is_about():
     assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
 
 
+@pytest.mark.parametrize('role', [
+    'CUSTODIAN - PHYSICAL',
+    'MEDIATOR',
+    'JUVENILE - GRANDPARENT OF',
+    'RESTITUTION/COMMUNITY SERV OFF',
+])
+def test_the_roles_that_alerted_in_late_august_are_left_out(role):
+    """Four roles that mailed NOVEL_ROLE on the 26 and 28 August 2026 runs.
+
+    Each is somebody on a case that is not theirs, and each has a twin already
+    on the list that settles it: CUSTODIAN - LEGAL for the physical kind,
+    LAW ENFORCEMENT for the restitution and community service officer, JUDGE
+    and INTERPRETER for the mediator, and the JUVENILE relationship roles for
+    the grandparent. Suppression is the expensive direction, so what this
+    costs is a case dropped rather than written where one of these four is
+    also the person searched for -- the same trade Iowa Legal Aid took
+    knowingly on PROPERTY OWNER.
+    """
+    cases, _ = case_parser.parse_search(role_row(role))
+    assert cases == []
+    assert role in case_parser.NON_PARTY_ROLES
+    assert role not in case_parser.KNOWN_PARTY_ROLES
+
+
+def test_a_bare_pro_se_role_is_the_person_the_search_is_about():
+    """Alerted on the 28 August 2026 run. Every other PRO SE wording in the
+    list is a party representing themselves, and the bare one is the clerk not
+    having written down which kind. The case was always kept -- the role is in
+    neither list, and neither list is what decides that -- so naming it here
+    only stops the alert mailing on every run that meets one."""
+    cases, _ = case_parser.parse_search(role_row('PRO SE'))
+    assert ids(cases) == ['00000  FECR000000']
+    assert cases[0]['role'] in case_parser.KNOWN_PARTY_ROLES
+
+
 def test_the_two_role_lists_do_not_overlap():
     """A role in both would be suppressed and vouched for at the same time."""
     assert not (case_parser.NON_PARTY_ROLES & case_parser.KNOWN_PARTY_ROLES)

@@ -92,6 +92,14 @@ NON_PARTY_ROLES = frozenset({
     'CROSS DEFENDANT',
     'CROSS PLAINTIFF',
     'CUSTODIAN - LEGAL',
+    # The other half of the same pair. CUSTODIAN - LEGAL was already here, and
+    # ICOS splits custody into the legal and the physical kind on the same
+    # class of case; a person named as either is named because of the child in
+    # front of the court, not because the case is theirs. Alerted twice on one
+    # search on 2026-08-26. Listing it alongside its twin rather than waiting
+    # for a separate answer, on the same reading that took SISTER OF with
+    # BROTHER OF below.
+    'CUSTODIAN - PHYSICAL',
     'DECEASED INDIVIDUAL',
     'EXECUTOR',
     'FILING AGENT FOR PLAINTIFF',
@@ -109,6 +117,10 @@ NON_PARTY_ROLES = frozenset({
     # theirs.
     'LAW ENFORCEMENT',
     'LIEN FILER',
+    # Appointed to the case to run the settlement conference. The same class as
+    # ATTORNEY, JUDGE and INTERPRETER: a professional role on somebody else's
+    # dispute. Alerted 2026-08-26.
+    'MEDIATOR',
     'NAME OF TRUST',
     # Someone who filed a document into a case they are not party to,
     # which is why the charges and the money on that page belong to
@@ -158,6 +170,16 @@ NON_PARTY_ROLES = frozenset({
     # relationship the other way and is not worth a second email to learn.
     'JUVENILE - BROTHER OF',
     'JUVENILE - SISTER OF',
+    # Alerted 2026-08-28. Same shape again: a relative named on the child's
+    # case. JUVENILE - INVOLVED is the role the case actually belongs to, and
+    # it is in KNOWN_PARTY_ROLES below, so a grandparent's own record is not
+    # what a JV docket carrying this role is about.
+    'JUVENILE - GRANDPARENT OF',
+    # Alerted 2026-08-28. The court officer who supervises the restitution and
+    # community service a sentence orders, named on the case in the same way
+    # LAW ENFORCEMENT is. The trailing OFF is ICOS abbreviating OFFICER, which
+    # is what makes it read at a glance like part of a party's title.
+    'RESTITUTION/COMMUNITY SERV OFF',
     'ATTORNEY',
     'INTERESTED PARTY'
 })
@@ -172,6 +194,14 @@ KNOWN_PARTY_ROLES = frozenset({
     'DEFENDANT',
     'PRO SE DEFENDANT',
     'DEFENDANT - PRO SE',
+    # ICOS on its own, with no party word after it. Alerted 2026-08-28. Every
+    # other PRO SE wording here is a party representing themselves, and the
+    # bare one is the clerk not having recorded which kind, so it is the person
+    # the case is about. Naming it changes nothing about which cases are
+    # written -- it was never in NON_PARTY_ROLES, so these were already being
+    # kept -- and stops a decided role mailing an alert on every run that
+    # touches one.
+    'PRO SE',
     # ICOS code JVIN: the juvenile whose case this is, unlike the suppressed
     # JUVENILE - MOTHER OF and JUVENILE - FATHER OF relationship roles.
     'JUVENILE - INVOLVED',
@@ -290,7 +320,12 @@ charge_code_dict = {
     # court's record, and OTH is the code that moves no money and marks the
     # row as coded on less than a full answer. The entry exists so the
     # wording stops alerting as unknown on every run that touches the case.
-    "JCS OTHER ADJ OTHER COURT": "OTH"
+    "JCS OTHER ADJ OTHER COURT": "OTH",
+    # The twin of the crs.charge_code_map entry, which carries the reasoning:
+    # DEFERRED alone is DEF and a mistrial reached no verdict, the two answers
+    # are opposite, and OTH is the code the row already had as an unknown
+    # wording. The entry exists so it stops alerting on every run.
+    "DEFERRED MISTRIAL": "OTH"
 }
 
 # What three of those wordings mean when the docket is the juvenile court's,

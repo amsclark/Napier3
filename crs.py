@@ -118,7 +118,22 @@ charge_code_map = {
     # juvenile docket this wording means something else entirely and
     # JUVENILE_DISPOSITIONS overrides it below.
     "TRANSFERRED": {"TNSF":0},
-    "JCS OTHER ADJ OTHER COURT": {"OTH": 0.5}
+    "JCS OTHER ADJ OTHER COURT": {"OTH": 0.5},
+    # Alerted 2026-08-27 on a JVJV count. Read as a wording the code
+    # cannot resolve rather than as either word alone, because the two
+    # halves point opposite ways: DEFERRED on its own is DEF, a deferred
+    # judgment the expungement and licence sheets both test for, and a
+    # mistrial is a trial that reached no verdict at all. Coding it DEF
+    # would put an adjudication on a client who may have none; coding it
+    # with the dismissals would drop a deferred judgment off the sheets
+    # that exist to find it. OTH is what the row already got as an
+    # unknown wording, so this entry changes no workbook: it is here so
+    # the wording stops mailing an unknown-disposition alert on every run
+    # that touches the case, the way JCS OTHER ADJ OTHER COURT above is.
+    # Ranked 0.5 with it, so a case that also carries a real conviction
+    # still reads as the conviction. Listed in OPEN_QUESTIONS.md for Iowa
+    # Legal Aid to overrule.
+    "DEFERRED MISTRIAL": {"OTH": 0.5}
 }
 
 # What three wordings mean when the docket is the juvenile court's, decided by
