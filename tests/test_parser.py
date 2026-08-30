@@ -197,6 +197,17 @@ def test_a_property_role_case_is_left_out(role):
     assert role not in case_parser.KNOWN_PARTY_ROLES
 
 
+def test_a_third_party_plaintiff_case_is_left_out():
+    """THIRD PARTY PLAINTIFF alerted on 2026-08-26 and was kept by default.
+    Iowa Legal Aid answered the same day that it should come out, the way a
+    victim or a witness does."""
+    role = 'THIRD PARTY PLAINTIFF'
+    cases, _ = case_parser.parse_search(role_row(role))
+    assert cases == []
+    assert role in case_parser.NON_PARTY_ROLES
+    assert role not in case_parser.KNOWN_PARTY_ROLES
+
+
 @pytest.mark.parametrize('role', ['JUVENILE - BROTHER OF', 'JUVENILE - SISTER OF'])
 def test_a_juvenile_sibling_role_case_is_left_out(role):
     """A sibling named on a juvenile case is not the person the case is about,
