@@ -85,16 +85,21 @@ class TestOnTheJuvenileDocket:
         """is_juvenile_case takes JV, not JVJV, and this reading inherits it."""
         assert _code(case_id, TRANSFERRED)[0] == 'JWV'
 
-    def test_an_adjudication_still_outranks_a_waiver(self):
-        """A case with a real adjudication on one count reads as adjudicated.
+    def test_a_waiver_now_outranks_an_adjudication(self):
+        """The opposite of what this test asserted until 1 September 2026.
 
-        JWV is ranked with the non-convictions, so it cannot demote a count
-        the juvenile court actually decided.
+        As first written, JWV ranked with the non-convictions and an
+        adjudicated count won the case code. Iowa Legal Aid's standing rule,
+        stated on 26 August and again on 1 September, is that a juvenile
+        case reads JUV unless it was waived to adult court -- the waiver is
+        the fact about the case, not one count among others -- so the
+        juvenile waiver wordings now rank above everything and a JV case
+        showing one reads JWV whatever its other counts say.
         """
         case = _case(JUVENILE, [('123.45', 'SYNTHETIC OFFENCE', TRANSFERRED),
                                 ('123.46', 'SYNTHETIC OFFENCE', 'ADJUDICATED')])
         charge = crs.get_dominant_charge(case['charges'], case['id'])
-        assert charge['disposition'] == 'JUV'
+        assert charge['disposition'] == 'JWV'
 
 
 class TestOffTheJuvenileDocket:

@@ -1,4 +1,5 @@
-"""Four docket types Iowa Legal Aid read as civil on 21 August 2026.
+"""Docket types Iowa Legal Aid has read as civil: four on 21 August 2026,
+and CDDM on 1 September.
 
 AMCR is the appeal misdemeanour docket, and it is where the county files the
 parole holds, contempts and fugitive warrants that have come back to Napier
@@ -13,6 +14,11 @@ Their ground is the docket rather than the CR/CV suffix: the decision reads
 the appeal misdemeanour type as civil however the clerk styled it, and the
 criminal-styled DR cases are contempts off a protective order rather than
 convictions of their own.
+
+CDDM followed on 1 September, off their review of a real workbook: a CDDM
+case whose case-level status GUILTY PLEA/DEFAULT was alerting as uncoded,
+answered "this can be CIV". CDDM is the civil domestic abuse docket, chapter
+236 protective orders, so it reads the way the DR types do.
 
 So the answer stopped being about the wording. On these four types the docket
 decides, and column G reads CIV whatever the clerk typed on the counts. That
@@ -50,14 +56,16 @@ APPEAL_MISDEMEANOUR = '00000  AMCR000000'
 APPEAL_MISDEMEANOUR_CV = '00000  AMCV000000'
 PROTECTIVE_ORDER = '00000  DRCV000000'
 PROTECTIVE_ORDER_CR = '00000  DRCR000000'
+CIVIL_DOMESTIC_ABUSE = '00000  CDDM000000'
 FELONY = '00000  FECR000000'
 
 # Every type the rule reads as civil, which is what the parametrised tests
-# below run over. Named once so a fifth type added to CIVIL_CASE_TYPES without
+# below run over. Named once so a type added to CIVIL_CASE_TYPES without
 # a decision behind it fails the whitelist test rather than quietly widening
 # every case here.
 CIVIL_DOCKETS = [APPEAL_MISDEMEANOUR, APPEAL_MISDEMEANOUR_CV,
-                 PROTECTIVE_ORDER, PROTECTIVE_ORDER_CR]
+                 PROTECTIVE_ORDER, PROTECTIVE_ORDER_CR,
+                 CIVIL_DOMESTIC_ABUSE]
 
 GUILTY = [('714.2(3)', 'SYNTHETIC THEFT', 'GUILTY', '02/02/1901')]
 DISMISSED = [('714.2(3)', 'SYNTHETIC THEFT', 'DISMISSED', '02/02/1901')]
@@ -116,6 +124,16 @@ def test_transferred_on_an_appeal_misdemeanour_is_civil_now():
     assert _row(APPEAL_MISDEMEANOUR, UNADJUDICATED, 'TRANSFERRED')['G'] == 'CIV'
 
 
+def test_a_defaulted_civil_domestic_abuse_case_is_civil():
+    """The shape of the 1 September answer: a CDDM case, nothing adjudicated
+    on the counts, case-level status GUILTY PLEA/DEFAULT. It was alerting as
+    an uncoded status on every run that touched it; now the docket answers,
+    the row reads CIV and the alert stops."""
+    row = _row(CIVIL_DOMESTIC_ABUSE, UNADJUDICATED, 'GUILTY PLEA/DEFAULT')
+    assert row['G'] == 'CIV'
+    assert row['reported'] == []
+
+
 # -- and what it must not reach ----------------------------------------------
 
 @pytest.mark.parametrize('case_id', [
@@ -169,10 +187,10 @@ def test_the_row_does_not_claim_to_be_an_open_charge(case_id):
 
 # -- the reading itself ------------------------------------------------------
 
-def test_the_whitelist_is_exactly_these_four_types():
+def test_the_whitelist_is_exactly_these_five_types():
     """The list Iowa Legal Aid decided, spelled out rather than derived. A
-    fifth type belongs here only after somebody has answered for it."""
-    assert crs.CIVIL_CASE_TYPES == ('AMCR', 'AMCV', 'DRCR', 'DRCV')
+    sixth type belongs here only after somebody has answered for it."""
+    assert crs.CIVIL_CASE_TYPES == ('AMCR', 'AMCV', 'CDDM', 'DRCR', 'DRCV')
 
 
 @pytest.mark.parametrize('case_id,expected', [
@@ -180,6 +198,7 @@ def test_the_whitelist_is_exactly_these_four_types():
     (APPEAL_MISDEMEANOUR_CV, True),
     (PROTECTIVE_ORDER, True),
     (PROTECTIVE_ORDER_CR, True),
+    (CIVIL_DOMESTIC_ABUSE, True),
     (FELONY, False),
     ('00000  AMXX000000', False),
     ('00000  DRXX000000', False),
