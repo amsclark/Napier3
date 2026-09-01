@@ -260,6 +260,20 @@ def test_the_roles_that_alerted_in_late_august_are_left_out(role):
     assert role not in case_parser.KNOWN_PARTY_ROLES
 
 
+def test_a_process_server_case_is_left_out():
+    """PROCESS SERVER mailed NOVEL_ROLE on the 31 August 2026 run and the case
+    was kept by default. The person who delivered the papers is on the case
+    the way LAW ENFORCEMENT and MEDIATOR are: professionally, on somebody
+    else's dispute. Suppression is the expensive direction, so what this costs
+    is a case dropped rather than written where the server is also the person
+    searched for -- the same trade taken knowingly on PROPERTY OWNER."""
+    role = 'PROCESS SERVER'
+    cases, _ = case_parser.parse_search(role_row(role))
+    assert cases == []
+    assert role in case_parser.NON_PARTY_ROLES
+    assert role not in case_parser.KNOWN_PARTY_ROLES
+
+
 def test_a_bare_pro_se_role_is_the_person_the_search_is_about():
     """Alerted on the 28 August 2026 run. Every other PRO SE wording in the
     list is a party representing themselves, and the bare one is the clerk not

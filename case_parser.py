@@ -137,6 +137,11 @@ NON_PARTY_ROLES = frozenset({
     'OBLIGEE',
     'PAYOR',
     'PAYEE',
+    # The person who delivered the papers, named on the case for having done
+    # so. Alerted 2026-08-31. The same class as LAW ENFORCEMENT and MEDIATOR:
+    # a professional role on somebody else's case, and serving a document no
+    # more makes the record theirs than filing one does for NONPARTY FILER.
+    'PROCESS SERVER',
     # Named on a case about the property, not about them.
     #
     # These two were read as the same question when PROPERTY CO-OWNER first
