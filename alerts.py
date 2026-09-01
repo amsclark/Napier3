@@ -61,6 +61,9 @@ BAD_RESPONSE = 'unusable response from ICOS'
 NO_ANSWER = 'no answer from ICOS'
 PARSE_FAILURE = 'case could not be read'
 CASE_UNAVAILABLE = 'case could not be retrieved from ICOS'
+# Its own class so three refusals of one case read as one thing in the
+# digest, and not as the site going down.
+CASE_REFUSED = 'ICOS refused one case while the site was up'
 JOB_FAILED = 'job failed'
 UNHANDLED = 'unhandled exception'
 # Both of these are runs the server thinks went fine. A staffer whose phone drops

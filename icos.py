@@ -92,6 +92,23 @@ def _squashed(text):
 PROBLEM_REPORT_REASON = ("ICOS problem report page, meaning its own data source "
                          "was unreachable")
 WRONG_CASE_REASON = "a page for a different case than the one asked for"
+
+# How many problem report pages in a row, for one case, before Napier asks
+# whether the site is up at all rather than waiting out the case budget.
+#
+# On 2026-09-01 ICOS answered one juvenile case with that page seven times in
+# under four minutes while answering the case before it, and the search before
+# that, first time. The page says "communication problem", so the run believed
+# the site was sick and waited the full budget. Staff read the same thing on
+# the progress page, stopped the run, and started it again: three runs, the
+# same case, the same four minutes each, and five alert emails per run.
+#
+# Three because one of these can be a blip that clears on the next try, which
+# the July capture shows, and three cost seventeen seconds. After that the
+# question is whether the site is up, and there is a cheap way to ask it: a
+# case this session already has. If that comes back, the site is fine and it
+# is this case ICOS will not serve, which no amount of waiting changes.
+PROBLEM_PAGE_STRIKES = 3
 # Seen against the live site on 2026-08-01: ICOS answers a case request with a
 # 200 and nothing in it when the session has not selected that case through a
 # search first. Worth naming, because a session that has lost its place and a
@@ -215,6 +232,34 @@ class IcosUnavailable(IcosError):
         self.court_site_down = court_site_down
 
 
+class IcosCaseRefused(IcosUnavailable):
+    """ICOS is up and will not serve this one case.
+
+    Its problem report page came back for this case PROBLEM_PAGE_STRIKES times
+    in a row while a case this session already had still answered. That is not
+    an outage, so court_site_down stays False and the run's outage counter
+    treats it like a sealed case: one row, not the list.
+    """
+
+    def __init__(self, message):
+        super().__init__(message, court_site_down=False)
+
+
+# What the finish page and the alert say about a case ICOS refused while up.
+# "Will not serve" and not "sealed", because the page does not say why, and
+# the one thing staff can act on is the same either way.
+REFUSED_MESSAGE = ("Iowa Courts is up but would not serve this case: it answered "
+                   "with its own error page %d times in a row while still "
+                   "answering other cases, so Napier skipped it. Confidential "
+                   "and sealed records can look like this. Check it by hand in "
+                   "Iowa Courts Online.")
+
+# What staff are told under the progress bar once a case has been retried, so
+# the wait reads as a wait and not as a hang worth restarting over.
+CARRY_ON_NOTE = ("If this keeps happening, Napier skips this case and carries "
+                 "on with the rest. Stopping and starting again will not help.")
+
+
 class IcosStopped(IcosError):
     """A staffer asked for the run to stop and it did.
 
@@ -265,6 +310,9 @@ class IcosClient:
         # knowing rather than guessing. This is the counting.
         self.landed_on = {}
         self.given_up = 0
+        # A case this session has already been given whole, used to ask ICOS
+        # whether it is up when it keeps refusing another one.
+        self._last_good_case = None
         # The registry entry for the ESA account this client holds, so the next
         # staffer to collide with it can be told what is holding it.
         self._account_handle = None
@@ -296,24 +344,46 @@ class IcosClient:
 
     # -- retry core --------------------------------------------------------
 
-    def _attempt_message(self, what, attempt, elapsed):
+    def _attempt_message(self, what, attempt, elapsed, reason=None):
         # Escalate the wording as a stall drags on, so staff can tell "one slow
         # request" from "the court site is down and we are still working on it".
         if elapsed > 300:
             return ("Iowa Courts appears to be having an outage. Your %s is saved and "
                     "will keep retrying automatically -- you can leave this page open "
                     "or come back later." % what)
-        if attempt >= 3:
-            return "Iowa Courts is slow, retrying (attempt %d)..." % (attempt + 1)
-        return "Iowa Courts did not respond. Retrying..."
+        # Say what ICOS did, not what it did not do. A problem report page
+        # arrives in under a second, and "did not respond" under it told staff
+        # the site was down when it had answered, in words, that it would not
+        # serve the page. They stopped the run and started it again on that.
+        if reason == PROBLEM_REPORT_REASON:
+            line = ("Iowa Courts answered with its own error page (\"%s\"). "
+                    "Retrying (attempt %d)..." % (PROBLEM_REPORT_MARKER, attempt + 1))
+        elif reason == WRONG_CASE_REASON:
+            line = ("Iowa Courts answered with the wrong page. Retrying (attempt "
+                    "%d)..." % (attempt + 1))
+        elif attempt >= 3:
+            line = "Iowa Courts is slow, retrying (attempt %d)..." % (attempt + 1)
+        else:
+            line = "Iowa Courts did not respond. Retrying..."
+        # A search that will not answer ends the job, so the advice is only
+        # true of a case, and only once it is clear this is a retry and not a
+        # single slow request.
+        if what == "case" and attempt >= 1:
+            line += " " + CARRY_ON_NOTE
+        return line
 
-    def _retry(self, what, build_request, validate=None):
+    def _retry(self, what, build_request, validate=None, probe=None):
         """Issue a request until it succeeds or the budget runs out.
 
         validate() may inspect a successful body and raise, or return a short
         reason to treat the response as a retryable failure. It returns None
         when the body is good. The reason is what the alert carries, so it is
         written to be read in an email at four in the afternoon.
+
+        probe() is asked once, after PROBLEM_PAGE_STRIKES problem report pages
+        in a row, whether ICOS is up. True ends the wait with IcosCaseRefused:
+        the site answers, this request it will not. False or no probe leaves
+        the budget to run as before.
         """
         started = self._monotonic()
         budget = self.budget if what == "search" else self.case_budget
@@ -321,6 +391,8 @@ class IcosClient:
         last = "no response"
         waits = []
         endpoint = None
+        problem_pages = 0
+        probed = False
         while True:
             url, data = build_request()
             endpoint = url.rsplit("/", 1)[-1].split("?")[0] or "ESAWebApp"
@@ -348,9 +420,12 @@ class IcosClient:
                 failure = alerts.BAD_RESPONSE
                 extra = {'response size': '%db' % len(result.body)}
                 last = "unusable response"
+                problem_pages = (problem_pages + 1
+                                 if reason == PROBLEM_REPORT_REASON else 0)
             else:
                 reason = _refusal_reason(result)
                 failure = alerts.NO_ANSWER
+                problem_pages = 0
                 # No body arrived, so its length is not a fact about anything.
                 # Reporting it as 0b was the whole reason a timeout and a
                 # problem report page read identically in the inbox.
@@ -372,6 +447,16 @@ class IcosClient:
                     result.body, endpoint=endpoint,
                     case_id=_requested_case(url), username=self.username,
                     status=result.status, attempts=attempt + 1)
+
+            # The same page three times for this request is where it stops
+            # being a blip. Whether it is the site or this request is a
+            # question ICOS can answer in one round trip, so ask it, once.
+            if (probe is not None and not probed
+                    and problem_pages >= PROBLEM_PAGE_STRIKES):
+                probed = True
+                if probe():
+                    self.given_up += 1
+                    raise IcosCaseRefused(REFUSED_MESSAGE % (attempt + 1))
 
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)
@@ -403,7 +488,7 @@ class IcosClient:
             # reason somebody reaches for stop is that a wait is in progress.
             if self._should_stop():
                 raise IcosStopped(STOPPED_MESSAGE)
-            self._log(self._attempt_message(what, attempt, elapsed))
+            self._log(self._attempt_message(what, attempt, elapsed, reason))
             waits.append(wait)
             self._sleep(wait)
             attempt += 1
@@ -653,7 +738,8 @@ class IcosClient:
         """
         summary = self._retry(
             "case", lambda: self.reader.case_summary_request(case_id),
-            validate=lambda body: _case_page_reason(body, case_id))
+            validate=lambda body: _case_page_reason(body, case_id),
+            probe=self._icos_is_up)
         # These two get the same proof of identity as the summary rather than
         # just the problem report check. When ICOS degrades partway through a
         # case it answers with a stub that carries no problem report wording,
@@ -666,7 +752,33 @@ class IcosClient:
         financials = self._retry(
             "case", self.reader.case_financials_request,
             validate=lambda body: _case_page_reason(body, case_id))
+        self._last_good_case = case_id
         return summary, charges, financials
+
+    def _icos_is_up(self):
+        """Whether ICOS will still serve a case it has already given us.
+
+        One plain request for the last case that came back whole, judged by
+        the same test as any case page. Only the summary request is probed
+        this way: it names its case, so the retry that follows re-selects the
+        case that was asked for whatever this did to ICOS's idea of the
+        current one. Charges and financials name nothing, and a probe in the
+        middle of those would leave the session standing on the wrong case.
+
+        Nothing known to be good yet, as on the first case of a run, is a
+        False: the budget runs as it always has rather than guessing.
+        """
+        known = self._last_good_case
+        if known is None:
+            return False
+        url, data = self.reader.case_summary_request(known)
+        result = self.reader.fetch_once(url, data)
+        up = result.ok and _case_page_reason(result.body, known) is None
+        self._log("Iowa Courts %s a case it had already given this run, so "
+                  "%s." % ("answered" if up else "would not answer",
+                           "it is up and will not serve this one" if up
+                           else "the site itself looks down"))
+        return up
 
     def retry_summary(self):
         """How hard this session had to work, or None if it did not have to.

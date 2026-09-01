@@ -420,6 +420,7 @@ def _finish_page(job, error=None):
                                can_retry=can_retry, error=error,
                                missing=sum(len(c['failed'])
                                            for c in result['clients']),
+                               refused=getattr(job, 'refused', None) or {},
                                limits=_batch_limits(result['clients']))
     return render_template('done.html', job=job.to_dict(),
                            atp=result.get('atp'),
@@ -430,6 +431,7 @@ def _finish_page(job, error=None):
                            failed=result['failed_cases'],
                            can_retry=can_retry, error=error,
                            missing=len(result['failed_cases']),
+                           refused=getattr(job, 'refused', None) or {},
                            limits=result.get('limits') or [],
                            filename=tasks.download_name(result['def_name'],
                                                         result['is_lite']))

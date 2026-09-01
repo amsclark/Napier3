@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import case_parser
 import icos_sessions
 import tasks
-from icos import IcosError, IcosUnavailable
+from icos import IcosCaseRefused, IcosError, IcosUnavailable
 
 KEY = '1900-01-01 TESTER, PAT Q'
 
@@ -46,8 +46,9 @@ class StubClient:
 
     logged_in = True
 
-    def __init__(self, unavailable):
+    def __init__(self, unavailable, refused=()):
         self.unavailable = set(unavailable)
+        self.refused = set(refused)
         self.asked = []
 
     def set_alert(self, alert):
@@ -61,6 +62,9 @@ class StubClient:
 
     def case_bundle(self, case_id):
         self.asked.append(case_id)
+        if case_id in self.refused:
+            raise IcosCaseRefused("Iowa Courts is up but would not serve "
+                                  "this case.")
         if case_id in self.unavailable:
             raise IcosUnavailable("Iowa Courts Online did not return this case "
                                   "after 4 minutes of retrying")
@@ -81,12 +85,16 @@ TOLD_MISSING = []
 LAST_JOB = []
 
 
-def run(monkeypatch, case_ids, unavailable=()):
+def run(monkeypatch, case_ids, unavailable=(), refused=(), alerts_seen=None):
     """Drive crs_task directly; parsing and workbook building are stubbed."""
-    stub = StubClient(unavailable)
+    stub = StubClient(unavailable, refused)
     monkeypatch.setattr(icos_sessions, 'claim', lambda token: stub)
     # Alerting has its own tests, and none of these should try to send mail.
-    monkeypatch.setattr(tasks.alerts, 'record', lambda *a, **k: None)
+    monkeypatch.setattr(
+        tasks.alerts, 'record',
+        lambda job_id, kind, failure, **k: (
+            alerts_seen.append((failure, k.get('case')))
+            if alerts_seen is not None else None))
     monkeypatch.setattr(tasks.alerts, 'digest', lambda *a, **k: None)
     monkeypatch.setattr(case_parser, 'parse_case_summary',
                         lambda body, case: case.update(county='DUBUQUE'))
@@ -229,3 +237,52 @@ def test_a_session_that_is_already_gone_is_not_reported_as_a_bug(monkeypatch):
                        'TESTER, PAT Q', '01/01/1900', False)
 
     assert 'run the search again' in caught.value.message
+
+
+class TestACaseIcosRefusesWhileUp:
+    """One case the site will not serve while it serves the rest.
+
+    It costs one row like any other unavailable case, but the page and the
+    alert have to say it is not an outage, because on 2026-09-01 staff read
+    the wait as one and restarted the run three times over it.
+    """
+
+    def test_it_costs_one_row_and_the_run_carries_on(self, monkeypatch):
+        case_ids = ids(3)
+        job, stub, written = run(monkeypatch, case_ids, refused=[case_ids[1]])
+        assert written == [case_ids[0], case_ids[2]]
+        assert job.result['failed_cases'] == [case_ids[1]]
+        assert stub.asked == case_ids
+
+    def test_the_job_remembers_which_cases_were_refused(self, monkeypatch):
+        case_ids = ids(3)
+        job, _, _ = run(monkeypatch, case_ids, refused=[case_ids[1]])
+        assert list(job.refused) == [case_ids[1]]
+        assert "would not serve" in job.refused[case_ids[1]]
+
+    def test_a_plain_failure_is_not_marked_refused(self, monkeypatch):
+        case_ids = ids(3)
+        job, _, _ = run(monkeypatch, case_ids, unavailable=[case_ids[1]])
+        assert not getattr(job, 'refused', {})
+
+    def test_the_progress_page_says_it_was_skipped_not_lost(self, monkeypatch):
+        case_ids = ids(3)
+        job, _, _ = run(monkeypatch, case_ids, refused=[case_ids[1]])
+        lines = [p['message'] for p in job.progress if case_ids[1] in p['message']]
+        assert any("Skipped" in line and "Iowa Courts is up" in line
+                   for line in lines)
+
+    def test_the_alert_has_its_own_class(self, monkeypatch):
+        case_ids = ids(3)
+        seen = []
+        run(monkeypatch, case_ids, refused=[case_ids[1]], alerts_seen=seen)
+        assert (tasks.alerts.CASE_REFUSED, case_ids[1]) in seen
+        assert tasks.alerts.CASE_UNAVAILABLE not in [f for f, _ in seen]
+
+    def test_six_refusals_in_a_row_still_stop_the_run(self, monkeypatch):
+        # A refusal is not "declared" down, so it counts like a sealed case:
+        # six in a row is still where the run decides something is wrong.
+        case_ids = ids(8)
+        _, stub, written = run(monkeypatch, case_ids, refused=case_ids[1:7])
+        assert stub.asked == case_ids[:7]
+        assert written == [case_ids[0]]

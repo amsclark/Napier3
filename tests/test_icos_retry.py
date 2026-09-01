@@ -47,11 +47,13 @@ class FakeReader:
     def __init__(self, script):
         self.script = list(script)
         self.calls = []
+        self.urls = []
         self.credentials = []
 
     def fetch_once(self, url, data=None, timeout=8):
         name = url.rsplit("/", 1)[-1].split("?")[0]
         self.calls.append(name)
+        self.urls.append(url)
         outcome = self.script.pop(0) if self.script else FetchResult(OK, RESULTS_PAGE)
         return outcome
 
@@ -597,3 +599,169 @@ class TestWhatTheRunIsToldToBelieve:
     def test_the_default_is_no_claim(self):
         """Every other raise site in the app builds one of these by hand."""
         assert IcosUnavailable('anything').court_site_down is False
+
+
+class TestARefusedCaseWhileTheSiteIsUp:
+    """ICOS answering one case with its problem report page while it answers
+    everything else is not an outage, and waiting out the case budget on it
+    is four minutes staff spend reading "did not respond" and restarting.
+
+    Seen live on 2026-09-01: one Dubuque juvenile case, seven problem report
+    pages in under four minutes, three restarts, fifteen alert emails.
+    """
+
+    GOOD = "01311  FECR000000"
+    BAD = "01311  JVJV000001"
+    BAD_PAGE = (b"<html>Trial Court Case Summary Title:&nbsp;STATE VS TESTER, PAT Q "
+                b"Case: 01311  JVJV000001 (SYNTHETIC) Disposition Status</html>")
+
+    def after_one_good_case(self, then, **kwargs):
+        # A whole case first so the client has something known-good to ask
+        # about, then whatever the test wants for the next one.
+        client, clock, messages = build(
+            [FetchResult(OK, CASE_PAGE)] * 3 + list(then), **kwargs)
+        client.case_bundle(self.GOOD)
+        clock.slept[:] = []
+        start = clock.now
+        return client, clock, messages, start
+
+    def test_three_problem_pages_then_a_probe_that_answers_ends_the_wait(self):
+        client, clock, _, start = self.after_one_good_case(
+            [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 3
+            + [FetchResult(OK, CASE_PAGE)]          # the probe of the good case
+            + [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200)
+        with pytest.raises(icos.IcosCaseRefused) as raised:
+            client.case_bundle(self.BAD)
+        # Two backoffs, not the budget.
+        assert clock.now - start < 30
+        assert raised.value.court_site_down is False
+        assert "would not serve this case" in raised.value.message
+        assert "3 times" in raised.value.message
+        assert client.given_up == 1
+        # The probe asked for the case ICOS had already served, once.
+        assert sum(self.GOOD in u for u in client.reader.urls) == 1 + 1
+
+    def test_the_probe_failing_too_means_the_site_is_down(self):
+        client, clock, _, start = self.after_one_good_case(
+            [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200, case_budget_seconds=120)
+        with pytest.raises(IcosUnavailable) as raised:
+            client.case_bundle(self.BAD)
+        assert not isinstance(raised.value, icos.IcosCaseRefused)
+        assert raised.value.court_site_down is True
+        # The whole budget, as before this change.
+        assert clock.now - start >= 60
+
+    def test_the_probe_is_asked_only_once(self):
+        client, _, _, _ = self.after_one_good_case(
+            [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200, case_budget_seconds=120)
+        with pytest.raises(IcosUnavailable):
+            client.case_bundle(self.BAD)
+        # One to pull it, one to probe it, and no more however long the
+        # bad case is retried after the probe said the site was down.
+        assert sum(self.GOOD in u for u in client.reader.urls) == 1 + 1
+
+    def test_with_nothing_known_good_the_budget_runs_as_before(self):
+        client, clock, _ = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200,
+                                 case_budget_seconds=120)
+        with pytest.raises(IcosUnavailable) as raised:
+            client.case_bundle(self.BAD)
+        assert not isinstance(raised.value, icos.IcosCaseRefused)
+        assert clock.now >= 60
+        assert client.reader.calls.count("TViewCaseCivil") >= 5
+
+    def test_a_blip_that_clears_is_not_probed(self):
+        client, _, _, _ = self.after_one_good_case(
+            [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 2
+            + [FetchResult(OK, self.BAD_PAGE)] * 3)
+        summary, _, _ = client.case_bundle(self.BAD)
+        assert summary == self.BAD_PAGE
+        assert client.given_up == 0
+
+    def test_problem_pages_broken_by_a_timeout_start_the_count_again(self):
+        client, _, _, _ = self.after_one_good_case(
+            [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 2
+            + [FetchResult(TIMEOUT)]
+            + [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 2
+            + [FetchResult(OK, self.BAD_PAGE)] * 3)
+        summary, _, _ = client.case_bundle(self.BAD)
+        assert summary == self.BAD_PAGE
+        assert client.given_up == 0
+
+    def test_the_refusal_is_a_plain_unavailable_to_the_run(self):
+        # The run's per-case handler catches IcosError; the outage counter
+        # reads court_site_down. Both have to keep working unchanged.
+        err = icos.IcosCaseRefused("x")
+        assert isinstance(err, IcosUnavailable)
+        assert isinstance(err, icos.IcosError)
+        assert err.court_site_down is False
+
+    def test_charges_and_financials_are_never_probed(self):
+        # A probe re-selects a different case on the ICOS side. The summary
+        # request names its case so the next retry sets that right; charges
+        # and financials do not, so a probe there would be answered by the
+        # wrong case's pages.
+        client, _, _, _ = self.after_one_good_case(
+            [FetchResult(OK, self.BAD_PAGE)]
+            + [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 200, case_budget_seconds=120)
+        with pytest.raises(IcosUnavailable) as raised:
+            client.case_bundle(self.BAD)
+        assert not isinstance(raised.value, icos.IcosCaseRefused)
+        assert sum(self.GOOD in u for u in client.reader.urls) == 1
+
+
+class TestWhatTheProgressPageSays:
+    """The progress line was read as the site being down, and acted on."""
+
+    def test_a_problem_report_page_is_named_as_an_answer(self):
+        client, _, messages = build([FetchResult(OK, PROBLEM_REPORT_PAGE),
+                                     FetchResult(OK, CASE_PAGE),
+                                     FetchResult(OK, CASE_PAGE),
+                                     FetchResult(OK, CASE_PAGE)])
+        client.case_bundle(CASE_ID)
+        line = [m for m in messages if "Retrying" in m][0]
+        assert "answered with its own error page" in line
+        assert icos.PROBLEM_REPORT_MARKER in line
+        assert "did not respond" not in line
+
+    def test_a_wrong_case_page_is_named_as_an_answer(self):
+        client, _, messages = build([FetchResult(OK, STUB_CASE_PAGE),
+                                     FetchResult(OK, CASE_PAGE),
+                                     FetchResult(OK, CASE_PAGE),
+                                     FetchResult(OK, CASE_PAGE)])
+        client.case_bundle(CASE_ID)
+        line = [m for m in messages if "Retrying" in m][0]
+        assert "wrong page" in line
+        assert "did not respond" not in line
+
+    def test_silence_is_still_called_silence(self):
+        client, _, messages = build([FetchResult(TIMEOUT),
+                                     FetchResult(OK, RESULTS_PAGE)])
+        client.search("PAT", "", "TESTER")
+        assert any("did not respond" in m for m in messages)
+
+    def test_a_case_being_retried_says_not_to_restart(self):
+        client, _, messages = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 3
+                                    + [FetchResult(OK, CASE_PAGE)] * 3)
+        client.case_bundle(CASE_ID)
+        retries = [m for m in messages if "Retrying" in m]
+        # Not on the first retry, which is often one slow request.
+        assert icos.CARRY_ON_NOTE not in retries[0]
+        assert icos.CARRY_ON_NOTE in retries[1]
+        assert "Stopping and starting again will not help" in retries[1]
+
+    def test_a_search_is_not_told_it_will_be_skipped(self):
+        # A search that will not answer ends the job. Promising to carry on
+        # without it would be a lie.
+        client, _, messages = build([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 4
+                                    + [FetchResult(OK, RESULTS_PAGE)])
+        client.search("PAT", "", "TESTER")
+        assert not any(icos.CARRY_ON_NOTE in m for m in messages)
+
+    def test_the_probe_says_what_it_learned(self):
+        client, _, messages = build([FetchResult(OK, CASE_PAGE)] * 3
+                                    + [FetchResult(OK, PROBLEM_REPORT_PAGE)] * 3
+                                    + [FetchResult(OK, CASE_PAGE)])
+        client.case_bundle(CASE_ID)
+        with pytest.raises(icos.IcosCaseRefused):
+            client.case_bundle("01311  JVJV000001")
+        assert any("it is up and will not serve this one" in m for m in messages)
