@@ -131,34 +131,47 @@ charge_code_map = {
     # the wording stops mailing an unknown-disposition alert on every run
     # that touches the case, the way JCS OTHER ADJ OTHER COURT above is.
     # Ranked 0.5 with it, so a case that also carries a real conviction
-    # still reads as the conviction. Listed in OPEN_QUESTIONS.md for Iowa
-    # Legal Aid to overrule.
+    # still reads as the conviction. Iowa Legal Aid answered the juvenile
+    # half on 1 September 2026 -- JUV, in JUVENILE_DISPOSITIONS below. This
+    # adult entry stands until a DEFERRED MISTRIAL turns up on an adult
+    # docket and earns its own answer.
     "DEFERRED MISTRIAL": {"OTH": 0.5}
 }
 
-# What three wordings mean when the docket is the juvenile court's, decided by
-# Iowa Legal Aid on 20 August after they turned up on a real clinic run.
+# What a wording means when the docket is the juvenile court's, started by
+# Iowa Legal Aid on 20 August after three wordings turned up on a real clinic
+# run, and grown by their answers since.
 #
-# All three exist on adult and civil dockets too and mean different things
-# there, which is the reason for a separate table rather than three more
-# entries in charge_code_map. TRANSFERRED on an adult case is a change of venue
-# and codes TNSF above; TRANSFERRED on a juvenile case is the child being
-# waived up to adult court, which is JWV. OTHER JUDGMENT and CONSENT DECREE are
-# both juvenile dispositions of the delinquency petition, so they earn JUV at
-# the rank of a conviction, exactly as ADJUDICATED and JUVENILE ADMISSION do.
+# These wordings exist on adult and civil dockets too and mean different
+# things there, which is the reason for a separate table rather than more
+# entries in charge_code_map. TRANSFERRED on an adult case is a change of
+# venue and codes TNSF above; TRANSFERRED on a juvenile case is the child
+# being waived up to adult court, which is JWV. OTHER JUDGMENT and CONSENT
+# DECREE are both juvenile dispositions of the delinquency petition, so they
+# earn JUV at the rank of a conviction, exactly as ADJUDICATED and JUVENILE
+# ADMISSION do.
 #
-# Outside the juvenile docket, OTHER JUDGMENT and CONSENT DECREE are still not
-# translated. Iowa Legal Aid answered for juveniles and only for juveniles, and
-# a wrong guess here is not cheap: CIV, the code a civil judgment would want,
-# is one of the eight codes BANKRUPTCY and EXEMPTIONS read as no conviction, so
-# guessing it would move the whole balance into fully dischargeable and zero
-# every other column on the row. Unrecognised is the honest answer, and it
-# travels out through unknown_dispositions, which puts the wording in column V
-# and tells the run. Visibly uncoded beats quietly miscoded.
+# The standing rule, stated by Iowa Legal Aid on 26 August and again on
+# 1 September: a juvenile case reads JUV unless it was waived to adult
+# court, and then it reads JWV. The two waiver wordings carry a rank above
+# everything else in either map for exactly that reason -- a JV case that
+# shows a waiver alongside anything else was waived up, so JWV wins the
+# case code no matter what the other counts say.
+#
+# Outside the juvenile docket, a wording only this table knows is still not
+# translated. Iowa Legal Aid answered for juveniles and only for juveniles,
+# and a wrong guess here is not cheap: CIV, the code a civil judgment would
+# want, is one of the eight codes BANKRUPTCY and EXEMPTIONS read as no
+# conviction, so guessing it would move the whole balance into fully
+# dischargeable and zero every other column on the row. Unrecognised is the
+# honest answer, and it travels out through unknown_dispositions, which puts
+# the wording in column V and tells the run. Visibly uncoded beats quietly
+# miscoded.
 JUVENILE_DISPOSITIONS = {
     "CONSENT DECREE": {"JUV":1},
     "OTHER JUDGMENT": {"JUV":1},
-    "TRANSFERRED": {"JWV":0},
+    "TRANSFERRED": {"JWV":3},
+    "WAIVED TO ADULT COURT": {"JWV":3},
     # A juvenile docket showed DISCHARGE on 2026-08-26 and Napier left it
     # uncoded rather than guess. Iowa Legal Aid answered the same day: JUV,
     # and JUV for a JVJV case generally unless it was waived to adult court,
@@ -166,7 +179,35 @@ JUVENILE_DISPOSITIONS = {
     # adult docket stays uncoded, since a discharged adult case says nothing
     # about how it was adjudicated. Same rank as the other adjudications.
     "DISCHARGE": {"JUV":1},
+    # Iowa Legal Aid's 1 September 2026 review, applying the same rule to
+    # the non-convictions: a count dismissed or withdrawn on a juvenile case
+    # still reads JUV, because the case is still a juvenile matter and not
+    # an adult record. The adult readings above are untouched -- DISM and
+    # WTHD still mean what they mean off this docket.
+    "DISMISSED": {"JUV":1},
+    "DISMISSED BY COURT": {"JUV":1},
+    "DISMISSED BY OTHER": {"JUV":1},
+    "WITHDRAWN": {"JUV":1},
+    # The 27 August unknown, answered by Iowa Legal Aid on 1 September: on
+    # the juvenile docket a DEFERRED MISTRIAL count reads JUV like the rest
+    # of the docket. On an adult case the wording keeps the OTH entry in
+    # charge_code_map, with its reasoning.
+    "DEFERRED MISTRIAL": {"JUV":1},
 }
+
+# The juvenile entries above that read JUV without being adjudications. They
+# earn the case code -- Iowa Legal Aid's rule is about what the case reads,
+# not what the count achieved -- but they do not date it. Column D pairs the
+# winning code with the earliest count that produced it, and a delinquency
+# petition often shows a dismissed count disposed before the adjudicated one,
+# so letting these date the row would put a dismissal's date on an
+# adjudication and start every waiting period that runs off column D early.
+# A juvenile case with nothing but these keeps the parser's date, which is
+# the only date it has.
+JUVENILE_UNDATED = frozenset({
+    "DISMISSED", "DISMISSED BY COURT", "DISMISSED BY OTHER",
+    "WITHDRAWN", "DEFERRED MISTRIAL",
+})
 
 
 def disposition_entry(disposition, case_id=None):
@@ -497,10 +538,17 @@ CIVIL_DESCRIPTIONS = ('OUT OF COUNTY WARRANT',)
 # domestic relations docket, whose criminal-styled cases are the contempts off
 # a protective order rather than convictions of their own.
 #
+# CDDM cost exactly the email this comment asks for. Iowa Legal Aid's
+# 1 September 2026 review met a CDDM case whose case-level status,
+# GUILTY PLEA/DEFAULT, was alerting as uncoded, and answered "this can be
+# CIV". CDDM is the civil domestic abuse docket -- chapter 236 protective
+# orders -- so the docket answers the same way DR does, and the alert on
+# that status stops the way it stopped on the other four.
+#
 # Still a whitelist of four-character types rather than a prefix rule, and
 # deliberately. "AM" and "DR" alone would take whatever Iowa adds next as
-# civil the day it appears, with no one deciding it. A fifth type wanted here
-# should cost an email, the way these four did. case_type gives the four
+# civil the day it appears, with no one deciding it. Another type wanted here
+# should cost an email, the way these five did. case_type gives the four
 # characters, so the test is equality.
 #
 # What it costs, so it is written down somewhere other than an inbox: CIV is
@@ -510,7 +558,7 @@ CIVIL_DESCRIPTIONS = ('OUT OF COUNTY WARRANT',)
 # them stops answering YES there. Iowa Legal Aid has settled both trades before
 # -- see KEEPS_ITS_CLEARED_CODE -- on the ground that a civil case is not
 # eligible for dismissed-or-acquitted expungement in the first place.
-CIVIL_CASE_TYPES = ('AMCR', 'AMCV', 'DRCR', 'DRCV')
+CIVIL_CASE_TYPES = ('AMCR', 'AMCV', 'CDDM', 'DRCR', 'DRCV')
 
 # What a clerk files a pre-electronic-docket case under. Either spelling is
 # enough on its own, because the captured case carries both and there is no
@@ -950,7 +998,12 @@ def get_dominant_charge(charges, case_id=None):
                 rank = JUV_RANK_ADULT_CASE
             charge_dict[charge_key] = rank
         if index < len(raw_dates) and raw_dates[index]:
-            dates_by_code.setdefault(charge_key, []).append(raw_dates[index])
+            # A dismissed or withdrawn count on a juvenile case reads JUV but
+            # does not date the row -- see JUVENILE_UNDATED.
+            if not (is_juvenile_case(case_id)
+                    and disposition in JUVENILE_UNDATED):
+                dates_by_code.setdefault(charge_key, []).append(
+                    raw_dates[index])
     sorted_tuples = sorted(charge_dict.items(), reverse=True,
                            key=lambda item: item[1] if item[1] is not None else float('inf'))
     delisted['disposition'] = sorted_tuples[0][0] if sorted_tuples else ''

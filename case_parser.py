@@ -339,18 +339,29 @@ charge_code_dict = {
     "DEFERRED MISTRIAL": "OTH"
 }
 
-# What three of those wordings mean when the docket is the juvenile court's,
-# settled by Iowa Legal Aid on 20 August. The twin of crs.JUVENILE_DISPOSITIONS,
-# which carries the reasoning and the ranks; a test holds the two key sets and
-# the codes they produce equal, because the two maps disagreeing about one count
-# on one row is the failure this pair of tables exists to prevent.
+# What those wordings mean when the docket is the juvenile court's, settled
+# wording by wording by Iowa Legal Aid starting 20 August. The twin of
+# crs.JUVENILE_DISPOSITIONS, which carries the reasoning and the ranks; a test
+# holds the two key sets and the codes they produce equal, because the two maps
+# disagreeing about one count on one row is the failure this pair of tables
+# exists to prevent.
 JUVENILE_DISPOSITIONS = {
     "CONSENT DECREE": "JUV",
     "OTHER JUDGMENT": "JUV",
     "TRANSFERRED": "JWV",
+    "WAIVED TO ADULT COURT": "JWV",
     # Answered by Iowa Legal Aid 2026-08-26. See the twin entry in
     # crs.JUVENILE_DISPOSITIONS.
     "DISCHARGE": "JUV",
+    # Answered by Iowa Legal Aid 2026-09-01: a juvenile case reads JUV
+    # unless waived to adult court, and that includes its dismissed and
+    # withdrawn counts and the DEFERRED MISTRIAL count from 27 August. The
+    # reasoning sits on the twin entries in crs.JUVENILE_DISPOSITIONS.
+    "DISMISSED": "JUV",
+    "DISMISSED BY COURT": "JUV",
+    "DISMISSED BY OTHER": "JUV",
+    "WITHDRAWN": "JUV",
+    "DEFERRED MISTRIAL": "JUV",
 }
 
 

@@ -532,25 +532,24 @@ An Iowa city ordinance conviction that mirrors a chapter 321 offence: does it
 put the licence at risk the way the state charge would? The LICENSE-REGIS
 sheet's answer depends on it.
 
-## Two from the 26 to 28 August 2026 runs
+## Two from the 26 to 28 August 2026 runs, both closed 1 September
 
 DEFERRED MISTRIAL, on one juvenile count. The two words point opposite ways.
 DEFERRED on its own is DEF, which is a deferred judgment and which four sheets
 test for by name; a mistrial is a trial that reached no verdict at all, which
-belongs with the dismissals. Guessing DEF puts an adjudication on a client who
-may not have one. Guessing the other way drops a deferred judgment off the
-expungement and licence sheets, which exist to find exactly that. The wording
-is now mapped to OTH, which is the code the row was already getting as an
-unknown wording, so no workbook changes; the entry exists so it stops mailing
-an unrecognised-disposition alert on every run that touches the case. Column V
-still carries the ICOS wording. If Iowa Legal Aid says a mistrial that was
-deferred is a deferred judgment, the answer is DEF at rank 2 and one line in
-each of the two maps.
+belongs with the dismissals. Iowa Legal Aid answered on 1 September 2026, and
+the answer was neither guess: on the juvenile docket the count reads JUV,
+under their standing rule that a juvenile case is JUV unless waived to adult
+court. That rule now also covers dismissed and withdrawn counts on juvenile
+cases, which read DISM and WTHD until the same email. On an adult docket the
+wording keeps the OTH it was mapped to in August, until an adult case
+actually carries it and earns its own answer.
 
 GUILTY PLEA/DEFAULT as a case level status on a case with no adjudicated
-count. This is not new and is not a bug: it is the first wording in the list
-under "ICOS case statuses with no CRS code" above, and the alert firing is that
-section working as intended. It is repeated here because it now mails on every
-run that touches such a case, so it is the cheapest of these to close and the
-loudest left open. Column G is empty on that row, and BANKRUPTCY, EXEMPTIONS
-and SOL all read an empty G as an open charge.
+count. The case that mailed it turned out to be a CDDM docket, and Iowa Legal
+Aid's 1 September answer was the docket's, not the wording's: CDDM is the
+civil domestic abuse docket, chapter 236 protective orders, and it joined
+CIVIL_CASE_TYPES, so the row reads CIV and the alert stops. GUILTY
+PLEA/DEFAULT as a status on a docket that is not civil is still the first
+wording in the list under "ICOS case statuses with no CRS code" above, and
+still alerts, which is that section working as intended.
