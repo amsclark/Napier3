@@ -73,6 +73,11 @@ class Job:
         # a staffer has the workbook.
         self.collected = False
         self.reported_uncollected = False
+        # Cases ICOS would not serve while it was serving others, by case
+        # id, with what the finish page should say about each. Kept apart
+        # from the failed list because the advice differs: a retry helps a
+        # case the site was down for, and does nothing for one of these.
+        self.refused = {}
         # Set when a staffer asks the run to stop. The work checks it between
         # cases rather than being killed, so the ICOS session is logged off on
         # the way out and the account is free for the next person.

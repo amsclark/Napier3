@@ -112,7 +112,9 @@
           {% endif %}
           {% if client['failed'] %}
             <ul class="missing">
-              {% for case_id in client['failed'] %}<li>{{ case_id }}</li>{% endfor %}
+              {% for case_id in client['failed'] %}
+                <li>{{ case_id }}{% if case_id in (refused or {}) %} &mdash; refused by Iowa Courts while the site was up; look it up by hand{% endif %}</li>
+              {% endfor %}
             </ul>
           {% endif %}
         {% else %}

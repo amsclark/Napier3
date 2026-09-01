@@ -21,7 +21,8 @@ import grid
 import icos_sessions
 import roster
 import statutes
-from icos import IcosClient, IcosError, IcosStopped, STOPPED_MESSAGE
+from icos import (IcosClient, IcosError, IcosStopped, IcosCaseRefused,
+                  STOPPED_MESSAGE)
 
 # One case ICOS will not hand over is a bad case: sealed, or a page the parser
 # cannot read. Several in a row with nothing in between is the site being down,
@@ -500,6 +501,22 @@ def _stop_if_asked(job):
         raise IcosStopped(STOPPED_MESSAGE)
 
 
+def _note_refusal(job, case_id, message):
+    """Remember on the job that ICOS refused this case while it was up.
+
+    Set rather than assigned so a job that predates the attribute, or a
+    test's stand-in for one, still takes the note.
+    """
+    refused = getattr(job, 'refused', None)
+    if refused is None:
+        refused = {}
+        try:
+            job.refused = refused
+        except AttributeError:
+            return
+    refused[case_id] = message
+
+
 def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
     """Fetch and parse a list of cases. Returns what was read and what was not.
 
@@ -534,7 +551,17 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
             # costs one row, not the run: the other cases are still worth
             # pulling and the workbook still gets built without this one.
             print("Case %s could not be retrieved: %r" % (case_id, e), flush=True)
-            alerts.record(job.id[:8], job.kind, alerts.CASE_UNAVAILABLE,
+            failure = alerts.CASE_UNAVAILABLE
+            if isinstance(e, IcosCaseRefused):
+                # The site is up and will not serve this one. Say so on
+                # the progress page now, in one line, so the person
+                # watching does not read the skip as a hang; the finish
+                # page gets the whole story from the job.
+                failure = alerts.CASE_REFUSED
+                _note_refusal(job, case_id, e.message)
+                job.log("Skipped case %s: Iowa Courts is up but would not "
+                        "serve it. Carrying on with the rest." % case_id)
+            alerts.record(job.id[:8], job.kind, failure,
                           progress=alerts.recent_progress(job),
                           case=case_id,
                           note="%s The run carried on without it." % e.message)

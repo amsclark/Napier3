@@ -85,6 +85,8 @@
   {% if atp %}{% include '_atp.html' %}{% endif %}
 
   {% if failed %}
+    {% set refused = refused or {} %}
+    {% set refused_here = failed | select("in", refused) | list %}
     <div class="notice" role="alert">
       <p class="notice-title">
         {{ failed | length }} case{{ failed | length | pluralize("","s") }}
@@ -104,8 +106,22 @@
           before you rely on the summary being complete.
         {% endif %}
       </p>
+      {% if refused_here %}
+        <p>
+          Iowa Courts answered
+          {{ "the case marked" if refused_here | length == 1 else "the cases marked" }}
+          <b>refused</b> with its own error page every time, while other
+          cases in this run came back. That is not an outage, and running
+          {{ "it" if refused_here | length == 1 else "them" }} again will
+          not help. Confidential and sealed records can look like this.
+          Look {{ "it" if refused_here | length == 1 else "them" }} up by
+          hand in Iowa Courts Online.
+        </p>
+      {% endif %}
       <ul class="missing">
-        {% for case_id in failed %}<li>{{ case_id }}</li>{% endfor %}
+        {% for case_id in failed %}
+          <li>{{ case_id }}{% if case_id in refused %} &mdash; refused{% endif %}</li>
+        {% endfor %}
       </ul>
     </div>
   {% endif %}
