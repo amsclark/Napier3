@@ -358,9 +358,11 @@ a juvenile docket.
 Iowa Legal Aid's 26 August answer on DISCHARGE was broader than the one
 wording: JUV for every JVJV case unless it was waived to adult court. Napier
 still codes a juvenile docket wording by wording, so a JVJV status it has not
-seen still goes out uncoded rather than as JUV. Whether a DISMISSED or
-WITHDRAWN count on a JVJV docket should also read JUV is the open half of
-that answer.
+seen still goes out uncoded rather than as JUV. The open half of that answer,
+whether a DISMISSED or WITHDRAWN count on a JVJV docket also reads JUV, was
+closed on 1 September 2026: it does. The "unless" half was confirmed on
+2 September, and a juvenile waiver is now read from the case-level status as
+well as from a count, so a waived-up case reads JWV wherever the waiver shows.
 
 Whether VIOLATIONS HANDLED BY CLERK is a guilty plea decides what five sheets
 compute, which is why the code will not guess.
