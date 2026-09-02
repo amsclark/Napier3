@@ -2266,6 +2266,35 @@ def process_case(case, worksheet, row, as_of=None):
                 # must not speak for any of those.
                 disposition = "OTH"
 
+        # The waiver does not always show on a count. Iowa Legal Aid, 2
+        # September 2026, confirming the rule they have now stated four times:
+        # a juvenile case reads JUV unless it was waived to adult court, and
+        # JWV trumps JUV wherever both are in play. The counts already obey
+        # that -- the two waiver wordings outrank everything else in
+        # JUVENILE_DISPOSITIONS since 1 September -- but ICOS also prints the
+        # waiver as the status of the case as a whole, and that status was
+        # read only where no count had been adjudicated. So a JV case with one
+        # adjudicated count and TRANSFERRED as its status came out JUV, which
+        # is the reading Iowa Legal Aid says is wrong.
+        #
+        # Only JWV is taken this way, and only on a juvenile docket. Every
+        # other status on an adjudicated case stays unread, because the counts
+        # are the better evidence of how the case was decided, and because
+        # reading the rest of that vocabulary here would put every wording
+        # case_level_code refuses to translate into unknown_dispositions on
+        # each adjudicated case that carries one -- mail about cases Napier
+        # had already coded correctly off their counts.
+        #
+        # The date is not touched. A waiver up is not an adjudication, so
+        # column D still belongs to the count, exactly as it does when the
+        # waiver arrives on a count of its own.
+        if (disposition and disposition != 'JWV'
+                and is_juvenile_case(case['id'])
+                and case_level_code(
+                    (case.get('summary_dispo_status') or '').strip(),
+                    case['id']) == 'JWV'):
+            disposition = 'JWV'
+
         # After the clerk's wording has had its say and before anything is
         # written, because what the charge is beats how the disposition was
         # typed. This is the only place the charge overrides the code.
