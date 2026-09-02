@@ -62,7 +62,7 @@ SPLITTER_MARK = "'CASE DATA'!$F"
 OVERFLOW_NOTE = (
     "This case is adjudicated under more than %d statutes and the expungement "
     "sheet only screens the first %d. The rest (%%s) have to be checked by "
-    "hand against 901C.2." % (SLOTS, SLOTS))
+    "hand against 901C.3." % (SLOTS, SLOTS))
 
 
 def split_codes(reference):
