@@ -612,6 +612,8 @@ def only_civil_sections(statutes):
 # keeping DISM on one buys the client nothing and prints a YES in the DISM
 # ACQ? column that no attorney can act on. So the statute readings below now
 # pass this gate and only the description reading stands behind it.
+# Iowa Legal Aid was offered the reversal on 2 September 2026 and kept the
+# judgement on 3 September: the sheet is not to flag CIV as a dismissal.
 KEEPS_ITS_CLEARED_CODE = ('WTHD', 'DISM', 'ACQ', 'NOTF', 'TNSF')
 
 
