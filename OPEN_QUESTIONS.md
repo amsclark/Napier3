@@ -432,7 +432,8 @@ cleared code was printing a YES no attorney could act on. If that reading is
 wrong, this is the change to reverse, and the three cleared words are the ones
 to put back in `KEEPS_ITS_CLEARED_CODE`. Nothing moves on the money sheets
 either way: CIV lands in the same dischargeable and exempt buckets those codes
-already reached.
+already reached. Iowa Legal Aid was offered the reversal on 2 September 2026
+and kept the judgement on 3 September; see the last section.
 
 The second one was a wording nobody had seen: ARREST WITHOUT WARRANT, on a
 Polk case with no count-level adjudication at all, so column G was reading the
@@ -555,3 +556,27 @@ CIVIL_CASE_TYPES, so the row reads CIV and the alert stops. GUILTY
 PLEA/DEFAULT as a status on a docket that is not civil is still the first
 wording in the list under "ICOS case statuses with no CRS code" above, and
 still alerts, which is that section working as intended.
+
+## One from 2 September 2026, closed 3 September
+
+Iowa Legal Aid asked on 2 September for *"JWV and CIV on parole
+violations/extraditions/warrant for expungement analysis on the Lite version
+too"*. Lite was not the difference: the EXPUNGEMENT & 910.7 sheet is the same
+in both templates and names neither code, so the question underneath was
+whether the 19 August judgement above should be reversed. Both ways of
+reversing it were put to them, narrow (a cleared parole violation keeps DISM,
+ACQ, WTHD, NOTF or TNSF instead of reading CIV) and wide (CIV joins the DISM
+ACQ? cleared set on the sheet). Their 3 September answer keeps the judgement
+as it stands: they do not want the sheet to flag CIV as a dismissal. So a
+parole violation, extradition hold or out-of-county warrant reads CIV on the
+Case Data sheet of either workbook whatever word cleared it, and
+`KEEPS_ITS_CLEARED_CODE` stays as it is. The Lite note in column V was read
+and accepted the same day.
+
+**Still open, at their request.** A JWV row gets no expungement reading at
+all: on the EXPUNGEMENT & 910.7 sheet the juvenile column reads JUV alone and
+the DISM ACQ? column reads the cleared set, so a waived-up juvenile case
+answers NO in both and staff find it by hand on the Case Data sheet. Iowa
+Legal Aid said a JWV column on that sheet is what would make it read right,
+and asked to hold off. That is a change to the CRS template, not to Napier,
+and it waits for them.
