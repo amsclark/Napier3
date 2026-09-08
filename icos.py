@@ -23,10 +23,13 @@ import accounts
 import alerts
 import evidence
 from opener import Opener
-from reader import EMPTY, TIMEOUT, Reader
+from reader import EMPTY, ERROR, TIMEOUT, Reader
 
 # Attempts before a run that still succeeded is worth an early-warning email.
 SLOW_RECOVERY_ATTEMPTS = alerts.SLOW_RECOVERY_ATTEMPTS
+
+# Attempts a failure has to survive before it is worth an email of its own.
+FAILURE_ALERT_ATTEMPTS = alerts.FAILURE_ALERT_ATTEMPTS
 
 # Backoff between attempts, in seconds; the last value repeats once reached.
 BACKOFF = [2, 5, 10, 30, 60, 120, 120, 300]
@@ -124,7 +127,36 @@ def _refusal_reason(result):
         return NO_ANSWER_REASON
     if result.outcome == EMPTY:
         return NO_BODY_REASON
+    status = _error_status(result)
+    if status is not None:
+        return "ICOS answered HTTP %s (%s)" % (status, result.detail) \
+            if result.detail else "ICOS answered HTTP %s" % status
     return result.detail or "the request failed before any body arrived"
+
+
+def _error_status(result):
+    """The status ICOS answered an errored request with, or None.
+
+    A status code only exists when the court site's web tier replied, so a
+    failed request holding one was answered, however badly. A timeout, a
+    refused connection and a DNS failure hold none.
+    """
+    if result.outcome == ERROR and result.status not in (None, "", "?"):
+        return result.status
+    return None
+
+
+def _refusal_class(result):
+    """Which alert a request that produced no usable body belongs in.
+
+    "No answer from ICOS" on a returned 502 is wrong twice over: it says the
+    court site was silent when it had spoken, and it points whoever reads the
+    email at the network between Napier and Iowa, which is the one place the
+    fault cannot be. An empty 200 stays with the timeouts, because a session
+    that has lost its place is a path problem the same way a timeout is.
+    """
+    return (alerts.SERVER_ERROR if _error_status(result) is not None
+            else alerts.NO_ANSWER)
 
 
 def _problem_report_reason(body):
@@ -424,7 +456,7 @@ class IcosClient:
                                  if reason == PROBLEM_REPORT_REASON else 0)
             else:
                 reason = _refusal_reason(result)
-                failure = alerts.NO_ANSWER
+                failure = _refusal_class(result)
                 problem_pages = 0
                 # No body arrived, so its length is not a fact about anything.
                 # Reporting it as 0b was the whole reason a timeout and a
@@ -434,7 +466,15 @@ class IcosClient:
 
             # Only after login: before it, an unusable response is usually a
             # rejected credential working as designed, which is not news.
-            if self.logged_in:
+            #
+            # And only once a retry has failed too. One bad request is the
+            # normal weather of this site: on 2026-09-08 a single 502 out of
+            # 465 requests mailed staff twice, the retry two seconds later
+            # returned the page, and the run wrote all 101 cases. Waiting for
+            # attempt 2 costs one backoff step -- two seconds on a search, and
+            # the budgets are 45 and 4 minutes -- so a real outage still gets
+            # its email while it is still an outage.
+            if self.logged_in and attempt + 1 >= FAILURE_ALERT_ATTEMPTS:
                 self._alert(failure, endpoint=endpoint, reason=reason,
                             attempts=attempt + 1, status=result.status, **extra)
 

@@ -59,6 +59,11 @@ BAD_RESPONSE = 'unusable response from ICOS'
 # silenced the other. They also want opposite things looked at: a bad body is
 # the court site's data, and no body is the path to it.
 NO_ANSWER = 'no answer from ICOS'
+# A request that reached ICOS and came back with an error status is not the same
+# event as one that never got an answer, and it was being filed under the line
+# above. "No answer from ICOS" sends whoever reads it looking at the network and
+# at whether Napier is blocked, when the court site did answer and said 502.
+SERVER_ERROR = 'ICOS answered with an error status'
 PARSE_FAILURE = 'case could not be read'
 CASE_UNAVAILABLE = 'case could not be retrieved from ICOS'
 # Its own class so three refusals of one case read as one thing in the
@@ -112,6 +117,13 @@ WORKBOOK_SHORT = 'workbook sheets do not reach the last case'
 # A run that eventually worked but took this many attempts is the early warning
 # that ICOS is degrading, which is worth one email before staff start noticing.
 SLOW_RECOVERY_ATTEMPTS = 3
+
+# A single failed request is not news, because the retry two seconds later
+# usually fixes it and nobody ever knew. On 2026-09-08 one 502 out of 465
+# requests mailed staff twice and the run still wrote all 101 cases. Hold the
+# per-failure email until the failure has survived this many attempts, so what
+# gets sent is a failure that a retry did not fix.
+FAILURE_ALERT_ATTEMPTS = 2
 
 # Floor across all jobs, so a broad ICOS outage during a clinic sends a handful
 # of emails rather than one per staffer per attempt.
