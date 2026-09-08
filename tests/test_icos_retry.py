@@ -2,6 +2,7 @@
 
 import os
 import sys
+import urllib.error
 
 import pytest
 
@@ -11,7 +12,7 @@ import icos
 from icos import (IcosAccountLocked, IcosBadCredentials, IcosClient,
                   IcosStopped, IcosUnavailable)
 import alerts
-from reader import EMPTY, ERROR, OK, TIMEOUT, FetchResult
+from reader import EMPTY, ERROR, OK, TIMEOUT, FetchResult, Reader
 
 LOGIN_OK = b"x" * 28000
 CONCURRENT_PAGE = b"<html>Concurrent Login Error: A user is already logged on</html>"
@@ -499,10 +500,23 @@ class TestWhatTheAlertSays:
         assert 'empty body' in fields['reason']
 
     def test_a_transport_error_carries_what_the_transport_said(self):
+        """A status means ICOS spoke, so this is its own class, not "no answer
+        from ICOS". On 2026-09-08 that subject line on a returned 502 cost an
+        afternoon of checking whether Napier had been blocked."""
         failure, fields = self._first_alert(
             [FetchResult(ERROR, b'', '503', 0.1, 'HTTP Error 503')] * 50)
-        assert failure == alerts.NO_ANSWER
+        assert failure == alerts.SERVER_ERROR
+        assert failure != alerts.NO_ANSWER
         assert '503' in fields['reason']
+        # And the number belongs in the email, not just in the prose.
+        assert fields['status'] == '503'
+
+    def test_a_failure_with_no_status_is_still_no_answer(self):
+        """Nothing answered, so nothing to report a status for. This is the
+        connection that never landed, as against the 502 above."""
+        failure, _ = self._first_alert(
+            [FetchResult(ERROR, b'', detail='Connection refused')] * 50)
+        assert failure == alerts.NO_ANSWER
 
     def test_a_problem_report_page_is_named_as_one(self):
         failure, fields = self._first_alert([FetchResult(OK, PROBLEM_REPORT_PAGE)] * 50)
@@ -551,6 +565,103 @@ class TestWhatTheAlertSays:
                    if failure == alerts.RETRY_EXHAUSTED]
         assert gave_up, 'a case that ran out its budget must say so'
         assert 'problem report' in gave_up[0]['note']
+
+
+class TestWhatTheRequestReportsBack:
+    """The reader is what turns one request into the facts an alert prints."""
+
+    class _Raises:
+        def __init__(self, error):
+            self.error = error
+
+        def open(self, url, data=None, timeout=8):
+            raise self.error
+
+    def test_a_returned_error_status_reaches_the_result(self):
+        """urllib raises HTTPError for a 502, and HTTPError is a URLError, so
+        the branch that caught it threw the code away and reported "?". The
+        2026-09-08 email said "status: ?" about a 502 ICOS had plainly sent."""
+        reader = Reader(self._Raises(
+            urllib.error.HTTPError('https://icos/x', 502, 'Bad Gateway', {}, None)))
+        result = reader.fetch_once('https://icos/ESAWebApp/TViewFinancials')
+        assert result.outcome == ERROR
+        assert result.status == 502
+        assert 'Bad Gateway' in result.detail
+
+    def test_a_failure_with_no_status_still_reports_none(self):
+        """A connection that never landed has no status to report, and must
+        not borrow one."""
+        reader = Reader(self._Raises(
+            urllib.error.URLError('Connection refused')))
+        result = reader.fetch_once('https://icos/ESAWebApp/TViewFinancials')
+        assert result.outcome == ERROR
+        assert result.status == '?'
+
+
+class TestWhenTheFailureEmailGoesOut:
+    """One failed request is the normal weather of this site.
+
+    2026-09-08, prod job f80777d8: pulling case 27 of 101, one TViewFinancials
+    request came back 502 in 0.07s. The retry two seconds later returned the
+    full page, the run wrote all 101 cases, and nobody using Napier saw
+    anything. It still mailed staff twice, and the subject line sent the day
+    into checking whether Iowa had blocked us.
+
+    465 ICOS requests in that log buffer; one of them failed. Mail the failures
+    a retry did not fix.
+    """
+
+    def _alerts(self, script, **kwargs):
+        seen = []
+        client, _, _ = build(script, **kwargs)
+        client.set_alert(lambda failure, **fields: seen.append((failure, fields)))
+        client.logged_in = True
+        return client, seen
+
+    def test_one_bad_request_that_the_retry_fixes_sends_nothing(self):
+        """The 2026-09-08 shape, replayed."""
+        client, seen = self._alerts([
+            FetchResult(OK, CASE_PAGE),
+            FetchResult(OK, CASE_PAGE),
+            FetchResult(ERROR, b'', '502', 0.07, 'Bad Gateway'),
+            FetchResult(OK, CASE_PAGE),
+        ])
+        summary, charges, financials = client.case_bundle(CASE_ID)
+        assert financials == CASE_PAGE, 'the retry must still recover the case'
+        assert seen == [], seen
+
+    def test_a_failure_that_survives_the_retry_still_goes_out(self):
+        """The point of the gate is one backoff step of patience, not silence.
+        The email must still arrive while the outage is still happening."""
+        client, seen = self._alerts([FetchResult(TIMEOUT)] * 50,
+                                    case_budget_seconds=20)
+        with pytest.raises(IcosUnavailable):
+            client.case_bundle(CASE_ID)
+        classes = [failure for failure, _ in seen]
+        assert alerts.NO_ANSWER in classes
+        first = next(fields for failure, fields in seen
+                     if failure == alerts.NO_ANSWER)
+        assert first['attempts'] == 2, 'attempt 2, not later'
+
+    def test_the_wait_before_the_first_email_is_one_backoff_step(self):
+        """Held against the clock, not against the constant, so that a longer
+        first backoff cannot quietly turn early warning into late warning."""
+        client, clock, _ = build([FetchResult(TIMEOUT)] * 50,
+                                 case_budget_seconds=20)
+        sent_at = []
+        client.set_alert(lambda failure, **fields: sent_at.append(clock.now))
+        client.logged_in = True
+        with pytest.raises(IcosUnavailable):
+            client.case_bundle(CASE_ID)
+        assert sent_at, 'a dead case must alert at all before this proves anything'
+        # The budgets this runs against are four minutes for a case and
+        # forty five for a search.
+        assert sent_at[0] <= 5, sent_at
+
+    def test_a_run_that_never_fails_is_unaffected(self):
+        client, seen = self._alerts([FetchResult(OK, CASE_PAGE)] * 4)
+        client.case_bundle(CASE_ID)
+        assert seen == []
 
 
 class TestWhatTheRunIsToldToBelieve:

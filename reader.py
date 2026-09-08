@@ -61,8 +61,14 @@ class Reader:
         except urllib.error.URLError as e:
             dt = time.time() - t0
             reason = getattr(e, "reason", e)
-            print(f"ICOS {name} URLERR {reason} {dt:.2f}s", flush=True)
-            return FetchResult(ERROR, b"", "?", dt, str(reason))
+            # HTTPError is a URLError carrying the status ICOS answered with.
+            # Dropping it here is why an alert said "status: ?" about a 502 the
+            # court site had plainly sent, which sent the reader of that alert
+            # looking for a network fault instead.
+            status = getattr(e, "code", None) or "?"
+            print(f"ICOS {name} URLERR status={status} {reason} {dt:.2f}s",
+                  flush=True)
+            return FetchResult(ERROR, b"", status, dt, str(reason))
         except Exception as e:
             dt = time.time() - t0
             print(f"ICOS {name} ERR {type(e).__name__} {dt:.2f}s", flush=True)
@@ -94,7 +100,7 @@ class Reader:
                 print(f"ICOS {name} try {attempt+1}/{attempts} TIMEOUT {time.time()-t0:.2f}s (cold path?)", flush=True)
                 result = b""
             except urllib.error.URLError as e:
-                print(f"ICOS {name} try {attempt+1}/{attempts} URLERR {getattr(e, 'reason', e)} {time.time()-t0:.2f}s", flush=True)
+                print(f"ICOS {name} try {attempt+1}/{attempts} URLERR status={getattr(e, 'code', None) or '?'} {getattr(e, 'reason', e)} {time.time()-t0:.2f}s", flush=True)
                 result = b""
             except Exception as e:
                 print(f"ICOS {name} try {attempt+1}/{attempts} ERR {type(e).__name__} {time.time()-t0:.2f}s", flush=True)
