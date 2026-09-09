@@ -16,7 +16,10 @@ from reader import EMPTY, ERROR, OK, TIMEOUT, FetchResult, Reader
 
 LOGIN_OK = b"x" * 28000
 CONCURRENT_PAGE = b"<html>Concurrent Login Error: A user is already logged on</html>"
-BAD_CREDS_PAGE = b"<html>The userID or password could not be validated</html>"
+# The wording the live site sends. Written "userID" here until 9 September
+# 2026, which is also how it was written in icos.py, so the test agreed with
+# the code and neither agreed with ESA.
+BAD_CREDS_PAGE = b"<html>The user ID or password could not be validated</html>"
 RESULTS_PAGE = b"<html><table>results</table></html>"
 
 CASE_ID = "01311  FECR000000"
@@ -149,6 +152,41 @@ def test_bad_password_fails_immediately():
     with pytest.raises(IcosBadCredentials):
         client.login("ILATEST", "wrong")
     assert clock.slept == []  # no point retrying a wrong password
+
+
+@pytest.mark.parametrize("wording", [
+    b"The user ID or password could not be validated",   # what ESA sends
+    b"The userID or password could not be validated",    # what we thought
+])
+def test_either_spelling_of_the_rejection_is_read_as_a_wrong_password(wording):
+    """The check was written "userID" and ESA writes "user ID", so it matched
+    nothing the site has ever sent. Every wrong password fell through to the
+    page-size backstop, and staff were told the sign in was refused without a
+    reason and pointed at the account lock, which is the one thing it was not.
+
+    Both spellings, because the only evidence for either is what the site
+    returned on the day. If the wording moves again it should still be read as
+    a wrong password."""
+    client, clock, _ = build([
+        FetchResult(OK, LOGIN_OK),
+        FetchResult(OK, b"<html>" + wording + b"</html>"),
+    ])
+    with pytest.raises(IcosBadCredentials):
+        client.login("ILATEST", "wrong")
+    assert clock.slept == []
+
+
+def test_a_rejection_on_a_long_page_is_still_a_wrong_password():
+    """The size backstop cannot catch this one. ESA pads the rejection out
+    past the signed-in threshold, so without the wording check the run believes
+    it is signed in and spends the whole retry budget on a dead session."""
+    client, _, _ = build([
+        FetchResult(OK, LOGIN_OK),
+        FetchResult(OK, b"The user ID or password could not be validated"
+                        + b"x" * 30000),
+    ])
+    with pytest.raises(IcosBadCredentials):
+        client.login("ILATEST", "wrong")
 
 
 def test_unmarked_rejection_is_not_mistaken_for_success():

@@ -158,6 +158,34 @@ def remember_job(job):
     session['job_ids'] = (session.get('job_ids', []) + [job.id])[-20:]
 
 
+def stop_earlier_runs():
+    """Stop this browser's running jobs before it starts another.
+
+    Every route that calls this signs in to Iowa Courts again, and the run it
+    replaces does not stop on its own. On 9 September a staffer whose search
+    hit a locked account started another, and another; the first two went on
+    polling ESA for the full fifteen minute budget with nobody watching, and
+    one of them took a shared account at the end of it and held it until the
+    reaper freed it ten minutes later. Nobody wanted that search, and other
+    staff were locked out for it.
+
+    Closing the session token is not enough on its own. A job still waiting to
+    sign in has no session in the store yet, and a running CRS job has claimed
+    its own out of it and owns the logoff itself.
+
+    The id list is kept rather than dropped, unlike in logout. A finished
+    workbook nobody collected is still offered on the next page, and starting
+    another search is not a reason to forget it.
+    """
+    stopped = 0
+    for job_id in session.get('job_ids', []):
+        job = jobs.get(job_id)
+        if job is not None and job.status in (jobs.QUEUED, jobs.RUNNING):
+            job.cancel()
+            stopped += 1
+    return stopped
+
+
 app.jinja_env.globals['max_names'] = roster.MAX_NAMES
 app.jinja_env.globals['max_spellings'] = MAX_SPELLINGS
 
@@ -192,12 +220,10 @@ def logout():
     # shared ESA account while the new one queues behind it. This used to drop
     # the browser's claim on the job and leave the work going, which is the
     # worst of both: nobody watching and nobody able to collect the result.
-    # The session token is not enough, because a running CRS job has claimed
-    # its session out of the store and owns the logoff itself.
-    for job_id in session.get('job_ids', []):
-        job = jobs.get(job_id)
-        if job is not None and job.status in (jobs.QUEUED, jobs.RUNNING):
-            job.cancel()
+    stop_earlier_runs()
+    # Dropped here and nowhere else. Signing out is the one thing a staffer
+    # does that means they are finished with everything this browser started,
+    # including a workbook they never collected.
     session.pop('job_ids', None)
     return redirect(url_for('index'))
 
@@ -264,6 +290,7 @@ def search():
 
     # A search left open from an earlier run would keep holding the ESA account.
     icos_sessions.close(session.pop('icos_token', None))
+    stop_earlier_runs()
 
     job = jobs.start('search', tasks.search_task, username, password, people)
     remember_job(job)
@@ -304,6 +331,7 @@ def batch():
                      roster.MAX_NAMES))
 
     icos_sessions.close(session.pop('icos_token', None))
+    stop_earlier_runs()
 
     # The rejected lines ride on the job, not the session. They can hold part of
     # a client's name and the session cookie is a store on a shared machine.
@@ -474,6 +502,7 @@ def retry(job_id):
                                        "Iowa Courts account.")
 
     icos_sessions.close(session.pop('icos_token', None))
+    stop_earlier_runs()
     retry_job = jobs.start(payload['kind'], tasks.retry_task,
                            username, password, payload)
     remember_job(retry_job)
@@ -540,6 +569,11 @@ def job_status(job_id):
         return jsonify({"status": jobs.FAILED, "done": True,
                         "error": RESTARTED_MESSAGE,
                         "message": RESTARTED_MESSAGE, "progress": []}), 410
+    # This poll is the only evidence anybody is still waiting for the job. A
+    # run waiting for a locked Iowa Courts account reads it and gives up when
+    # it stops arriving, so that an abandoned search does not take an account
+    # off staff who are still at their desks.
+    job.watched()
     return jsonify(job.to_dict())
 
 

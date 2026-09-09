@@ -44,6 +44,9 @@ class FakeJob:
     def log(self, message, count=None, total=None):
         self.progress.append(message)
 
+    def is_watched(self):
+        return True
+
     def said(self, fragment):
         return [line for line in self.progress if fragment in line]
 
@@ -72,6 +75,8 @@ class StubClient:
     def set_stop_check(self, should_stop):
         pass
 
+    def set_wanted_check(self, still_wanted):
+        pass
     def login(self, username, password):
         pass
 

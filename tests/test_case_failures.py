@@ -60,6 +60,8 @@ class StubClient:
     def set_stop_check(self, should_stop):
         pass
 
+    def set_wanted_check(self, still_wanted):
+        pass
     def case_bundle(self, case_id):
         self.asked.append(case_id)
         if case_id in self.refused:

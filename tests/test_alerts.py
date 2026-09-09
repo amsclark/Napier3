@@ -453,7 +453,7 @@ def test_a_bad_password_emails_nobody(mailbox):
         def fetch_once(self, url, data=None, timeout=8):
             if 'EUACustomLoginServlet' in url:
                 return FetchResult(
-                    OK, b'The userID or password could not be validated'
+                    OK, b'The user ID or password could not be validated'
                         + b'x' * 9000, 200, 0.1)
             return FetchResult(OK, b'x' * 30000, 200, 0.1)
 
@@ -540,6 +540,8 @@ def test_a_case_icos_will_not_return_alerts_with_the_case_and_not_the_person(
         def set_stop_check(self, should_stop):
             pass
 
+        def set_wanted_check(self, still_wanted):
+            pass
         def case_bundle(self, case_id):
             raise IcosUnavailable("Iowa Courts Online did not return this case "
                                   "after 4 minutes of retrying "
@@ -585,6 +587,8 @@ def test_a_case_that_will_not_parse_alerts_with_the_case_and_not_the_person(
         def set_stop_check(self, should_stop):
             pass
 
+        def set_wanted_check(self, still_wanted):
+            pass
         def case_bundle(self, case_id):
             return b'<summary>', b'<charges>', b'<financials>'
 
