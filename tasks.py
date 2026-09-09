@@ -403,6 +403,11 @@ def search_task(job, username, password, people):
     """
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     client.set_stop_check(lambda: job.cancelled)
+    # Only the sign in reads this. Once the run holds cases it finishes whether
+    # or not the browser is still there; before it signs in it holds nothing,
+    # and waiting on for a shared account nobody is waiting for costs the
+    # staff who are.
+    client.set_wanted_check(job.is_watched)
     keep_session = False
     people = list(people)
     try:
@@ -702,6 +707,11 @@ def batch_search_task(job, username, password, people, rejected=()):
     """
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     client.set_stop_check(lambda: job.cancelled)
+    # Only the sign in reads this. Once the run holds cases it finishes whether
+    # or not the browser is still there; before it signs in it holds nothing,
+    # and waiting on for a shared account nobody is waiting for costs the
+    # staff who are.
+    client.set_wanted_check(job.is_watched)
     keep_session = False
     try:
         client.login(username, password)
@@ -1205,6 +1215,11 @@ def retry_task(job, username, password, payload):
     """
     client = IcosClient(log=job.log, alert=alerts.emitter(job))
     client.set_stop_check(lambda: job.cancelled)
+    # Only the sign in reads this. Once the run holds cases it finishes whether
+    # or not the browser is still there; before it signs in it holds nothing,
+    # and waiting on for a shared account nobody is waiting for costs the
+    # staff who are.
+    client.set_wanted_check(job.is_watched)
     entries = payload['clients']
     is_lite = payload['is_lite']
     total = sum(len(entry['failed']) for entry in entries)

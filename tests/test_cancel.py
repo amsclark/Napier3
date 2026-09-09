@@ -56,6 +56,8 @@ class StubClient:
     def set_stop_check(self, should_stop):
         self.should_stop = should_stop
 
+    def set_wanted_check(self, still_wanted):
+        self.still_wanted = still_wanted or (lambda: True)
     def search(self, first, middle, last):
         self.searched.append(last)
         return b'<html></html>'

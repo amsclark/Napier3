@@ -42,7 +42,18 @@ CONCURRENT_INTERVAL = 75
 # would give back most of what the line was added to win.
 QUEUE_INTERVAL = 5
 
-BAD_CREDS_MARKER = "The userID or password could not be validated"
+# ESA says "The user ID or password could not be validated". This was written
+# as "userID" until 9 September 2026 and so matched nothing the live site has
+# ever sent: every wrong password fell past it to the size backstop below, and
+# staff were told the sign in was refused without a reason and pointed at the
+# account lock, which is the one thing it was not. The fixtures carried the
+# same spelling, so the tests agreed with the code and neither agreed with ESA.
+# Written as a pattern rather than a string because the only evidence for
+# either spelling is what the site returned on the day, and both should be read
+# as a wrong password if the wording moves again.
+BAD_CREDS_PATTERN = re.compile(
+    r"The\s+user\s*ID\s+or\s+password\s+could\s+not\s+be\s+validated",
+    re.IGNORECASE)
 CONCURRENT_MARKER = "Concurrent Login Error"
 
 # ESA does not always put the rejection message on a failed login -- a bad user
@@ -200,6 +211,14 @@ STOPPED_MESSAGE = ("Stopped at your request. Iowa Courts Online has been signed 
                    "out, so the account is free for the next search straight "
                    "away.")
 
+# Said when a run waiting for a locked account finds that its progress page has
+# gone. Nobody reads it -- that is the point -- so it exists for the finish
+# page a staffer lands on if they come back, and to keep the reason out of the
+# alert mail: an abandoned search giving up is housekeeping, not a failure.
+ABANDONED_MESSAGE = ("Nobody was waiting for this search any more, so it gave up "
+                     "the Iowa Courts account instead of holding it for staff "
+                     "who are. Run the search again when you need it.")
+
 
 class IcosError(Exception):
     """Base for failures we surface to staff with a plain-language message."""
@@ -282,6 +301,11 @@ class IcosClient:
         # and a stalled search for forty-five, which is far too long to make
         # somebody sit through once they have decided to stop.
         self._should_stop = lambda: False
+        # Asked only while waiting for a locked account, and answered by the
+        # browser still polling the progress page. Separate from the stop check
+        # on purpose: stopping is a decision somebody made about this run, and
+        # this is nobody being there at all.
+        self._still_wanted = lambda: True
         self._sleep = sleep
         self._monotonic = monotonic
         self.budget = budget_seconds if budget_seconds is not None \
@@ -341,6 +365,17 @@ class IcosClient:
     def set_stop_check(self, should_stop):
         """Give the retry loop a way to be told to give up waiting."""
         self._should_stop = should_stop or (lambda: False)
+
+    def set_wanted_check(self, still_wanted):
+        """Give the wait for an account a way to notice nobody is waiting.
+
+        Only the sign-in wait asks this. A run that is pulling cases holds work
+        that cannot be got back without pulling them again, and it finishes
+        whether or not the browser is still there. A run that has not signed in
+        holds nothing, and going on costs a shared Iowa Courts account that
+        other staff are queuing for.
+        """
+        self._still_wanted = still_wanted or (lambda: True)
 
     # -- retry core --------------------------------------------------------
 
@@ -530,6 +565,8 @@ class IcosClient:
                 return
             if self._should_stop():
                 raise IcosStopped(STOPPED_MESSAGE)
+            if not self._still_wanted():
+                raise IcosStopped(ABANDONED_MESSAGE)
             elapsed = self._monotonic() - started
             if elapsed + QUEUE_INTERVAL > self.concurrent_budget:
                 self._alert(
@@ -599,7 +636,7 @@ class IcosClient:
                                validate=_problem_report_reason)
             text = body.decode("utf-8", errors="ignore")
 
-            if BAD_CREDS_MARKER in text:
+            if BAD_CREDS_PATTERN.search(text):
                 raise IcosBadCredentials(
                     "Iowa Courts Online did not accept that user ID or password.")
 
@@ -669,6 +706,18 @@ class IcosClient:
                             "as the account frees up.")
                     waited_for_lock = True
                 self._sleep(CONCURRENT_INTERVAL)
+                # Asked here because the retry loop cannot ask it for us. A
+                # concurrent-login page is a request that worked, so it comes
+                # back through _retry without passing a stop check, and until
+                # this the only thing that ended the wait was the budget.
+                if self._should_stop():
+                    raise IcosStopped(STOPPED_MESSAGE)
+                # The browser stopped polling while we slept, which means this
+                # search is one somebody started again elsewhere or walked away
+                # from. Going on would take the account off staff who are still
+                # at their desks and hold it until the reaper let it go.
+                if not self._still_wanted():
+                    raise IcosStopped(ABANDONED_MESSAGE)
                 # Somebody may have joined the line ahead of us and taken the
                 # account while we slept. Asking again here is what keeps the
                 # order after the first attempt, not just before it.

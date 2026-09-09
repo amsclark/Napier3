@@ -36,6 +36,19 @@ UNCOLLECTED_AFTER = 5 * 60
 # until a staffer has actually taken the file.
 BUILDS_A_WORKBOOK = ('crs', 'batch_crs')
 
+# How long a job that nobody is watching goes on waiting for a locked Iowa
+# Courts account before it gives up. The browser polls every two seconds, so a
+# gap this long is a closed tab or a staffer who has started again, not a phone
+# that lost signal for a moment.
+#
+# It applies to the wait for an account and to nothing else. A CRS run whose
+# watcher has gone still has to finish: it holds cases nobody can get back
+# without pulling them again, and the uncollected-workbook alert and the offer
+# on the start page exist to hand that file over afterwards. A run still
+# waiting to sign in holds nothing, and going on costs a shared account that
+# other staff are queuing for.
+UNWATCHED_AFTER = 60
+
 # How many finished units of work are timed to work out how much longer a run
 # has. Kept short so the estimate follows the site Napier is talking to now
 # rather than the one it was talking to ten minutes ago.
@@ -68,6 +81,10 @@ class Job:
         self.marks = []
         self.created_at = time.time()
         self.updated_at = self.created_at
+        # When the browser last asked how this job was getting on. Starts at
+        # creation so a job has the full grace period before its first poll
+        # rather than being abandoned in the instant it is made.
+        self.watched_at = self.created_at
         # Whether the file this job built ever reached the person who asked for
         # it. A run is not finished when the server says so, it is finished when
         # a staffer has the workbook.
@@ -94,6 +111,24 @@ class Job:
         claim on whatever the run did eventually produce.
         """
         self.cancelled = True
+
+    def watched(self, now=None):
+        """Note that the browser has just asked about this job."""
+        self.watched_at = time.time() if now is None else now
+
+    def is_watched(self, now=None, after=None):
+        """Whether somebody still has this job's progress page open.
+
+        Read by the wait for a locked Iowa Courts account, and by nothing else.
+        On 9 September a staffer whose search hit a locked account started
+        another one, and another; the abandoned two went on polling ESA for the
+        full fifteen minutes, and one of them took a shared account at the end
+        and held it until the reaper freed it ten minutes later. Nobody wanted
+        that search. Other staff were locked out for it.
+        """
+        after = UNWATCHED_AFTER if after is None else after
+        now = time.time() if now is None else now
+        return now - self.watched_at <= after
 
     def log(self, message, count=None, total=None):
         with self._lock:

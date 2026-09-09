@@ -83,6 +83,8 @@ class FakeClient:
     def set_stop_check(self, should_stop):
         self.should_stop = should_stop or (lambda: False)
 
+    def set_wanted_check(self, still_wanted):
+        self.still_wanted = still_wanted or (lambda: True)
     def login(self, username, password):
         if FakeClient.login_error:
             raise FakeClient.login_error
