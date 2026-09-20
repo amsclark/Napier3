@@ -18,7 +18,7 @@ six==1.17.0
 # vulnerable parser is imported and never reached, but every other indirect
 # dependency here is pinned and this one was simply missed.
 soupsieve==2.9.2
-urllib3==2.7.0
+urllib3==2.8.0
 webencodings==0.6.1
 Werkzeug==3.1.8
 
