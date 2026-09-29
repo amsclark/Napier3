@@ -293,9 +293,14 @@ def truncation_limit(soup):
 charge_code_dict = {
     "GUILTY": "GTR",
     "GUILTY BY COURT": "GTR",
+    # Asked for by Iowa Legal Aid 2026-09-28. See the twin entry in
+    # crs.charge_code_map.
+    "GUILTY BY JURY": "GTR",
     "GUILTY - NEGOTIATED/VOLUN PLEA": "GPL",
     "CONVERT TO SIMPLE MISDEM": "GPL",
     "ACQUITTED": "ACQ",
+    # The same 2026-09-28 request. See the twin entry in crs.charge_code_map.
+    "DISMISSED BY JURY ACQUITTAL": "ACQ",
     "DISMISSED": "DISM",
     "DISMISSED BY COURT": "DISM",
     "DISMISSED BY OTHER": "DISM",

@@ -56,9 +56,19 @@ FIRST_CASE_ROW = 4
 charge_code_map = {
     "GUILTY": {"GTR":1},
     "GUILTY BY COURT": {"GTR":1},
+    # Asked for by Iowa Legal Aid 2026-09-28, from a client CRS that carried
+    # both jury wordings. A jury verdict of guilty is the trial conviction
+    # GUILTY BY COURT already codes as GTR; the only difference is who
+    # found it.
+    "GUILTY BY JURY": {"GTR":1},
     "GUILTY - NEGOTIATED/VOLUN PLEA": {"GPL":1},
     "CONVERT TO SIMPLE MISDEM": {"GPL":1},
     "ACQUITTED": {"ACQ":0},
+    # The acquittal half of the same 2026-09-28 request. ICOS words it as a
+    # dismissal, but the jury acquitted, so it is ACQ, not DISM. Both are
+    # cleared codes ranked 0, so no sheet answers differently either way;
+    # ACQ is what Iowa Legal Aid asked for and what the wording says.
+    "DISMISSED BY JURY ACQUITTAL": {"ACQ":0},
     "DISMISSED": {"DISM":0},
     "DISMISSED BY COURT": {"DISM":0},
     "DISMISSED BY OTHER": {"DISM":0},
