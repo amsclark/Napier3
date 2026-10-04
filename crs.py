@@ -1157,7 +1157,7 @@ def get_finance_column(detail):
     if "ROOM/BOARD" in detail:
         return "L" # JAIL / ROOM & BOARD
 
-    if "RESTITUTION" in detail:
+    if "RESTITUTION" in detail or "CRIME VICTIM COMPENSATION" in detail:
         return "S" # RESTITUTION
 
     if "THIRD PARTY" in detail:
@@ -1280,7 +1280,7 @@ def get_summary_bucket(detail):
     # could not be broken down when the only thing wrong was two missing letters.
     if 'SURCH' in text:
         return 'SURCHARGE'
-    if 'RESTITUTION' in text:
+    if 'RESTITUTION' in text or 'CRIME VICTIM COMPENSATION' in text:
         return 'RESTITUTION'
     if any(m in text for m in FINE_MARKERS):
         return 'FINE'

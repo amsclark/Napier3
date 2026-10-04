@@ -484,6 +484,7 @@ def test_a_counted_third_party_fee_that_was_paid_off_owes_nothing():
     ("SHERIFFS FEES - LOCAL", "COSTS"),
     ("INDIGENT DEFENSE-FELONY-REIMBURSE STATE", "COSTS"),
     ("RESTITUTIONS", "RESTITUTION"),
+    ("CRIME VICTIM COMPENSATION PROGRAM", "RESTITUTION"),
     ("CRIMINAL PENALTY SURCHARGE", "SURCHARGE"),
     ("FINE", "FINE"),
     # Fine wording, filed under COSTS by the clerk. Measured across 259
@@ -515,6 +516,8 @@ def test_a_counted_third_party_fee_that_was_paid_off_owes_nothing():
 ])
 def test_summary_bucket_classification(detail, bucket):
     assert crs.get_summary_bucket(detail) == bucket
+    if bucket == "RESTITUTION":
+        assert crs.get_finance_column(detail) == "S"
 
 
 def test_a_misc_sounding_fee_does_not_cost_the_row_its_breakdown():
