@@ -186,6 +186,11 @@ NON_PARTY_ROLES = frozenset({
     # it is in KNOWN_PARTY_ROLES below, so a grandparent's own record is not
     # what a JV docket carrying this role is about.
     'JUVENILE - GRANDPARENT OF',
+    # Alerted 2026-10-23. A step-parent named on the child's case, the same
+    # relationship role as MOTHER OF and FATHER OF above. STEPFATHER OF is the
+    # same role the other way and is not worth a second email to learn.
+    'JUVENILE - STEPMOTHER OF',
+    'JUVENILE - STEPFATHER OF',
     # Alerted 2026-08-28. The court officer who supervises the restitution and
     # community service a sentence orders, named on the case in the same way
     # LAW ENFORCEMENT is. The trailing OFF is ICOS abbreviating OFFICER, which
