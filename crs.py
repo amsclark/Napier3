@@ -1157,7 +1157,12 @@ def get_finance_column(detail):
     if "ROOM/BOARD" in detail:
         return "L" # JAIL / ROOM & BOARD
 
-    if "RESTITUTION" in detail or "CRIME VICTIM COMPENSATION" in detail:
+    # "CRIME VICTIM" rather than "CRIME VICTIM COMPENSATION": Iowa Legal Aid
+    # reported on 2026-10-05 that the clerk also files the same money under
+    # CRIME VICTIM ASSISTANCE REIMBURSEMENTS and DNU - CRIME VICTIM ASSISTANCE
+    # REIMBURSEMENTS, which the exact wording missed. SURCH is checked first
+    # in get_summary_bucket, so the wider marker cannot steal a surcharge row.
+    if "RESTITUTION" in detail or "CRIME VICTIM" in detail:
         return "S" # RESTITUTION
 
     if "THIRD PARTY" in detail:
@@ -1280,7 +1285,9 @@ def get_summary_bucket(detail):
     # could not be broken down when the only thing wrong was two missing letters.
     if 'SURCH' in text:
         return 'SURCHARGE'
-    if 'RESTITUTION' in text or 'CRIME VICTIM COMPENSATION' in text:
+    # Same marker as get_finance_column: the clerk's CRIME VICTIM ASSISTANCE
+    # REIMBURSEMENTS labels (Iowa Legal Aid, 2026-10-05) are restitution too.
+    if 'RESTITUTION' in text or 'CRIME VICTIM' in text:
         return 'RESTITUTION'
     if any(m in text for m in FINE_MARKERS):
         return 'FINE'

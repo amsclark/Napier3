@@ -485,6 +485,10 @@ def test_a_counted_third_party_fee_that_was_paid_off_owes_nothing():
     ("INDIGENT DEFENSE-FELONY-REIMBURSE STATE", "COSTS"),
     ("RESTITUTIONS", "RESTITUTION"),
     ("CRIME VICTIM COMPENSATION PROGRAM", "RESTITUTION"),
+    # Two more clerk labels for the same money, reported by Iowa Legal Aid on
+    # 2026-10-05. The old marker wanted the word COMPENSATION and missed both.
+    ("CRIME VICTIM ASSISTANCE REIMBURSEMENTS", "RESTITUTION"),
+    ("DNU - CRIME VICTIM ASSISTANCE REIMBURSEMENTS", "RESTITUTION"),
     ("CRIMINAL PENALTY SURCHARGE", "SURCHARGE"),
     ("FINE", "FINE"),
     # Fine wording, filed under COSTS by the clerk. Measured across 259

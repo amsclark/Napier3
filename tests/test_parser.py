@@ -286,6 +286,20 @@ def test_a_process_server_case_is_left_out():
     assert role not in case_parser.KNOWN_PARTY_ROLES
 
 
+def test_a_referee_case_is_left_out():
+    """REFEREE mailed NOVEL_ROLE on the 18 September 2026 run (search job
+    8b1d16fd) and the case was kept by default. A referee is appointed by the
+    court to hear part of the matter, on the case the way JUDGE and MEDIATOR
+    are: professionally, on somebody else's dispute. Same trade as PROCESS
+    SERVER: a case dropped rather than written where the referee is also the
+    person searched for."""
+    role = 'REFEREE'
+    cases, _ = case_parser.parse_search(role_row(role))
+    assert cases == []
+    assert role in case_parser.NON_PARTY_ROLES
+    assert role not in case_parser.KNOWN_PARTY_ROLES
+
+
 def test_a_bare_pro_se_role_is_the_person_the_search_is_about():
     """Alerted on the 28 August 2026 run. Every other PRO SE wording in the
     list is a party representing themselves, and the bare one is the clerk not
