@@ -142,6 +142,12 @@ NON_PARTY_ROLES = frozenset({
     # a professional role on somebody else's case, and serving a document no
     # more makes the record theirs than filing one does for NONPARTY FILER.
     'PROCESS SERVER',
+    # Appointed by the court to hear part of the matter, as in a probate or
+    # a dissolution referee. Alerted 2026-09-18 on search job 8b1d16fd. The
+    # same class as JUDGE and MEDIATOR: a professional role on somebody
+    # else's dispute. Not to be confused with the PROBATE FEES PAID TO
+    # PRIVATE REFEREE charge detail, which crs.py handles as a cost.
+    'REFEREE',
     # Named on a case about the property, not about them.
     #
     # These two were read as the same question when PROPERTY CO-OWNER first
