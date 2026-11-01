@@ -181,6 +181,12 @@ NON_PARTY_ROLES = frozenset({
     'WITNESS - PLAINTIFF',
     'WITNESS – DEFENSE',
     'WITNESS - DEFENSE',
+    # Alerted 2026-10-30. The State's witness on a criminal case, the same
+    # role as the plaintiff's and defence witnesses above: Iowa Legal Aid
+    # asked on 2026-08-26 for witnesses to be left off. The en dash spelling
+    # is listed too, as ICOS has sent both for the other two.
+    'WITNESS – PROSECUTION',
+    'WITNESS - PROSECUTION',
     'JUVENILE - MOTHER OF',
     'JUVENILE - FATHER OF',
     # BROTHER OF alerted as unrecognised on 2026-08-25; SISTER OF is the same

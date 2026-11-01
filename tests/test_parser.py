@@ -208,6 +208,17 @@ def test_a_third_party_plaintiff_case_is_left_out():
     assert role not in case_parser.KNOWN_PARTY_ROLES
 
 
+@pytest.mark.parametrize('role', ['WITNESS - PROSECUTION', 'WITNESS – PROSECUTION'])
+def test_a_prosecution_witness_case_is_left_out(role):
+    """WITNESS - PROSECUTION alerted as unrecognised on 2026-10-30 and was
+    kept by default. A witness for the State is not the person the case is
+    about, any more than a plaintiff's or defence witness is."""
+    cases, _ = case_parser.parse_search(role_row(role))
+    assert cases == []
+    assert role in case_parser.NON_PARTY_ROLES
+    assert role not in case_parser.KNOWN_PARTY_ROLES
+
+
 @pytest.mark.parametrize('role', ['JUVENILE - STEPMOTHER OF', 'JUVENILE - STEPFATHER OF'])
 def test_a_juvenile_step_parent_role_case_is_left_out(role):
     """STEPMOTHER OF alerted as unrecognised on 2026-10-23 and was kept by
