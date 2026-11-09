@@ -286,10 +286,11 @@ class IcosUnavailable(IcosError):
 class IcosCaseRefused(IcosUnavailable):
     """ICOS is up and will not serve this one case.
 
-    Its problem report page came back for this case PROBLEM_PAGE_STRIKES times
-    in a row while a case this session already had still answered. That is not
-    an outage, so court_site_down stays False and the run's outage counter
-    treats it like a sealed case: one row, not the list.
+    Its problem report page, or a page for a different case, came back for this
+    case PROBLEM_PAGE_STRIKES times in a row while a case this session already
+    had still answered. That is not an outage, so court_site_down stays False
+    and the run's outage counter neither counts it nor clears: one row, not
+    the list.
     """
 
     def __init__(self, message):
@@ -304,6 +305,14 @@ REFUSED_MESSAGE = ("Iowa Courts is up but would not serve this case: it answered
                    "answering other cases, so Napier skipped it. Confidential "
                    "and sealed records can look like this. Check it by hand in "
                    "Iowa Courts Online.")
+
+# The same, for a case ICOS kept answering with the page of a different case.
+# No case id or caption: that page belongs to another client.
+REFUSED_WRONG_CASE_MESSAGE = (
+    "Iowa Courts is up but would not serve this case: it kept showing a "
+    "different case instead, %d times in a row, while still switching to other "
+    "cases on request, so Napier skipped it. Confidential and sealed records "
+    "can look like this. Check it by hand in Iowa Courts Online.")
 
 # What staff are told under the progress bar once a case has been retried, so
 # the wait reads as a wait and not as a hang worth restarting over.
@@ -366,9 +375,9 @@ class IcosClient:
         # knowing rather than guessing. This is the counting.
         self.landed_on = {}
         self.given_up = 0
-        # A case this session has already been given whole, used to ask ICOS
-        # whether it is up when it keeps refusing another one.
-        self._last_good_case = None
+        # The last two cases this session was given whole, newest last, used
+        # to ask ICOS whether it is up when it keeps refusing another one.
+        self._good_cases = []
         # The registry entry for the ESA account this client holds, so the next
         # staffer to collide with it can be told what is holding it.
         self._account_handle = None
@@ -447,10 +456,11 @@ class IcosClient:
         when the body is good. The reason is what the alert carries, so it is
         written to be read in an email at four in the afternoon.
 
-        probe() is asked once, after PROBLEM_PAGE_STRIKES problem report pages
-        in a row, whether ICOS is up. True ends the wait with IcosCaseRefused:
-        the site answers, this request it will not. False or no probe leaves
-        the budget to run as before.
+        probe(body) is asked once, after PROBLEM_PAGE_STRIKES problem report
+        pages in a row, or PROBLEM_PAGE_STRIKES pages for a different case in a
+        row, whether ICOS is up. body is the unusable page that triggered it.
+        True ends the wait with IcosCaseRefused: the site answers, this request
+        it will not. False or no probe leaves the budget to run as before.
         """
         started = self._monotonic()
         budget = self.budget if what == "search" else self.case_budget
@@ -459,6 +469,7 @@ class IcosClient:
         waits = []
         endpoint = None
         problem_pages = 0
+        wrong_cases = 0
         probed = False
         while True:
             url, data = build_request()
@@ -489,10 +500,13 @@ class IcosClient:
                 last = "unusable response"
                 problem_pages = (problem_pages + 1
                                  if reason == PROBLEM_REPORT_REASON else 0)
+                wrong_cases = (wrong_cases + 1
+                               if reason == WRONG_CASE_REASON else 0)
             else:
                 reason = _refusal_reason(result)
                 failure = _refusal_class(result)
                 problem_pages = 0
+                wrong_cases = 0
                 # No body arrived, so its length is not a fact about anything.
                 # Reporting it as 0b was the whole reason a timeout and a
                 # problem report page read identically in the inbox.
@@ -527,11 +541,15 @@ class IcosClient:
             # being a blip. Whether it is the site or this request is a
             # question ICOS can answer in one round trip, so ask it, once.
             if (probe is not None and not probed
-                    and problem_pages >= PROBLEM_PAGE_STRIKES):
+                    and (problem_pages >= PROBLEM_PAGE_STRIKES
+                         or wrong_cases >= PROBLEM_PAGE_STRIKES)):
                 probed = True
-                if probe():
+                if probe(result.body):
                     self.given_up += 1
-                    raise IcosCaseRefused(REFUSED_MESSAGE % (attempt + 1))
+                    message = (REFUSED_MESSAGE
+                               if problem_pages >= PROBLEM_PAGE_STRIKES
+                               else REFUSED_WRONG_CASE_MESSAGE)
+                    raise IcosCaseRefused(message % (attempt + 1))
 
             elapsed = self._monotonic() - started
             wait = backoff_for(attempt)
@@ -841,23 +859,32 @@ class IcosClient:
         financials = self._retry(
             "case", self.reader.case_financials_request,
             validate=lambda body: _case_page_reason(body, case_id))
-        self._last_good_case = case_id
+        if case_id in self._good_cases:
+            self._good_cases.remove(case_id)
+        self._good_cases.append(case_id)
+        del self._good_cases[:-2]
         return summary, charges, financials
 
-    def _icos_is_up(self):
+    def _icos_is_up(self, body):
         """Whether ICOS will still serve a case it has already given us.
 
-        One plain request for the last case that came back whole, judged by
-        the same test as any case page. Only the summary request is probed
-        this way: it names its case, so the retry that follows re-selects the
-        case that was asked for whatever this did to ICOS's idea of the
-        current one. Charges and financials name nothing, and a probe in the
-        middle of those would leave the session standing on the wrong case.
+        One plain request for the newest case that came back whole and is not
+        the case on the unusable page that set this off, judged by the same
+        test as any case page. A stale page of case A answered by a probe for
+        case A proves nothing: ICOS serves that either way. Only the summary
+        request is probed this way: it names its case, so the retry that
+        follows re-selects the case that was asked for whatever this did to
+        ICOS's idea of the current one. Charges and financials name nothing,
+        and a probe in the middle of those would leave the session standing on
+        the wrong case.
 
-        Nothing known to be good yet, as on the first case of a run, is a
-        False: the budget runs as it always has rather than guessing.
+        Nothing known to be good yet, as on the first case of a run, or only
+        the case on screen, is a False: the budget runs as it always has
+        rather than guessing.
         """
-        known = self._last_good_case
+        on_screen = _squashed(_text(body))
+        known = next((case_id for case_id in reversed(self._good_cases)
+                      if _squashed(case_id) not in on_screen), None)
         if known is None:
             return False
         url, data = self.reader.case_summary_request(known)

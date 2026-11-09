@@ -28,7 +28,9 @@ from icos import (IcosClient, IcosError, IcosStopped, IcosCaseRefused,
 # cannot read. Several in a row with nothing in between is the site being down,
 # and there is no point walking the rest of the list to find that out one
 # four-minute budget at a time. See Outage for why this is counted across the
-# whole run and why it is six.
+# whole run and why it is six. A case ICOS refused while serving others
+# (IcosCaseRefused) neither counts toward the six nor clears the run: ICOS
+# proved it is up, but nothing came back either.
 CASES_FAILED_IN_A_ROW_IS_AN_OUTAGE = 6
 
 # Searches are counted on their own and stay at three. A name that will not
@@ -58,7 +60,9 @@ class Outage:
     """How many cases in a row Iowa Courts has refused, counted across a run.
 
     Reset by any case that comes back, so a run that is merely bumpy carries on
-    to the end and only an unbroken run of refusals stops it.
+    to the end and only an unbroken run of refusals stops it. A refusal where
+    ICOS proved it is up by serving another case (IcosCaseRefused) neither
+    counts toward the run nor clears it.
 
     The count runs across the whole clinic list rather than per client. A per
     client counter starts over at every name, so a site that is down costs
@@ -571,6 +575,11 @@ def _pull_cases(job, client, case_ids, offset=0, total=None, outage=None):
                           case=case_id,
                           note="%s The run carried on without it." % e.message)
             failed.append(case_id)
+            if isinstance(e, IcosCaseRefused):
+                # ICOS proved it is up by serving another case, so this is
+                # neither a failure toward the run of six nor a case that came
+                # back.
+                continue
             if outage.failed(declared=getattr(e, 'court_site_down', False)):
                 not_attempted = case_ids[index:]
                 break

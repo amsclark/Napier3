@@ -858,6 +858,108 @@ class TestARefusedCaseWhileTheSiteIsUp:
         assert sum(self.GOOD in u for u in client.reader.urls) == 1
 
 
+class TestACaseICOSWillNotSwitchTo:
+    """ICOS keeping the last case on screen when asked for the next one.
+
+    Seen live on 2026-11-09 (job 49521bb7): two cases, then six more, each
+    answered on all seven tries with the same page of a case Napier had
+    already pulled, every response a 200 in a tenth of a second. Each cost
+    the whole four minute budget, and the six in a row ended a 60 case clinic
+    list with 31 cases never tried while ICOS was answering the whole time.
+
+    The probe has to make ICOS switch away from the page it keeps serving,
+    or it proves nothing: asking again for the case already on screen is
+    answered the same way whether ICOS refuses one case or is stuck on one
+    case for everything.
+    """
+
+    FIRST = "01311  FECR000000"
+    SECOND = "01311  FECR000002"
+    BAD = "01311  JVJV000001"
+    FIRST_PAGE = CASE_PAGE
+    SECOND_PAGE = (b"<html>Trial Court Case Summary Title:&nbsp;STATE VS TESTER, "
+                   b"LEE Case: 01311  FECR000002 (SYNTHETIC) Disposition "
+                   b"Status</html>")
+    BAD_PAGE = (b"<html>Trial Court Case Summary Title:&nbsp;STATE VS TESTER, PAT Q "
+                b"Case: 01311  JVJV000001 (SYNTHETIC) Disposition Status</html>")
+
+    def after_two_good_cases(self, then, **kwargs):
+        client, clock, messages = build(
+            [FetchResult(OK, self.FIRST_PAGE)] * 3
+            + [FetchResult(OK, self.SECOND_PAGE)] * 3 + list(then), **kwargs)
+        client.case_bundle(self.FIRST)
+        client.case_bundle(self.SECOND)
+        clock.slept[:] = []
+        return client, clock, messages, clock.now
+
+    def test_three_stale_pages_then_a_switch_that_works_ends_the_wait(self):
+        client, clock, _, start = self.after_two_good_cases(
+            [FetchResult(OK, self.SECOND_PAGE)] * 3   # still on the last case
+            + [FetchResult(OK, self.FIRST_PAGE)]      # the probe switches away
+            + [FetchResult(OK, self.SECOND_PAGE)] * 200)
+        with pytest.raises(icos.IcosCaseRefused) as raised:
+            client.case_bundle(self.BAD)
+        assert clock.now - start < 30
+        assert raised.value.court_site_down is False
+        assert "would not serve this case" in raised.value.message
+        assert client.given_up == 1
+        # The probe asked for the case that was not on the stale page.
+        probes = [u for u in client.reader.urls[6:] if self.BAD not in u]
+        assert len(probes) == 1 and self.FIRST in probes[0]
+
+    def test_the_message_says_what_happened_and_names_no_other_case(self):
+        client, _, _, _ = self.after_two_good_cases(
+            [FetchResult(OK, self.SECOND_PAGE)] * 3
+            + [FetchResult(OK, self.FIRST_PAGE)])
+        with pytest.raises(icos.IcosCaseRefused) as raised:
+            client.case_bundle(self.BAD)
+        message = raised.value.message
+        assert "error page" not in message
+        assert "3 times" in message
+        # It goes into alerts. The stale page belongs to another client.
+        for text in ("FECR000002", "FECR000000", "LEE", "TESTER"):
+            assert text not in message
+
+    def test_a_session_stuck_on_one_case_is_not_called_a_refusal(self):
+        client, clock, _, start = self.after_two_good_cases(
+            [FetchResult(OK, self.SECOND_PAGE)] * 200, case_budget_seconds=120)
+        with pytest.raises(IcosUnavailable) as raised:
+            client.case_bundle(self.BAD)
+        assert not isinstance(raised.value, icos.IcosCaseRefused)
+        assert clock.now - start >= 60
+
+    def test_with_only_the_stale_case_known_there_is_nothing_to_switch_to(self):
+        client, clock, _ = build(
+            [FetchResult(OK, self.FIRST_PAGE)] * 3
+            + [FetchResult(OK, self.FIRST_PAGE)] * 200, case_budget_seconds=120)
+        client.case_bundle(self.FIRST)
+        with pytest.raises(IcosUnavailable) as raised:
+            client.case_bundle(self.BAD)
+        assert not isinstance(raised.value, icos.IcosCaseRefused)
+        # No probe: the only case to ask for is the one on screen.
+        assert sum(self.FIRST in u for u in client.reader.urls) == 1
+
+    def test_stale_pages_broken_by_a_timeout_start_the_count_again(self):
+        client, _, _, _ = self.after_two_good_cases(
+            [FetchResult(OK, self.SECOND_PAGE)] * 2
+            + [FetchResult(TIMEOUT)]
+            + [FetchResult(OK, self.SECOND_PAGE)] * 2
+            + [FetchResult(OK, self.BAD_PAGE)] * 3)
+        summary, _, _ = client.case_bundle(self.BAD)
+        assert summary == self.BAD_PAGE
+        assert client.given_up == 0
+        assert not any(self.FIRST in u for u in client.reader.urls[6:])
+
+    def test_charges_and_financials_are_never_probed_for_it(self):
+        client, _, _, _ = self.after_two_good_cases(
+            [FetchResult(OK, self.BAD_PAGE)]
+            + [FetchResult(OK, self.SECOND_PAGE)] * 200, case_budget_seconds=120)
+        with pytest.raises(IcosUnavailable) as raised:
+            client.case_bundle(self.BAD)
+        assert not isinstance(raised.value, icos.IcosCaseRefused)
+        assert sum(self.FIRST in u for u in client.reader.urls) == 1
+
+
 class TestWhatTheProgressPageSays:
     """The progress line was read as the site being down, and acted on."""
 

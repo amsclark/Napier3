@@ -281,10 +281,30 @@ class TestACaseIcosRefusesWhileUp:
         assert (tasks.alerts.CASE_REFUSED, case_ids[1]) in seen
         assert tasks.alerts.CASE_UNAVAILABLE not in [f for f, _ in seen]
 
-    def test_six_refusals_in_a_row_still_stop_the_run(self, monkeypatch):
-        # A refusal is not "declared" down, so it counts like a sealed case:
-        # six in a row is still where the run decides something is wrong.
+    def test_refusals_in_a_row_do_not_stop_the_run(self, monkeypatch):
+        # A refusal is ICOS proving it is up: it served another case on
+        # request. Six of them in a row is one client with confidential
+        # cases, not an outage, and stopping there threw away 31 cases of a
+        # clinic list on 2026-11-09 (job 49521bb7).
         case_ids = ids(8)
         _, stub, written = run(monkeypatch, case_ids, refused=case_ids[1:7])
-        assert stub.asked == case_ids[:7]
-        assert written == [case_ids[0]]
+        assert stub.asked == case_ids
+        assert written == [case_ids[0], case_ids[7]]
+
+    def test_the_run_of_2026_11_09_reaches_the_end_of_its_list(self, monkeypatch):
+        # 5 good, 2 refused, 9 good, 6 refused, the rest good.
+        case_ids = ['01311 FECR%06d' % n for n in range(1, 61)]
+        refused = case_ids[5:7] + case_ids[16:22]
+        job, stub, written = run(monkeypatch, case_ids, refused=refused)
+        assert stub.asked == case_ids
+        assert len(written) == 52
+        assert sorted(job.result['failed_cases']) == sorted(refused)
+
+    def test_a_refusal_does_not_clear_a_run_of_real_failures(self, monkeypatch):
+        # Nor does it count as a case that came back: three dead, one
+        # refused, three dead is still six dead in a row.
+        case_ids = ids(9)
+        _, stub, _ = run(monkeypatch, case_ids,
+                         unavailable=case_ids[1:4] + case_ids[5:8],
+                         refused=[case_ids[4]])
+        assert stub.asked == case_ids[:8]
